@@ -21,6 +21,7 @@ import { renderVideo } from './videogen'
 import { webSearch, readWebpage, isMediaDomain, type SearchResult } from './search'
 import { searchYouTubeNative, searchYouTubeChannels, latestChannelVideo, readYouTubeVideo, type YouTubeSearchHit, type YouTubeChannelHit } from './youtube'
 import { searchKnowledgeBank } from './knowledge-bank'
+import { deepReasonAndAnswer, detectReasoningMode } from './deep-reasoner'
 import { extractKeySentences, synthesizePages, buildSearchQuery, type PageContent } from './synthesize'
 import { extractMemories, extractExplicitRetention, autoTitle } from './memory-rules'
 import * as R from './responder'
@@ -345,6 +346,9 @@ async function skillImage(prompt: string, size: string, ctx: Ctx): Promise<strin
 // ── Compétence : code (template local — repli si LLM indisponible) ───────────
 
 async function skillCode(ctx: Ctx): Promise<string> {
+  if (detectReasoningMode(ctx.lastUser, Boolean(ctx.currentCode)) === 'code_audit') {
+    return handleGeneral(ctx, { intent: 'code', confidence: 0.95, source: 'lexical', topScores: [] })
+  }
   const topic = extractTopic(ctx.lastUser)
   const gen = generateCodeLocal(ctx.lastUser, ctx.entities, topic)
   const s = makeStep('generate_code', 'Écriture du code', `${gen.language} — ${gen.filename}`)
@@ -807,27 +811,19 @@ Tu peux vaquer à tes occupations — surveille le panneau Task, la progression 
 
 // ── Conversation générale (repli local) ──────────────────────────────────────
 
-async function handleGeneral(ctx: Ctx, classification: Classification): Promise<string> {
+async function handleGeneral(ctx: Ctx, _classification: Classification): Promise<string> {
   const topic = extractTopic(ctx.lastUser)
-
-  // 1) Banque de connaissances intégrée
-  const bankHit = searchKnowledgeBank(ctx.lastUser, 1)[0]
-  if (bankHit && bankHit.score >= 0.9) {
-    ctx.send({ type: 'thought', text: `Correspondance directe dans mon savoir intégré (${bankHit.entry.question}) — je réponds depuis la banque locale.` })
-    return bankHit.entry.answer
-  }
-
-  // 2) Notes personnelles pertinentes
   const notes = await searchNotes(ctx.lastUser, 2)
-  if (notes.length > 0 && overlap(ctx.lastUser, notes[0].title + ' ' + notes[0].content) > 0.5) {
-    ctx.send({ type: 'thought', text: `Tes notes contiennent quelque chose de pertinent (${notes[0].title}) — je m'en sers.` })
-    return `D'après **tes notes** sur ce sujet : \n\n**— ${notes[0].title}**\n${notes[0].content.slice(0, 600)}\n\nEt voici ce que mon savoir intégré ajoute : ${bankHit?.entry.answer.slice(0, 400) ?? 'demande-moi de chercher sur le web pour compléter !'}`
-  }
+  const memoryHits = ctx.memories.filter((m) => overlap(ctx.lastUser, m) > 0.25).slice(0, 4)
 
-  // 3) Réponse conversationnelle structurée
-  ctx.send({ type: 'thought', text: `Pas de correspondance exacte (${Math.round(classification.confidence * 100)} % de confiance). Je réponds avec ma personnalité locale et je propose des actions concrètes.` })
-  const memoryHits = ctx.memories.filter((m) => overlap(ctx.lastUser, m) > 0.3).slice(0, 3)
-  return R.generalAnswer(topic, undefined, memoryHits)
+  return deepReasonAndAnswer({
+    userText: ctx.lastUser,
+    topic,
+    memories: memoryHits.length > 0 ? memoryHits : ctx.memories.slice(0, 3),
+    notes,
+    currentCode: ctx.currentCode,
+    send: ctx.send,
+  })
 }
 
 // ── Moteur LLM : boucle agentique avec garde-fou JSON ────────────────────────
@@ -860,7 +856,12 @@ async function buildSystemPrompt(): Promise<string> {
   const now = new Date().toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
   const [memories, skills, missions, team] = await Promise.all([loadMemories(), loadRecentSkills(), loadActiveMissions(), loadTeam()])
   const parts: string[] = [
-    `Tu es NEXUS, un agent IA autonome intégré dans une application web personnelle. Tu réponds TOUJOURS en français, de façon amicale, directe et efficace. Tu tutoies l'utilisateur.`,
+    `Tu es NEXUS, un ingénieur et architecte IA autonome de haut niveau intégré dans l'environnement NEXUS. Tu réponds TOUJOURS en français, en tutoyant l'utilisateur, avec la rigueur analytique, la clarté pédagogique et la précision technique des meilleurs modèles (niveau Claude).`,
+    `PRINCIPES DE RÉPONSE :
+- Va droit au but : zéro remplissage ni politesse superficielle.
+- Structure tes explications (synthèse directe, mécanismes détaillés, exemple concret, cas limites/sécurité).
+- Quand tu écris du code (Luau/Roblox, TypeScript, Python, React, SQL, GLSL…), fournis un code COMPLET, idiomatique, typé, sécurisé et directement exécutable (jamais de "// ... reste du code").
+- Ne dis jamais ce que tu "pourrais" faire : fais-le immédiatement.`,
     `Date et heure actuelles : ${now}.`,
   ]
   if (memories.length > 0) {

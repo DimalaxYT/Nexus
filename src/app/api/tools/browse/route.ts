@@ -6,6 +6,7 @@
 import { NextRequest } from 'next/server'
 import { captureScreenshot } from '@/lib/screenshot'
 import { readWebpage } from '@/lib/brain/search'
+import { validateSafeExternalUrl } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -16,10 +17,12 @@ export const maxDuration = 60
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
-  const url = String(body?.url ?? '').trim().slice(0, 800)
-  if (!/^https?:\/\/.+/i.test(url)) {
-    return Response.json({ error: 'URL invalide' }, { status: 400 })
+  const rawUrl = String(body?.url ?? '').trim().slice(0, 800)
+  const safe = await validateSafeExternalUrl(rawUrl)
+  if (!safe.ok || !safe.url) {
+    return Response.json({ error: safe.reason || 'URL invalide ou non autorisée' }, { status: 400 })
   }
+  const url = safe.url
 
   try {
     let title = url

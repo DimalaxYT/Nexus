@@ -101,10 +101,10 @@ export function ConnectionsPanel() {
           </Button>
         </div>
         <p className="mb-5 text-xs leading-relaxed text-muted-foreground">
-          Relie tes comptes personnels à NEXUS. Chaque secret est <strong className="text-foreground/80">vérifié réellement</strong> auprès
-          du service avant d’être enregistré, puis stocké <strong className="text-foreground/80">localement sur ce serveur</strong> — il
-          n’est jamais affiché en clair ni partagé. Une fois un compte relié, <strong className="text-foreground/80">NEXUS et chaque agent</strong> de
-          ton équipe peuvent s’en servir : demande « lis ma boîte mail », « mes repos GitHub » ou « mon TikTok » dans le chat.
+          Relie ton moteur IA (Claude, OpenAI, Groq, Gemini) et tes comptes personnels à NEXUS. Chaque secret est{' '}
+          <strong className="text-foreground/80">vérifié réellement</strong> auprès du service, puis{' '}
+          <strong className="text-emerald-400">chiffré en AES-256-GCM</strong> sur ce serveur — jamais stocké ni renvoyé en clair.
+          Une fois relié, <strong className="text-foreground/80">NEXUS et chaque agent</strong> de ton équipe peuvent s’en servir.
         </p>
 
         <div className="flex flex-col gap-3">
@@ -170,13 +170,19 @@ export function ConnectionsPanel() {
 
                 {isEditing && !conn && (
                   <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border/70 bg-background/60 p-3">
-                    {(p.id === 'gmail' || p.id === 'tiktok') && (
+                    {(p.id === 'gmail' || p.id === 'tiktok' || p.id === 'ai') && (
                       <Input
                         value={handle}
                         onChange={(e) => setHandle(e.target.value)}
-                        placeholder={p.id === 'gmail' ? 'Adresse Gmail (ex : moi@gmail.com)' : 'Ton @pseudo TikTok (ex : @tonpseudo)'}
+                        placeholder={
+                          p.id === 'gmail'
+                            ? 'Adresse Gmail (ex : moi@gmail.com)'
+                            : p.id === 'ai'
+                              ? 'Modèle optionnel (ex : claude-sonnet-4-5, gpt-4o, llama-3.3-70b-versatile)'
+                              : 'Ton @pseudo TikTok (ex : @tonpseudo)'
+                        }
                         className="h-9 border-border bg-muted/60 text-sm"
-                        aria-label={p.id === 'gmail' ? 'Adresse Gmail' : 'Pseudo TikTok'}
+                        aria-label={p.handleLabel}
                         type={p.id === 'gmail' ? 'email' : 'text'}
                       />
                     )}

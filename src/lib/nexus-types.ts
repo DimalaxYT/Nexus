@@ -560,9 +560,17 @@ export const EDITOR_LANGUAGES: EditorLanguage[] = [
 ]
 
 /** Connexions de comptes personnelles supportées. */
-export type ConnectionProvider = 'gmail' | 'github' | 'discord' | 'tiktok'
+export type ConnectionProvider = 'ai' | 'gmail' | 'github' | 'discord' | 'tiktok'
 
 export const CONNECTION_PROVIDERS: { id: ConnectionProvider; label: string; emoji: string; hint: string; secretLabel: string; handleLabel: string }[] = [
+  {
+    id: 'ai',
+    label: 'Moteur IA (Claude / OpenAI / Groq / Gemini)',
+    emoji: '🧠',
+    hint: 'Clé API Anthropic Claude (sk-ant-…), OpenRouter (sk-or-…), Groq (gsk_…), OpenAI (sk-…) ou Gemini (AIza…). Chiffrée en AES-256-GCM. Sans clé, le moteur de raisonnement local avancé prend le relais.',
+    secretLabel: 'Clé API (sk-ant-…, gsk_…, sk-or-…, sk-…, AIza…)',
+    handleLabel: 'Modèle préféré (optionnel, ex: claude-sonnet-4-5)',
+  },
   {
     id: 'gmail',
     label: 'Gmail',

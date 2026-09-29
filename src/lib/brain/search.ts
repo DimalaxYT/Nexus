@@ -8,6 +8,7 @@ const UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 
 import { stems } from './text'
+import { validateSafeExternalUrl } from '@/lib/security'
 
 export interface SearchResult {
   title: string
@@ -383,12 +384,19 @@ export function isMediaDomain(url: string): boolean {
   }
 }
 
-/** Lit une page web directement (fetch + extraction locale du texte). */
+/** Lit une page web directement (fetch + extraction locale du texte, protégé anti-SSRF). */
 export async function readWebpage(url: string, maxLen = 9000): Promise<ReadPageResult | null> {
   if (!/^https?:\/\/.+/i.test(url)) return null
   if (isMediaDomain(url)) return null // pages JS/vidéo : le fetch nu ne donne rien de lisible
-  const res = await fetchWithTimeout(url, 7000)
+  const safe = await validateSafeExternalUrl(url)
+  if (!safe.ok || !safe.url) return null
+  const res = await fetchWithTimeout(safe.url, 7000)
   if (!res || !res.ok) return null
+  // Vérifie aussi l'URL finale après redirection éventuelle
+  if (res.url) {
+    const finalSafe = await validateSafeExternalUrl(res.url)
+    if (!finalSafe.ok) return null
+  }
   const html = await res.text().catch(() => '')
   if (!html) return null
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)

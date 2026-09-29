@@ -3,6 +3,7 @@
 // science, programmation, Roblox/Luau, histoire, géographie, NEXUS lui-même.
 
 import { stems } from './text'
+import { semanticSimilarity } from './neural'
 
 export interface KnowledgeEntry {
   keywords: string[] // mots-clés déclencheurs (normalisés, sans accents)
@@ -473,6 +474,101 @@ Tu en veux d'autres, ou on retourne construire quelque chose de génial ? 😉`,
 
 Tu veux que je te génère un exercice adapté ? Dis-moi ton niveau et je te prépare ça.`,
   },
+  // ── Architecture Web Moderne, TypeScript, React, Next.js ───────────────────
+  {
+    keywords: ['typescript', 'typage', 'interface', 'type', 'generics', 'ts'],
+    question: 'Pourquoi et comment bien utiliser TypeScript ?',
+    answer: `**TypeScript — écrire du code robuste et auto-documenté :**
+
+1. **Pourquoi TypeScript ?** Il ajoute un système de types statiques par-dessus JavaScript. Les bugs (propriété \`undefined\`, mauvais argument, contrat d'API cassé) sont détectés **à la compilation** au lieu de planter en production.
+2. **Règles d'architecture essentielles** :
+   - **Bannir \`any\`** : préfère \`unknown\` accompagné d'un *type guard* (ou d'un schéma **Zod**) pour valider les entrées externes (JSON d'API, formulaires).
+   - **Unions discriminées** (idéal pour les événements SSE ou les états UI) :
+\`\`\`ts
+type Result<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string }
+\`\`\`
+   - **Génériques (\`<T>\`)** : réutilise ta logique tout en conservant l'inférence exacte du type de retour.
+   - **\`strict: true\`** dans \`tsconfig.json\` : active \`strictNullChecks\` pour éliminer les erreurs \`Cannot read properties of undefined\`.`,
+  },
+  {
+    keywords: ['react', 'nextjs', 'server component', 'hooks', 'useeffect', 'usestate', 'zustand'],
+    question: 'Architecture React 19 & Next.js App Router',
+    answer: `**React 19 & Next.js (App Router) — bonnes pratiques d'architecture :**
+
+1. **Server Components (RSC) par défaut** : dans \`app/\`, les composants s'exécutent côté serveur (accès direct à la base de données, zéro JS envoyé au client pour le rendu statique).
+2. **Client Components (\`'use client'\`)** : ajoute cette directive uniquement aux feuilles de l'arbre qui ont besoin d'interactivité (\`useState\`, événements DOM, WebGL/Three.js, \`localStorage\`).
+3. **Gestion d'état** :
+   - **État local** : \`useState\` / \`useReducer\`
+   - **État global partagé** : **Zustand** (léger, sélecteurs granulaires sans re-renders inutiles)
+   - **Données serveur** : React Query / SWR ou Server Actions
+4. **Piège classique avec \`useEffect\`** : ne l'utilise jamais pour calculer un état dérivé (utilise \`useMemo\` ou calcule-le directement pendant le rendu). Réserve \`useEffect\` à la synchronisation avec un système externe (WebSocket, timer, DOM).`,
+  },
+  {
+    keywords: ['securite', 'owasp', 'xss', 'csrf', 'ssrf', 'injection sql', 'chiffrement', 'aes'],
+    question: 'Sécurité applicative Web (OWASP & Chiffrement)',
+    answer: `**Les piliers de la sécurité Web moderne (OWASP) :**
+
+1. **Injections (SQL, Commandes, IMAP)** :
+   - **Toujours** utiliser des requêtes préparées (\`?\` avec paramètres liés) — jamais de concaténation de chaînes.
+2. **SSRF (Server-Side Request Forgery)** :
+   - Quand un serveur récupère une URL fournie par l'utilisateur, il faut **bloquer** les IP privées (\`127.0.0.0/8\`, \`10.0.0.0/8\`, \`172.16.0.0/12\`, \`192.168.0.0/16\`, \`169.254.169.254\`, \`::1\`) et vérifier la résolution DNS avant la requête.
+3. **XSS (Cross-Site Scripting)** :
+   - Échapper toute sortie HTML, bannir \`dangerouslySetInnerHTML\` sur du contenu non assaini, et définir une **Content-Security-Policy (CSP)**.
+4. **Stockage des secrets (AES-256-GCM)** :
+   - Mots de passe utilisateur → hachage lent salé (**Argon2id** ou **bcrypt**).
+   - Tokens d'API tiers réversibles → chiffrement authentifié **AES-256-GCM** avec vecteur d'initialisation (IV) aléatoire de 12 octets et clé maîtresse hors dépôt Git.`,
+  },
+  {
+    keywords: ['transformer', 'llm', 'attention', 'claude', 'gpt', 'rag', 'comment marche une ia'],
+    question: 'Comment fonctionnent les grands modèles de langage (Claude, GPT, Transformers) ?',
+    answer: `**Architecture des LLMs modernes (Transformers, Claude, GPT) :**
+
+1. **Tokenisation (BPE)** : le texte est découpé en sous-mots (*tokens*, ~3-4 caractères en moyenne) convertis en vecteurs numériques (*embeddings*).
+2. **Self-Attention (Auto-Attention)** : chaque token calcule un score d'affinité ($Q \\cdot K^T / \\sqrt{d_k}$) avec tous les tokens précédents du contexte. C'est ce qui permet au modèle de relier un pronom ou une variable déclarée 2 000 lignes plus haut à son utilisation actuelle.
+3. **Pré-entraînement vs Alignement** :
+   - **Pré-entraînement** : prédiction du token suivant sur des milliers de milliards de mots (code, sciences, littérature).
+   - **Post-entraînement (RLHF / Constitutional AI chez Anthropic Claude)** : affinage sur des instructions, du raisonnement étape par étape (*Chain-of-Thought*) et des principes de sécurité/honnêteté.
+4. **RAG (Retrieval-Augmented Generation) & Tool Use** :
+   - Plutôt que de tout réciter de mémoire (risque d'hallucination), l'agent interroge une base de connaissances, exécute des outils (recherche web, lecture de code, base SQLite) et **ancre sa réponse sur les faits vérifiés**.`,
+  },
+  {
+    keywords: ['threejs', 'webgl', 'shader', 'glsl', '3d', 'quaternion', 'matrice', 'pbr'],
+    question: 'Three.js, WebGL et rendu 3D temps réel',
+    answer: `**Rendu 3D temps réel avec Three.js & WebGL :**
+
+1. **Graphe de scène (\`Scene\`)** : hiérarchie d'objets (\`Object3D\`, \`Group\`, \`Mesh\`). Chaque \`Mesh\` combine une **Géométrie** (sommets, normales, UV) et un **Matériau** (shaders).
+2. **Matériaux PBR (\`MeshStandardMaterial\` / \`MeshPhysicalMaterial\`)** :
+   - Basés sur la physique de la lumière : \`roughness\` (0 = miroir, 1 = mat) et \`metalness\` (0 = diélectrique, 1 = métal conducteur).
+3. **Optimisation des performances (60+ FPS)** :
+   - **Draw calls** : regroupe les objets identiques (arbres, particules, étincelles) dans un **\`InstancedMesh\`** (1 seul appel GPU pour 1 000 objets).
+   - **Mémoire GPU** : appelle toujours \`geometry.dispose()\` et \`material.dispose()\` quand un objet est détruit.
+   - **Mathématiques** : évite \`new THREE.Vector3()\` dans la boucle \`useFrame\` (réutilise une instance en \`useRef\`), et préfère les **Quaternions** (\`slerp\`) aux angles d'Euler pour éviter le *Gimbal Lock*.`,
+  },
+  {
+    keywords: ['roblox', 'anti cheat', 'securite roblox', 'optimisation roblox', 'cframe', 'raycast'],
+    question: 'Architecture Roblox avancée : CFrame, Raycast, Anti-Cheat et Optimisation',
+    answer: `**Roblox Studio / Luau avancé — niveau production :**
+
+1. **CFrame (Coordinate Frame)** : combine position 3D + matrice de rotation 3×3.
+   - Regarder vers une cible : \`CFrame.lookAt(origine, cible)\`
+   - Avancer de 5 studs dans la direction du regard : \`part.CFrame = part.CFrame * CFrame.new(0, 0, -5)\`
+2. **Raycast moderne (\` workspace:Raycast \`)** :
+\`\`\`lua
+local params = RaycastParams.new()
+params.FilterType = Enum.RaycastFilterType.Exclude
+params.FilterDescendantsInstances = { character }
+
+local result = workspace:Raycast(origine, direction * 100, params)
+if result then
+    print("Touché :", result.Instance.Name, "à", result.Position)
+end
+\`\`\`
+3. **Sécurité Anti-Exploit (Server Authority)** :
+   - Un exploiteur peut modifier son \`LocalScript\`, téléporter son \`HumanoidRootPart\` et envoyer n'importe quel argument à un \`RemoteEvent\`.
+   - **Côté serveur** : valide les types (\`typeof(x) == "Vector3"\`), vérifie les distances (\`(hrp.Position - cible.Position).Magnitude <= 15\`), impose un *rate-limit* par joueur (\`os.clock()\`) et garde l'argent/inventaire exclusivement dans \`ServerStorage\` / \`DataStoreService\`.`,
+  },
 ]
 
 // ── NEXUS : questions sur lui-même (utilisées par l'intention identity) ───────
@@ -490,20 +586,16 @@ export const NEXUS_PRESENTATION = `**Moi, c'est NEXUS** — un agent IA **hybrid
 Chaque mission que tu me donnes me rend **plus compétent** : ce que j'apprends est réinjecté dans mes réponses suivantes. Tu peux me questionner sur mon raisonnement à tout moment !`
 
 /** Recherche dans la banque intégrée : retourne les meilleures entrées + score. */
-export function searchKnowledgeBank(query: string, max = 2): { entry: KnowledgeEntry; score: number }[] {
+export function searchKnowledgeBank(query: string, max = 3): { entry: KnowledgeEntry; score: number }[] {
   const qStems = new Set(stems(query))
   if (qStems.size === 0) return []
   const scored = NEXUS_KNOWLEDGE.map((entry) => {
-    // Score = MEILLEUR mot-clé (les entrées à mots-clés multiples ne s'additionnent
-    // pas au détriment d'une correspondance spécifique unique)
     let score = 0
     for (const kw of entry.keywords) {
       const kwStems = new Set(stems(kw))
       let matched = 0
       for (const s of kwStems) if (qStems.has(s)) matched++
       if (matched > 0) {
-        // Spécificité : mots-clés longs battent les génériques ; bonus si TOUT
-        // le mot-clé est présent (correspondance exacte)
         const exact = kwStems.size > 0 && [...kwStems].every((s) => qStems.has(s))
         const kwScore =
           matched / kwStems.size +
@@ -513,9 +605,14 @@ export function searchKnowledgeBank(query: string, max = 2): { entry: KnowledgeE
         score = Math.max(score, kwScore)
       }
     }
+    // Bonus de similarité sémantique neuronale (capte les reformulations et sous-mots)
+    const sem = semanticSimilarity(query, `${entry.question} ${entry.keywords.join(' ')}`)
+    if (sem > 0.35) {
+      score = Math.max(score, sem * 1.15)
+    }
     return { entry, score }
   })
-    .filter((r) => r.score > 0.4)
+    .filter((r) => r.score > 0.38)
     .sort((a, b) => b.score - a.score)
     .slice(0, max)
   return scored

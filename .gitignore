@@ -36,6 +36,7 @@ yarn-error.log*
 
 # sandbox artifacts
 .zscripts/
+.nexus-secret.key
 db/*.db-wal
 db/*.db-shm
 db/*.db-journal

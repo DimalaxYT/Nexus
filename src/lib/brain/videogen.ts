@@ -5,7 +5,7 @@
 // grain et fondu — même prompt = même film (graine déterministe).
 
 import { spawn } from 'child_process'
-import { mkdir } from 'fs/promises'
+import { mkdir, readdir, stat, unlink } from 'fs/promises'
 import path from 'path'
 import { hashString, mulberry32, normalize } from './text'
 
@@ -610,6 +610,26 @@ export async function renderVideo(prompt: string, opts: VideoOptions = {}): Prom
   const outDir = path.join(process.cwd(), 'public', 'generated', 'videos')
   await mkdir(outDir, { recursive: true })
   const filePath = path.join(outDir, fileName)
+
+  // Nettoyage LRU automatique (garde au maximum les 30 dernières vidéos pour protéger le disque)
+  try {
+    const files = (await readdir(outDir)).filter((f) => f.endsWith('.mp4'))
+    if (files.length > 30) {
+      const stats = await Promise.all(
+        files.map(async (f) => {
+          const p = path.join(outDir, f)
+          const st = await stat(p).catch(() => null)
+          return { p, mtime: st?.mtimeMs ?? 0 }
+        })
+      )
+      stats.sort((a, b) => b.mtime - a.mtime)
+      for (const old of stats.slice(30)) {
+        await unlink(old.p).catch(() => {})
+      }
+    }
+  } catch {
+    /* non bloquant */
+  }
 
   await new Promise<void>((resolve, reject) => {
     const ff = spawn('ffmpeg', [

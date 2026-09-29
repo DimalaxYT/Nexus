@@ -1,4 +1,5 @@
 import type { Browser } from 'playwright'
+import { isSafeUrlSync, validateSafeExternalUrl } from '@/lib/security'
 
 /**
  * Screenshot serveur — le « regard » réel de NEXUS sur le web.
@@ -40,6 +41,8 @@ const UA =
 export function captureScreenshot(url: string, timeoutMs = 20_000): Promise<PageShot | null> {
   // Sérialisation : chaque capture attend la fin de la précédente
   const run = async (): Promise<PageShot | null> => {
+    const safe = await validateSafeExternalUrl(url)
+    if (!safe.ok || !safe.url) return null
     let context: Awaited<ReturnType<Browser['newContext']>> | null = null
     try {
       const browser = await getBrowser()
@@ -50,7 +53,18 @@ export function captureScreenshot(url: string, timeoutMs = 20_000): Promise<Page
         locale: 'fr-FR',
       })
       const page = await context.newPage()
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+      // Intercepte toutes les requêtes et redirections pour bloquer tout accès interne/SSRF
+      await page.route('**/*', (route) => {
+        const reqUrl = route.request().url()
+        if (reqUrl.startsWith('data:') || reqUrl.startsWith('blob:')) {
+          return route.continue()
+        }
+        if (!isSafeUrlSync(reqUrl).ok) {
+          return route.abort('accessdenied')
+        }
+        return route.continue()
+      })
+      await page.goto(safe.url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
       // Laisse le rendu (images, polices, SPA) se terminer
       await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {})
       await page.waitForTimeout(700)

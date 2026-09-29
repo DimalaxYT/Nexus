@@ -10,6 +10,7 @@
 // structuré + un bloc « faits » injectable dans le prompt d'un LLM.
 
 import { db } from '@/lib/db'
+import { decryptSecret } from '@/lib/security'
 import type { ConnectionProvider } from './nexus-types'
 
 export interface ConnectedAccount {
@@ -17,12 +18,14 @@ export interface ConnectedAccount {
   secret: string
 }
 
-/** Lit la connexion ACTIVE d'un fournisseur (null si absente/échec). */
+/** Lit la connexion ACTIVE d'un fournisseur et déchiffre son secret AES-256-GCM en mémoire. */
 export async function getConnectedAccount(provider: ConnectionProvider): Promise<ConnectedAccount | null> {
   try {
     const row = await db.accountConnection.findFirst({ where: { provider, status: 'connected' } })
     if (!row || !row.secret) return null
-    return { handle: row.handle, secret: row.secret }
+    const secret = decryptSecret(row.secret)
+    if (!secret && provider !== 'tiktok') return null
+    return { handle: row.handle, secret }
   } catch {
     return null
   }
