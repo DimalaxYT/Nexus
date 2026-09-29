@@ -1,0 +1,108 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Mémoire longue terme de NEXUS : faits, préférences et projets de l'utilisateur,
+// extraits automatiquement des conversations ou ajoutés manuellement.
+model Memory {
+  id        String   @id @default(cuid())
+  content   String
+  kind      String   @default("fact") // fact | preference | project | person | other
+  source    String   @default("auto") // auto | manual
+  createdAt DateTime @default(now())
+}
+
+// Historique des conversations, persisté côté serveur (messages en JSON).
+model Conversation {
+  id        String   @id
+  title     String
+  data      String // JSON des messages
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Base de connaissances hiérarchique : notes organisées par catégorie,
+// étiquetées et reliées entre elles (liens entre concepts).
+model Knowledge {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  category  String   @default("Général") // chemin hiérarchique ex: "Programmation/Python"
+  tags      String   @default("[]") // JSON array de strings
+  links     String   @default("[]") // JSON array de titres de notes liées
+  source    String   @default("manual") // manual | agent
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Missions confiées à l'agent via le bouton « Task » :
+// nom, durée, objectifs (JSON), description, statut et journal d'avancement.
+// report : RAPPORT FINAL en markdown, rédigé par l'équipe d'agents à la fin de
+// la mission et affiché directement dans le panneau Missions.
+model Task {
+  id          String    @id @default(cuid())
+  name        String
+  duration    String    @default("") // ex: "Cette semaine", "2 jours"
+  objectives  String    @default("[]") // JSON array de strings
+  description String    @default("")
+  status      String    @default("todo") // todo | running | done | blocked
+  progress    String    @default("[]") // JSON array de { at, note }
+  report      String    @default("") // rapport final markdown (synthèse)
+  reportAt    DateTime? // date de rédaction du rapport
+  agents      String    @default("[]") // JSON array d'ids d'agents assignés ([] = équipe auto)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Équipe multi-agents : profils créés par l'utilisateur. Chaque agent a un rôle
+// (chercheur, analyste, rédacteur…), un PROMPT SYSTÈME personnel (sa façon de
+// parler et de réfléchir) et participe aux missions et discussions selon ses
+// spécialités. L'équipe par défaut est semée automatiquement au premier lancement.
+model AgentProfile {
+  id          String   @id @default(cuid())
+  name        String
+  emoji       String   @default("🤖")
+  role        String   @default("chercheur") // chercheur | analyste | redacteur | specialiste | codeur
+  description String   @default("")
+  prompt      String   @default("") // prompt système personnel : personnalité, ton, spécialité
+  specialties String   @default("[]") // JSON array de strings (ex: ["youtube","ia"])
+  color       String   @default("#a78bfa")
+  enabled     Boolean  @default(true)
+  writer      Boolean  @default(false) // RÉDACTEUR DU BUREAU : quand il participe à une délibération, c'est lui qui rédige la réponse finale (à la place de NEXUS)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Connexions de comptes personnels de l'utilisateur (Gmail, GitHub, Discord).
+// Le secret (token / mot de passe d'application) est stocké en base locale :
+// l'app est personnelle, les secrets ne quittent jamais ce serveur.
+model AccountConnection {
+  id        String   @id @default(cuid())
+  provider  String // gmail | github | discord
+  handle    String   @default("") // identifiant public vérifié (login GitHub, username Discord, adresse Gmail)
+  secret    String   @default("") // token / mot de passe d'application (jamais renvoyé au client : masqué)
+  status    String   @default("connected") // connected | error
+  note      String   @default("") // détail (mode de connexion, erreur éventuelle)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Groupes d'agents créés par l'utilisateur : on peut adresser une discussion à
+// un groupe entier (table ronde suivie d'une synthèse) plutôt qu'à un agent seul.
+model AgentGroup {
+  id        String   @id @default(cuid())
+  name      String
+  emoji     String   @default("👥")
+  color     String   @default("#38bdf8")
+  members   String   @default("[]") // JSON array d'ids d'AgentProfile
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
