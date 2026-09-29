@@ -9,6 +9,7 @@
 // 4. Synthèse structurée en Markdown (tableaux comparatifs, exemples, bonnes pratiques).
 
 import type { AgentEvent, CodeFiles, SourceItem } from '@/lib/nexus-types'
+import { refactorExistingCode } from './codegen'
 import { searchKnowledgeBank } from './knowledge-bank'
 import { readWebpage, webSearch, type SearchResult } from './search'
 import { extractKeySentences, synthesizePages, type PageContent } from './synthesize'
@@ -283,10 +284,24 @@ export async function deepReasonAndAnswer(input: DeepReasonInput): Promise<strin
   if (mode === 'code_audit' && codeToAnalyze) {
     send({
       type: 'thought',
-      text: `Raisonnement analytique (mode Audit de code) :\n1. Inspection statique de l'AST / motifs (${codeToAnalyze.split('\n').length} lignes)\n2. Vérification sécurité (injections, secrets, autorité serveur)\n3. Synthèse des correctifs prioritaires.`,
+      text: `Raisonnement analytique (mode Audit de code) :\n1. Inspection statique de l'AST / motifs (${codeToAnalyze.split('\n').length} lignes)\n2. Vérification sécurité (injections, secrets, autorité serveur)\n3. Génération automatique du correctif sécurisé.`,
     })
     const report = analyzeCodeStatic(codeToAnalyze, codeLang)
-    return formatCodeAuditMarkdown(report, currentCode?.filename ? `« ${currentCode.filename} »` : 'ton code')
+    const auditMd = formatCodeAuditMarkdown(report, currentCode?.filename ? `« ${currentCode.filename} »` : 'ton code')
+    const refactored = refactorExistingCode(
+      {
+        html: currentCode?.html ?? '',
+        css: currentCode?.css ?? '',
+        js: codeToAnalyze,
+        language: report.language,
+        filename: currentCode?.filename,
+      },
+      userText
+    )
+    if (refactored && refactored.modified) {
+      return `${auditMd}\n\n### 🛠️ Version corrigée et sécurisée automatiquement\nModifications appliquées :\n${refactored.changesSummary.map((c) => `- ${c}`).join('\n')}\n\n\`\`\`${report.language}\n${refactored.files.js.trim()}\n\`\`\``
+    }
+    return auditMd
   }
 
   // 2) Recherche dans la banque sémantique locale

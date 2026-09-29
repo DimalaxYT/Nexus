@@ -1097,14 +1097,15 @@ if (typeof require !== 'undefined' && typeof module !== 'undefined') {
 }
 
 function htmlGeneric(ctx: Ctx): GeneratedCode {
+  const title = ctx.topic ? ctx.topic.slice(0, 50) : 'Mon Application'
   return {
     language: 'html',
     filename: 'index.html',
-    description: 'page HTML/CSS/JS complète et responsive',
+    description: `page HTML/CSS/JS complète et responsive (${title})`,
     code: `<!-- Page générée par le cerveau local de NEXUS -->
 <div class="app">
   <header>
-    <h1>🚀 Mon application</h1>
+    <h1>🚀 ${title}</h1>
     <p>Générée localement — 100 % HTML/CSS/JS</p>
   </header>
 
@@ -1136,38 +1137,630 @@ function htmlGeneric(ctx: Ctx): GeneratedCode {
   }
 }
 
+// ── Roblox / Luau : systèmes avancés supplémentaires ─────────────────────────
+
+function luauCombatRaycast(ctx: Ctx): GeneratedCode {
+  const damage = ctx.entities.numbers?.find((n) => n >= 5 && n <= 200) ?? 25
+  return {
+    language: 'lua',
+    filename: 'combat_raycast_serveur.lua',
+    description: `système de combat/tir Raycast sécurisé côté serveur (${damage} dégâts, anti-cheat distance + cadence)`,
+    code: `--=============================================================--
+-- SYSTÈME DE COMBAT RAYCAST SÉCURISÉ — Roblox Studio (Luau)
+-- À placer dans ServerScriptService
+-- Anti-cheat serveur : validation des types, cadence, distance et Raycast
+--=============================================================--
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local DEGATS = ${damage}
+local PORTEE_MAX = 140
+local CADENCE_MIN = 0.35 -- secondes entre deux tirs
+
+local remoteTir = ReplicatedStorage:FindFirstChild("TirArme") :: RemoteEvent?
+if not remoteTir then
+	local ev = Instance.new("RemoteEvent")
+	ev.Name = "TirArme"
+	ev.Parent = ReplicatedStorage
+	remoteTir = ev
+end
+
+local dernierTir: { [number]: number } = {}
+
+Players.PlayerRemoving:Connect(function(joueur)
+	dernierTir[joueur.UserId] = nil
+end)
+
+remoteTir.OnServerEvent:Connect(function(tireur: Player, pointVise: unknown)
+	-- 1. Validation stricte des types reçus du client
+	if typeof(pointVise) ~= "Vector3" then
+		return
+	end
+	if pointVise.X ~= pointVise.X or pointVise.Y ~= pointVise.Y or pointVise.Z ~= pointVise.Z then
+		return -- Protection anti-NaN
+	end
+
+	-- 2. Anti-spam / cadence serveur (Rate-Limit)
+	local maintenant = os.clock()
+	if maintenant - (dernierTir[tireur.UserId] or 0) < CADENCE_MIN then
+		return
+	end
+	dernierTir[tireur.UserId] = maintenant
+
+	-- 3. Vérification de l'état du tireur
+	local personnage = tireur.Character
+	local racine = personnage and personnage:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local humTireur = personnage and personnage:FindFirstChildOfClass("Humanoid")
+	if not racine or not humTireur or humTireur.Health <= 0 then
+		return
+	end
+
+	-- 4. Raycast autoritaire côté serveur
+	local origine = racine.Position + Vector3.new(0, 1.5, 0)
+	local direction = (pointVise - origine)
+	if direction.Magnitude < 0.1 then
+		return
+	end
+	local vecteurRayon = direction.Unit * math.min(direction.Magnitude + 2, PORTEE_MAX)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { personnage }
+	params.IgnoreWater = true
+
+	local resultat = Workspace:Raycast(origine, vecteurRayon, params)
+	if not resultat or not resultat.Instance then
+		return
+	end
+
+	local modeleCible = resultat.Instance:FindFirstAncestorOfClass("Model")
+	local humCible = modeleCible and modeleCible:FindFirstChildOfClass("Humanoid")
+	if humCible and humCible.Health > 0 and humCible ~= humTireur then
+		local multiplicateur = resultat.Instance.Name == "Head" and 1.5 or 1.0
+		humCible:TakeDamage( math.round(DEGATS * multiplicateur) )
+		print(string.format("🎯 %s a touché %s (%d dégâts)", tireur.Name, modeleCible.Name, math.round(DEGATS * multiplicateur)))
+	end
+end)
+
+print("✅ Système de combat Raycast serveur actif")
+`,
+  }
+}
+
+function luauPetFollower(_ctx: Ctx): GeneratedCode {
+  return {
+    language: 'lua',
+    filename: 'pet_compagnon.lua',
+    description: 'système de familier (Pet) flottant qui suit le joueur avec AlignPosition et AlignOrientation',
+    code: `--=============================================================--
+-- SYSTÈME DE FAMILIER (PET FOLLOWER) — Roblox Studio (Luau)
+-- À placer dans ServerScriptService
+-- Crée un compagnon lumineux fluide qui suit chaque joueur
+--=============================================================--
+
+local Players = game:GetService("Players")
+
+local DECALAGE_PET = Vector3.new(3, 2.2, 2.5)
+
+local function creerPetPourPersonnage(personnage: Model)
+	local racine = personnage:WaitForChild("HumanoidRootPart", 5) :: BasePart?
+	if not racine then return end
+
+	local pet = Instance.new("Part")
+	pet.Name = "FamilierNexus"
+	pet.Shape = Enum.PartType.Ball
+	pet.Size = Vector3.new(1.8, 1.8, 1.8)
+	pet.Color = Color3.fromRGB(90, 200, 255)
+	pet.Material = Enum.Material.Neon
+	pet.CanCollide = false
+	pet.Massless = true
+	pet.CFrame = racine.CFrame * CFrame.new(DECALAGE_PET)
+	pet.Parent = personnage
+
+	local attJoueur = Instance.new("Attachment")
+	attJoueur.Name = "AttPetCible"
+	attJoueur.Position = DECALAGE_PET
+	attJoueur.Parent = racine
+
+	local attPet = Instance.new("Attachment")
+	attPet.Parent = pet
+
+	local alignPos = Instance.new("AlignPosition")
+	alignPos.Attachment0 = attPet
+	alignPos.Attachment1 = attJoueur
+	alignPos.MaxForce = 25000
+	alignPos.Responsiveness = 18
+	alignPos.Parent = pet
+
+	local alignOri = Instance.new("AlignOrientation")
+	alignOri.Attachment0 = attPet
+	alignOri.Attachment1 = attJoueur
+	alignOri.MaxTorque = 25000
+	alignOri.Responsiveness = 15
+	alignOri.Parent = pet
+end
+
+Players.PlayerAdded:Connect(function(joueur)
+	joueur.CharacterAdded:Connect(creerPetPourPersonnage)
+	if joueur.Character then
+		creerPetPourPersonnage(joueur.Character)
+	end
+end)
+
+print("🐾 Système de familier (Pet Follower) initialisé")
+`,
+  }
+}
+
+function luauQuestSystem(_ctx: Ctx): GeneratedCode {
+  return {
+    language: 'lua',
+    filename: 'systeme_quetes.lua',
+    description: 'gestionnaire de quêtes serveur avec suivi de progression et récompenses automatiques',
+    code: `--=============================================================--
+-- GESTIONNAIRE DE QUÊTES & RÉCOMPENSES — Roblox Studio (Luau)
+-- À placer dans ServerScriptService
+--=============================================================--
+
+local Players = game:GetService("Players")
+
+export type Quete = {
+	id: string,
+	titre: string,
+	objectif: number,
+	recompenseOr: number,
+}
+
+local CATALOGUE_QUETES: { Quete } = {
+	{ id = "collecter_pieces", titre = "Collecter 10 pièces", objectif = 10, recompenseOr = 150 },
+	{ id = "explorer_zones", titre = "Découvrir 3 zones", objectif = 3, recompenseOr = 250 },
+}
+
+local progression: { [number]: { [string]: number } } = {}
+
+local function initialiserQuetes(joueur: Player)
+	progression[joueur.UserId] = {}
+	for _, q in CATALOGUE_QUETES do
+		progression[joueur.UserId][q.id] = 0
+	end
+end
+
+local function avancerQuete(joueur: Player, idQuete: string, quantite: number)
+	local etat = progression[joueur.UserId]
+	if not etat or etat[idQuete] == nil or etat[idQuete] == -1 then
+		return
+	end
+	for _, q in CATALOGUE_QUETES do
+		if q.id == idQuete then
+			etat[idQuete] = math.min(q.objectif, etat[idQuete] + quantite)
+			print(string.format("📜 [%s] %s : %d/%d", joueur.Name, q.titre, etat[idQuete], q.objectif))
+			if etat[idQuete] >= q.objectif then
+				etat[idQuete] = -1 -- Terminée
+				local stats = joueur:FindFirstChild("leaderstats")
+				local orVal = stats and stats:FindFirstChild("Argent") :: IntValue?
+				if orVal then
+					orVal.Value += q.recompenseOr
+				end
+				print(string.format("🏆 %s a terminé « %s » (+%d Or) !", joueur.Name, q.titre, q.recompenseOr))
+			end
+			break
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(initialiserQuetes)
+Players.PlayerRemoving:Connect(function(j)
+	progression[j.UserId] = nil
+end)
+
+_G.AvancerQuete = avancerQuete
+print("✅ Gestionnaire de quêtes prêt (_G.AvancerQuete)")
+`,
+  }
+}
+
+// ── TypeScript / React / API / SQL / Rust / Go / C# avancés ──────────────────
+
+function tsSpecialized(ctx: Ctx): GeneratedCode {
+  const sujet = ctx.topic || 'service TypeScript'
+  if (has(ctx.text, /react|composant|component|hook|tsx|interface|ui|dashboard/i)) {
+    return {
+      language: 'typescript',
+      filename: 'ComposantInteractif.tsx',
+      description: `composant React + TypeScript interactif avec recherche, filtrage et état typé (${sujet})`,
+      code: `import React, { useState, useMemo } from 'react';
+
+export interface ElementItem {
+  id: string;
+  titre: string;
+  categorie: 'prioritaire' | 'standard' | 'archive';
+  progression: number;
+}
+
+const ELEMENTS_INITIAUX: ElementItem[] = [
+  { id: '1', titre: 'Architecture principale', categorie: 'prioritaire', progression: 100 },
+  { id: '2', titre: 'Sécurisation des entrées', categorie: 'prioritaire', progression: 80 },
+  { id: '3', titre: 'Optimisation des performances', categorie: 'standard', progression: 45 },
+];
+
+export default function TableauDeBord() {
+  const [elements, setElements] = useState<ElementItem[]>(ELEMENTS_INITIAUX);
+  const [recherche, setRecherche] = useState('');
+  const [nouveauTitre, setNouveauTitre] = useState('');
+
+  const filtres = useMemo(() => {
+    const q = recherche.trim().toLowerCase();
+    return elements.filter((el) => !q || el.titre.toLowerCase().includes(q));
+  }, [elements, recherche]);
+
+  const ajouterElement = (e: React.FormEvent) => {
+    e.preventDefault();
+    const propre = nouveauTitre.trim();
+    if (!propre) return;
+    setElements((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), titre: propre, categorie: 'standard', progression: 0 },
+    ]);
+    setNouveauTitre('');
+  };
+
+  return (
+    <section className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-6 text-slate-100 shadow-xl">
+      <header className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">${sujet}</h2>
+          <p className="text-xs text-slate-400">{filtres.length} élément(s) affiché(s)</p>
+        </div>
+        <input
+          type="search"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Filtrer…"
+          className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm"
+        />
+      </header>
+
+      <form onSubmit={ajouterElement} className="mb-5 flex gap-2">
+        <input
+          type="text"
+          value={nouveauTitre}
+          onChange={(e) => setNouveauTitre(e.target.value)}
+          placeholder="Nouvel élément…"
+          className="flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+        >
+          Ajouter
+        </button>
+      </form>
+
+      <ul className="space-y-2.5">
+        {filtres.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-slate-900/60 p-3.5"
+          >
+            <span className="font-medium">{item.titre}</span>
+            <span className="rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-xs text-indigo-300">
+              {item.progression}%
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+`,
+    }
+  }
+
+  return {
+    language: 'typescript',
+    filename: 'service.ts',
+    description: `module TypeScript strict avec validation, cache mémoire et gestion d'erreurs (${sujet})`,
+    code: `// ============================================================
+// ${sujet} — TypeScript Strict (Result Pattern + Cache LRU)
+// ============================================================
+
+export type Result<T, E = string> =
+  | { ok: true; data: T }
+  | { ok: false; error: E };
+
+export interface ElementMetier {
+  id: string;
+  nom: string;
+  creeLe: string;
+  actif: boolean;
+}
+
+export class ServiceMetier {
+  private readonly store = new Map<string, ElementMetier>();
+  private readonly maxItems: number;
+
+  constructor(maxItems = 500) {
+    this.maxItems = maxItems;
+  }
+
+  public creer(nomBrut: string): Result<ElementMetier> {
+    const nom = nomBrut.trim();
+    if (nom.length < 2 || nom.length > 80) {
+      return { ok: false, error: 'Le nom doit contenir entre 2 et 80 caractères.' };
+    }
+    if (this.store.size >= this.maxItems) {
+      const plusAncien = this.store.keys().next().value;
+      if (plusAncien) this.store.delete(plusAncien);
+    }
+    const item: ElementMetier = {
+      id: crypto.randomUUID(),
+      nom,
+      creeLe: new Date().toISOString(),
+      actif: true,
+    };
+    this.store.set(item.id, item);
+    return { ok: true, data: item };
+  }
+
+  public rechercher(terme: string): ElementMetier[] {
+    const q = terme.trim().toLowerCase();
+    return Array.from(this.store.values()).filter(
+      (el) => el.actif && (!q || el.nom.toLowerCase().includes(q))
+    );
+  }
+}
+
+// Exécution directe d'exemple
+const service = new ServiceMetier();
+const creation = service.creer('${sujet.replace(/'/g, "\\'")}');
+if (creation.ok) {
+  console.log('✅ Créé :', creation.data);
+}
+`,
+  }
+}
+
+function sqlSpecialized(ctx: Ctx): GeneratedCode {
+  const sujet = ctx.topic || 'application'
+  return {
+    language: 'sql',
+    filename: 'schema_analytique.sql',
+    description: `schéma SQL relationnel complet (tables, index, clés étrangères et requête analytique CTE) pour ${sujet}`,
+    code: `-- ============================================================
+-- Schéma relationnel & Requête analytique — ${sujet}
+-- Compatible PostgreSQL / SQLite 3.35+
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS utilisateurs (
+    id          TEXT PRIMARY KEY,
+    pseudo      TEXT NOT NULL UNIQUE,
+    email       TEXT NOT NULL UNIQUE,
+    points      INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    cree_le     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS evenements_activite (
+    id              TEXT PRIMARY KEY,
+    utilisateur_id  TEXT NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+    type_action     TEXT NOT NULL,
+    score_delta     INTEGER NOT NULL DEFAULT 0,
+    cree_le         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_activite_utilisateur_date
+    ON evenements_activite (utilisateur_id, cree_le DESC);
+
+-- Requête analytique avec CTE : classement des utilisateurs actifs sur 7 jours
+WITH stats_hebdo AS (
+    SELECT
+        u.id,
+        u.pseudo,
+        COUNT(e.id) AS nb_actions,
+        COALESCE(SUM(e.score_delta), 0) AS gain_semaine
+    FROM utilisateurs u
+    LEFT JOIN evenements_activite e
+        ON e.utilisateur_id = u.id
+       AND e.cree_le >= DATETIME('now', '-7 days')
+    GROUP BY u.id, u.pseudo
+)
+SELECT
+    pseudo,
+    nb_actions,
+    gain_semaine,
+    RANK() OVER (ORDER BY gain_semaine DESC) AS rang
+FROM stats_hebdo
+ORDER BY gain_semaine DESC
+LIMIT 25;
+`,
+  }
+}
+
 const GENERIC_BUILDERS: Record<string, (ctx: Ctx) => GeneratedCode> = {
   javascript: jsGeneric,
   html: htmlGeneric,
   lua: luauGeneric,
-  typescript: (ctx) => {
-    const base = jsGeneric(ctx)
-    return {
-      language: 'typescript',
-      filename: 'programme.ts',
-      description: `programme TypeScript typé : ${ctx.topic || 'programme'}`,
-      code: base.code
-        .replace('/** @param {string} entree */', '')
-        .replace('function traiter(entree) {', 'function traiter(entree: string): Resultat {')
-        .replace(
-          "const CONFIG = Object.freeze({",
-          "interface Resultat {\n  ok: boolean;\n  valeur?: string;\n  erreur?: string;\n}\n\nconst CONFIG = Object.freeze({"
-        ),
-    }
-  },
-  csharp: (ctx) => genericSimple(ctx, 'csharp', 'Programme.cs', `using System;\n\nnamespace App\n{\n    class Programme\n    {\n        static void Main(string[] args)\n        {\n            Console.WriteLine("Bonjour !");\n            // TODO : logique métier\n        }\n    }\n}\n`),
-  java: (ctx) => genericSimple(ctx, 'java', 'Main.java', `public class Main {\n    public static void main(String[] args) {\n        System.out.println("Bonjour !");\n        // TODO : logique métier\n    }\n}\n`),
-  cpp: (ctx) => genericSimple(ctx, 'cpp', 'main.cpp', `#include <iostream>\n\nint main() {\n    std::cout << "Bonjour !" << std::endl;\n    // TODO : logique métier\n    return 0;\n}\n`),
-  c: (ctx) => genericSimple(ctx, 'c', 'main.c', `#include <stdio.h>\n\nint main(void) {\n    printf("Bonjour !\\n");\n    // TODO : logique métier\n    return 0;\n}\n`),
-  go: (ctx) => genericSimple(ctx, 'go', 'main.go', `package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Bonjour !")\n\t// TODO : logique métier\n}\n`),
-  rust: (ctx) => genericSimple(ctx, 'rust', 'main.rs', `fn main() {\n    println!("Bonjour !");\n    // TODO : logique métier\n}\n`),
-  bash: (ctx) => genericSimple(ctx, 'bash', 'script.sh', `#!/bin/bash\n# Script généré par NEXUS\nset -euo pipefail\n\necho "Bonjour !"\n# TODO : logique métier\n`),
-  sql: (ctx) => genericSimple(ctx, 'sql', 'requete.sql', `-- Requête générée par NEXUS\nSELECT *\nFROM ma_table\nWHERE created_at >= CURRENT_DATE - INTERVAL '7 days'\nORDER BY created_at DESC\nLIMIT 50;\n`),
-  glsl: (ctx) => genericSimple(ctx, 'glsl', 'shader.frag', `precision mediump float;\n\nuniform float u_time;\nuniform vec2 u_resolution;\n\nvoid main() {\n    vec2 uv = gl_FragCoord.xy / u_resolution;\n    float onde = sin(uv.x * 10.0 + u_time) * 0.5 + 0.5;\n    vec3 couleur = mix(vec3(0.1, 0.1, 0.3), vec3(0.9, 0.4, 0.8), onde);\n    gl_FragColor = vec4(couleur, 1.0);\n}\n`),
+  typescript: tsSpecialized,
+  csharp: (ctx) =>
+    genericSimple(
+      ctx,
+      'csharp',
+      'Controleur.cs',
+      `using System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nnamespace NexusApp\n{\n    public record Element(Guid Id, string Nom, int Score);\n\n    public class Gestionnaire\n    {\n        private readonly List<Element> _elements = new();\n\n        public Element Ajouter(string nom, int score)\n        {\n            if (string.IsNullOrWhiteSpace(nom)) throw new ArgumentException("Nom requis");\n            var item = new Element(Guid.NewGuid(), nom.Trim(), Math.Max(0, score));\n            _elements.Add(item);\n            return item;\n        }\n\n        public IEnumerable<Element> Top(int limite = 5) =>\n            _elements.OrderByDescending(e => e.Score).Take(limite);\n\n        public static void Main()\n        {\n            var g = new Gestionnaire();\n            g.Ajouter("Alpha", 120);\n            g.Ajouter("Beta", 250);\n            foreach (var el in g.Top())\n                Console.WriteLine($"✅ {el.Nom} : {el.Score} pts");\n        }\n    }\n}\n`
+    ),
+  java: (ctx) =>
+    genericSimple(
+      ctx,
+      'java',
+      'Main.java',
+      `import java.util.*;\n\npublic class Main {\n    public record Element(String nom, int score) {}\n\n    public static void main(String[] args) {\n        List<Element> liste = new ArrayList<>(List.of(\n            new Element("Alpha", 120),\n            new Element("Beta", 280),\n            new Element("Gamma", 195)\n        ));\n        liste.sort(Comparator.comparingInt(Element::score).reversed());\n        liste.forEach(e -> System.out.printf("✅ %s : %d pts%n", e.nom(), e.score()));\n    }\n}\n`
+    ),
+  cpp: (ctx) =>
+    genericSimple(
+      ctx,
+      'cpp',
+      'main.cpp',
+      `#include <algorithm>\n#include <iostream>\n#include <string>\n#include <vector>\n\nstruct Joueur {\n    std::string nom;\n    int score;\n};\n\nint main() {\n    std::vector<Joueur> joueurs = {{"Alpha", 150}, {"Beta", 320}, {"Gamma", 210}};\n    std::sort(joueurs.begin(), joueurs.end(), [](const auto& a, const auto& b) {\n        return a.score > b.score;\n    });\n    for (const auto& j : joueurs) {\n        std::cout << "✅ " << j.nom << " : " << j.score << " pts\\n";\n    }\n    return 0;\n}\n`
+    ),
+  c: (ctx) =>
+    genericSimple(
+      ctx,
+      'c',
+      'main.c',
+      `#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct {\n    const char *nom;\n    int score;\n} Element;\n\nint main(void) {\n    Element items[] = {{"Alpha", 120}, {"Beta", 260}, {"Gamma", 180}};\n    size_t n = sizeof(items) / sizeof(items[0]);\n    for (size_t i = 0; i < n; ++i) {\n        printf("✅ %s : %d pts\\n", items[i].nom, items[i].score);\n    }\n    return EXIT_SUCCESS;\n}\n`
+    ),
+  go: (ctx) =>
+    genericSimple(
+      ctx,
+      'go',
+      'main.go',
+      `package main\n\nimport (\n\t"fmt"\n\t"sort"\n)\n\ntype Element struct {\n\tNom   string\n\tScore int\n}\n\nfunc main() {\n\titems := []Element{{"Alpha", 120}, {"Beta", 310}, {"Gamma", 190}}\n\tsort.Slice(items, func(i, j int) bool { return items[i].Score > items[j].Score })\n\tfor _, item := range items {\n\t\tfmt.Printf("✅ %s : %d pts\\n", item.Nom, item.Score)\n\t}\n}\n`
+    ),
+  rust: (ctx) =>
+    genericSimple(
+      ctx,
+      'rust',
+      'main.rs',
+      `#[derive(Debug, Clone)]\nstruct Element {\n    nom: String,\n    score: u32,\n}\n\nfn main() {\n    let mut items = vec![\n        Element { nom: "Alpha".into(), score: 140 },\n        Element { nom: "Beta".into(), score: 320 },\n        Element { nom: "Gamma".into(), score: 210 },\n    ];\n    items.sort_by(|a, b| b.score.cmp(&a.score));\n    for item in &items {\n        println!("✅ {} : {} pts", item.nom, item.score);\n    }\n}\n`
+    ),
+  bash: (ctx) =>
+    genericSimple(
+      ctx,
+      'bash',
+      'script.sh',
+      `#!/usr/bin/env bash\n# Script Bash robuste généré par NEXUS\nset -euo pipefail\nIFS=$'\\n\\t'\n\nlog() { printf '[%s] %s\\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*"; }\n\nlog "Démarrage des vérifications…"\nlog "Espace disque disponible : $(df -h . | awk 'NR==2 {print $4}')"\nlog "✅ Exécution terminée avec succès."\n`
+    ),
+  sql: sqlSpecialized,
+  glsl: (ctx) =>
+    genericSimple(
+      ctx,
+      'glsl',
+      'shader.frag',
+      `precision highp float;\n\nuniform float u_time;\nuniform vec2 u_resolution;\n\nvoid main() {\n    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;\n    float d = length(uv);\n    float onde = sin(d * 18.0 - u_time * 3.0) * 0.5 + 0.5;\n    float halo = 0.04 / max(abs(d - 0.25), 0.005);\n    vec3 col = mix(vec3(0.05, 0.08, 0.20), vec3(0.35, 0.75, 1.0), onde) + halo * vec3(0.4, 0.6, 1.0);\n    gl_FragColor = vec4(col, 1.0);\n}\n`
+    ),
 }
 
 function genericSimple(ctx: Ctx, language: string, filename: string, code: string): GeneratedCode {
   return { language, filename, code, description: `programme ${language} structuré : ${ctx.topic || 'script'}` }
+}
+
+// ── Refactoring et amélioration intelligente du code existant ────────────────
+
+export interface RefactoredCodeResult {
+  modified: boolean
+  files: { html: string; css: string; js: string; language?: string; filename?: string }
+  changesSummary: string[]
+  description: string
+}
+
+/**
+ * Analyse et transforme réellement le code ouvert dans le Studio Code
+ * lorsque l'utilisateur demande de le corriger, sécuriser, optimiser ou enrichir.
+ */
+export function refactorExistingCode(
+  current: { html: string; css: string; js: string; language?: string; filename?: string },
+  instruction: string
+): RefactoredCodeResult | null {
+  const hasWeb = Boolean(current.html.trim() || current.css.trim())
+  const rawJs = current.js || ''
+  if (!hasWeb && !rawJs.trim()) return null
+
+  const changes: string[] = []
+  let html = current.html
+  let css = current.css
+  let js = current.js
+  const lang = (current.language || (hasWeb ? 'web' : 'lua')).toLowerCase()
+
+  // 1) Refactoring / sécurisation d'un script Luau / Roblox
+  if (lang === 'lua' || lang === 'luau' || /game:GetService|Instance\.new|OnServerEvent|Humanoid/i.test(js)) {
+    if (/\bwait\s*\(/.test(js) && !/task\.wait/.test(js)) {
+      js = js.replace(/\bwait\s*\(/g, 'task.wait(')
+      changes.push('Remplacement de `wait()` déprécié par `task.wait()` (scheduler 60 Hz)')
+    }
+    if (/\bspawn\s*\(/.test(js) && !/task\.spawn/.test(js)) {
+      js = js.replace(/\bspawn\s*\(/g, 'task.spawn(')
+      changes.push('Remplacement de `spawn()` par `task.spawn()` sans latence')
+    }
+    if (/\bdelay\s*\(/.test(js) && !/task\.delay/.test(js)) {
+      js = js.replace(/\bdelay\s*\(/g, 'task.delay(')
+      changes.push('Remplacement de `delay()` par `task.delay()`')
+    }
+    if (/while\s+true\s+do\b/.test(js) && !/task\.wait|wait\s*\(/.test(js)) {
+      js = js.replace(/while\s+true\s+do/g, 'while true do\n\ttask.wait(0.1) -- Garde anti-gel serveur')
+      changes.push('Ajout de `task.wait(0.1)` dans la boucle `while true do` pour éviter le crash serveur')
+    }
+    if (/OnServerEvent:Connect\(\s*function\s*\(([^)]+)\)/.test(js) && !/typeof\s*\(/.test(js)) {
+      js = js.replace(
+        /OnServerEvent:Connect\(\s*function\s*\(([^)]+)\)/g,
+        (match, argsStr: string) => {
+          const parts = argsStr.split(',').map((s) => s.trim()).filter(Boolean)
+          if (parts.length >= 2) {
+            const secondArg = parts[1].split(':')[0].trim()
+            changes.push(`Ajout d'une garde de validation serveur sur \`${secondArg}\` dans \`OnServerEvent\``)
+            return `${match}\n\t-- Sécurité serveur ajoutée par NEXUS : validation des entrées client\n\tif ${secondArg} == nil then return end`
+          }
+          return match
+        }
+      )
+    }
+    if (/:(GetAsync|SetAsync|UpdateAsync)\s*\(/.test(js) && !/\bpcall\b/.test(js)) {
+      js =
+        `-- Note sécurité NEXUS : fonction utilitaire pcall pour DataStore\nlocal function appelDataStoreSecurise(fn)\n\tlocal ok, res = pcall(fn)\n\tif not ok then warn("[DataStore] Erreur interceptée :", res) end\n\treturn ok, res\nend\n\n` +
+        js
+      changes.push('Ajout d’un wrapper `pcall` sécurisé pour protéger les appels DataStore contre les pannes réseau')
+    }
+    if (/cooldown|anti.?spam|debounce/i.test(instruction) && !/dernierAppel/.test(js)) {
+      js =
+        `local dernierAppel: { [any]: number } = {}\nlocal DELAI_COOLDOWN = 0.5\n\n` +
+        js
+      changes.push('Ajout d’une table de cooldown (`dernierAppel`) anti-spam')
+    }
+  }
+
+  // 2) Refactoring d'une page Web (HTML / CSS / JS)
+  if (hasWeb) {
+    if (/sombre|dark|th[èe]me|theme/i.test(instruction) && !/theme-toggle/.test(html)) {
+      html = html.replace(
+        /<\/header>/i,
+        `  <button id="theme-toggle" type="button" style="padding:0.45rem 0.9rem;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer">🌓 Thème</button>\n  </header>`
+      )
+      css += `\n/* Mode clair/sombre dynamique ajouté par NEXUS */\nbody.light-mode {\n  background: #f8fafc !important;\n  color: #0f172a !important;\n}\n`
+      js += `\n// Bascule de thème clair/sombre\ndocument.getElementById('theme-toggle')?.addEventListener('click', () => {\n  document.body.classList.toggle('light-mode');\n});\n`
+      changes.push('Ajout d’un bouton de bascule de thème Clair / Sombre (HTML + CSS + JS)')
+    }
+    if (/animation|fluide|transition|hover|design|am[ée]liore|moderne/i.test(instruction) && !/nexus-enhanced/.test(css)) {
+      css += `\n/* Polissage visuel & micro-interactions NEXUS (nexus-enhanced) */\nbutton, .carte, article, input {\n  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, border-color 0.2s ease;\n}\nbutton:hover, .carte:hover, article:hover {\n  transform: translateY(-2px);\n}\nbutton:active {\n  transform: translateY(0) scale(0.98);\n}\n`
+      changes.push('Ajout de transitions fluides et micro-interactions au survol (`hover`/`active`) dans le CSS')
+    }
+  }
+
+  // 3) Refactoring JavaScript / TypeScript
+  if (!hasWeb && ['javascript', 'typescript', 'js', 'ts'].includes(lang)) {
+    if (/\bvar\s+/.test(js)) {
+      js = js.replace(/\bvar\s+/g, 'const ')
+      changes.push('Remplacement des déclarations `var` par `const` (portée de bloc stricte)')
+    }
+    if (/[^=!]==[^=]/.test(js)) {
+      js = js.replace(/([^=!])==([^=])/g, '$1===$2')
+      changes.push('Remplacement des comparaisons lâches `==` par l’égalité stricte `===`')
+    }
+  }
+
+  if (changes.length === 0) return null
+
+  return {
+    modified: true,
+    files: {
+      html,
+      css,
+      js,
+      language: current.language,
+      filename: current.filename,
+    },
+    changesSummary: changes,
+    description: `version améliorée et sécurisée (${changes.length} amélioration${changes.length > 1 ? 's' : ''})`,
+  }
 }
 
 // ── Point d'entrée du générateur ─────────────────────────────────────────────
@@ -1179,6 +1772,9 @@ export function generateCodeLocal(text: string, entities: Entities, topic: strin
   // Roblox/Luau : priorité aux templates métier si le sujet correspond
   const robloxLike = has(text, /roblox|luau|game\.|workspace|instance\.new|obby|studio/i)
   if (robloxLike || entities.language === 'lua') {
+    if (has(text, /arme|tir|gun|laser|combat|épée|epee|sword|raycast|attaque/i)) return luauCombatRaycast(ctx)
+    if (has(text, /pet|familier|compagnon|suiveur/i)) return luauPetFollower(ctx)
+    if (has(text, /qu[êe]te|quest|mission|objectif/i)) return luauQuestSystem(ctx)
     if (has(text, /pi[èe]ce|coin|monnaie|argent(\s|$)/i)) return luauCoin(ctx)
     if (has(text, /kill|mortel|tue|lave|degat/i)) return luauKill(ctx)
     if (has(text, /checkpoint|obby|etape/i)) return luauCheckpoint(ctx)
@@ -1192,6 +1788,10 @@ export function generateCodeLocal(text: string, entities: Entities, topic: strin
     if (has(text, /jour|nuit|cycle|day.?night/i)) return luauDayNight(ctx)
     return luauGeneric(ctx)
   }
+
+  // Si l'utilisateur mentionne React/TSX ou SQL explicitement
+  if (has(text, /\b(react|tsx|composant react|hook)\b/i)) return tsSpecialized(ctx)
+  if (has(text, /\b(sql|postgres|sqlite|table|requ[êe]te sql|base de donn[ée]es)\b/i)) return sqlSpecialized(ctx)
 
   // Langage explicite ou déduit
   const lang = entities.language ?? 'python'

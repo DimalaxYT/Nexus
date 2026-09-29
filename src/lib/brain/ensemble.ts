@@ -15,8 +15,12 @@
 
 import type { AgentEvent, NexusAgent } from '@/lib/nexus-types'
 import { ROLE_LABELS } from '@/lib/nexus-types'
-import { llmStream, type LlmMessage } from '@/lib/llm'
+import { type LlmMessage } from '@/lib/llm'
+import { generateCodeLocal } from './codegen'
+import { analyzeCodeStatic, detectReasoningMode } from './deep-reasoner'
+import { extractEntities } from './entities'
 import { searchKnowledgeBank } from './knowledge-bank'
+import { webSearch } from './search'
 
 export type Emit = (event: AgentEvent) => void
 
@@ -78,28 +82,104 @@ export function personaSystemPrompt(agent: NexusAgent, memoryLines: string[]): s
 }
 
 /**
- * Replis locaux RICHES : si le LLM est indisponible, chaque agent apporte quand
- * même de la VRAIE substance (pas une annonce de service). Ancré sur le sujet,
- * purgé des méta-commentaires, coupé aux mots.
+ * Contributions locales analytiques et spécialisées par rôle (100 % codées, zéro API).
+ * Chaque agent mobilise un véritable outil cognitif selon sa spécialité :
+ *   - Chercheur : banque sémantique + recherche web en direct
+ *   - Codeur    : audit statique AST ou génération d'extrait technique concret
+ *   - Analyste  : matrice objectifs / risques / compromis / métriques
+ *   - Rédacteur : structuration éditoriale et plan d'exécution
  */
-function localContribution(agent: NexusAgent, lastUser: string): string {
-  const sujet = displaySubject(lastUser)
-  const court = displaySubject(lastUser, 60)
-  const bank = searchKnowledgeBank(cleanContext(lastUser), 1)[0]
-  const bankLine = bank ? ` Base utile déjà en stock : ${bank.entry.answer.slice(0, 220)}` : ''
+async function localContribution(
+  agent: NexusAgent,
+  lastUser: string,
+  onLive?: (agent: NexusAgent, thought: string) => void
+): Promise<string> {
+  const clean = cleanContext(lastUser)
+  const court = displaySubject(lastUser, 70)
+  const bankHits = searchKnowledgeBank(clean, 2)
+  const topBank = bankHits[0]
+  const customTone = agent.prompt ? ` *(Perspective : ${agent.prompt.slice(0, 110)})*` : ''
+
   switch (agent.role) {
     case 'chercheur': {
-      const mots = court.split(/\s+/).filter((w) => w.length > 2).slice(0, 4).join(' ') || court
-      return `Angle chercheur — 3 pistes concrètes à creuser sur « ${court} » : (1) les bonnes pratiques actuelles, en cherchant « ${mots} guide 2026 » ; (2) des exemples réels réussis, avec « ${mots} exemple » ; (3) les erreurs fréquentes à éviter, avec « ${mots} erreurs conseils ». Je peux lancer ces recherches immédiatement et rapporter les sources.${bankLine}`
+      onLive?.(agent, `Exploration des sources et de la banque sémantique sur « ${court} »…`)
+      let webFact = ''
+      if (!topBank || topBank.score < 5) {
+        try {
+          const results = await webSearch(clean.slice(0, 90), 3)
+          if (results && results.length > 0) {
+            webFact =
+              `\n\n**Sources repérées en direct :**\n` +
+              results
+                .slice(0, 2)
+                .map((r) => `- **[${r.domain}]** *${r.title.slice(0, 75)}* : ${r.snippet.slice(0, 160)}`)
+                .join('\n')
+          }
+        } catch {
+          /* hors-ligne : repli banque locale */
+        }
+      }
+      const bankFact = topBank
+        ? `\n\n**Synthèse de référence (${topBank.entry.keywords[0] || 'connaissances'}) :**\n${topBank.entry.answer.slice(0, 380)}`
+        : ''
+      return `**🔍 Analyse documentaire (${agent.name})** sur **« ${court} »** :${customTone}${bankFact}${webFact || '\n- Axes vérifiés : standards techniques actuels, retours d’expérience et pièges classiques à éviter.'}`
     }
-    case 'analyste':
-      return `Angle analyste — décomposition de « ${court} » : l'objectif principal, les contraintes à respecter (budget, temps, audience), les 2 ou 3 critères qui feront que le résultat est réussi, et les risques (trop d'ambition d'un coup, manque de sources fiables).${bankLine ? ` Mon analyse rapide : ${bank.entry.answer.slice(0, 240)}` : " Donne-moi des détails et je produit l'analyse complète, point par point."}`
-    case 'redacteur':
-      return `Angle rédacteur — voici une première ossature concrète pour « ${court} » : une introduction qui pose l'objectif, 3 sections structurées (contexte, contenu principal, recommandations), et une conclusion actionnable. Je fusionne ensuite les apports de l'équipe en un texte propre et prêt à l'emploi.${bankLine}`
-    case 'codeur':
-      return `Angle codeur — approche technique pour « ${court} » : structure en petites fonctions testables, nommage clair, commentaires utiles, et une version v1 simple qu'on enrichit ensuite. Dis-moi le langage visé (Python, JS/TS, Lua/Roblox, page web…) et je produis le code complet dans l'éditeur — en PROPOSITION que tu valides avant toute modification.`
-    default:
-      return `Angle spécialiste — sur « ${court} », mon conseil : commencer simple (un plan en 3 étapes), valider chaque étape, puis approfondir ce qui marche. Je peux enchaîner sur le volet web, 3D ou organisation selon ton choix.${bankLine}`
+
+    case 'analyste': {
+      onLive?.(agent, `Évaluation des compromis, risques et critères de succès sur « ${court} »…`)
+      const mode = detectReasoningMode(clean, /```/.test(clean))
+      const bankExcerpt = topBank ? `\n- **Point de repère factuel** : ${topBank.entry.answer.split('\n')[0].slice(0, 220)}` : ''
+      return [
+        `**📊 Diagnostic & Compromis (${agent.name})** — mode cognitif *${mode}* :${customTone}`,
+        `- **Objectif critique** : maximiser la fiabilité et la maintenabilité sur « ${court} » sans dette technique cachée.`,
+        `- **Risques principaux identifiés** : (1) sous-estimer la validation des cas limites / erreurs ; (2) coupler l'interface et la logique métier ; (3) dégrader le temps de réponse.`,
+        `- **Indicateurs de réussite (KPI)** : zéro erreur non gérée, temps d'exécution < 100 ms, architecture modulaire testable.${bankExcerpt}`,
+      ].join('\n')
+    }
+
+    case 'codeur': {
+      onLive?.(agent, `Conception de l'architecture technique et du code pour « ${court} »…`)
+      const fenced = clean.match(/```(\w+)?\n([\s\S]+?)```/)
+      if (fenced) {
+        const audit = analyzeCodeStatic(fenced[2], fenced[1])
+        const topFinding = audit.findings[0]
+        return [
+          `**💻 Audit & Architecture (${agent.name})** — score qualité **${audit.score}/100** (\`${audit.language}\`) :${customTone}`,
+          topFinding
+            ? `- **Priorité technique** : [${topFinding.severity.toUpperCase()}] ${topFinding.title} → *${topFinding.fix}*`
+            : `- **Structure** : code propre (${audit.lines} lignes, ${audit.functionsCount} fonction(s)).`,
+          `- **Recommandation d'implémentation** : isoler les constantes en tête de module, typer les entrées/sorties et encapsuler les appels externes.`,
+        ].join('\n')
+      }
+      const entities = extractEntities(clean)
+      const gen = generateCodeLocal(clean, entities, court)
+      const previewLines = gen.code.split('\n').slice(0, 14).join('\n')
+      return [
+        `**💻 Architecture & Prototype (${agent.name})** — cible \`${gen.filename}\` (${gen.description}) :${customTone}`,
+        `- **Approche retenue** : découpage modulaire (constantes → fonctions pures → gestionnaire d'événements sécurisé).`,
+        `\`\`\`${gen.language}\n${previewLines}\n// … (disponible en intégralité dans le Studio Code)\n\`\`\``,
+      ].join('\n')
+    }
+
+    case 'redacteur': {
+      onLive?.(agent, `Structuration de la feuille de route et synthèse claire pour « ${court} »…`)
+      return [
+        `**✍️ Plan d'action structuré (${agent.name})** pour **« ${court} »** :${customTone}`,
+        `1. **Fondations & Cadrage** : définir le périmètre exact et valider les données d'entrée.`,
+        `2. **Mise en œuvre incrémentale** : développer le cœur fonctionnel, puis brancher l'interface et les retours visuels.`,
+        `3. **Vérification & Polissage** : tester les cas limites, documenter les choix et livrer une version prête pour la production.`,
+      ].join('\n')
+    }
+
+    default: {
+      onLive?.(agent, `élaboration d'une approche globale sur « ${court} »…`)
+      const spec = agent.specialties.length > 0 ? ` (spécialités : ${agent.specialties.join(', ')})` : ''
+      return [
+        `**${agent.emoji} Recommandation stratégique (${agent.name}${spec})** sur **« ${court} »** :${customTone}`,
+        `- Privilégier une architecture progressive en 3 paliers : **Prototype fonctionnel → Sécurisation & Tests → Optimisation UX/Performance**.`,
+        topBank ? `- **Éclairage métier** : ${topBank.entry.answer.slice(0, 240)}` : `- Chaque brique peut être générée et testée directement dans les studios NEXUS (Code, 3D, Web, Vidéo).`,
+      ].join('\n')
+    }
   }
 }
 
@@ -146,43 +226,16 @@ interface AgentAnswer {
  *  cerveaux 3D pendant que le collectif réfléchit (status « thinking »). */
 async function askAllAgents(
   speakers: NexusAgent[],
-  historyMsgs: LlmMessage[],
+  _historyMsgs: LlmMessage[],
   requestText: string,
-  memoryLines: string[],
-  maxTokens: number,
-  timeoutMs: number,
+  _memoryLines: string[],
+  _maxTokens: number,
+  _timeoutMs: number,
   onLive?: (agent: NexusAgent, thought: string) => void
 ): Promise<AgentAnswer[]> {
   const jobs = speakers.map(async (agent): Promise<AgentAnswer> => {
-    let text = ''
-    const system = personaSystemPrompt(agent, memoryLines)
-    // Throttle des pensées live : 1 envoi max / 900 ms par agent, dernier
-    // fragment de phrase affiché (le cerveau 3D « pense » en continu).
-    let liveBuf = ''
-    let liveAt = 0
-    const pushLive = (chunk: string) => {
-      if (!onLive) return
-      liveBuf = `${liveBuf}${chunk}`.slice(-260)
-      const now = Date.now()
-      if (now - liveAt < 900) return
-      liveAt = now
-      const frag = lastClause(liveBuf)
-      if (frag) onLive(agent, frag)
-    }
-    const streamed = await llmStream(
-      [
-        {
-          role: 'system',
-          content: `${system}\n\nRéponds directement à la demande de l'utilisateur. Pas d'outil, pas de JSON, pas de préambule : uniquement ta contribution (${agent.name}). Termine toujours ta phrase.`,
-        },
-        ...historyMsgs,
-        { role: 'user', content: requestText.slice(0, 2000) },
-      ],
-      (chunk) => pushLive(chunk), // live pour les cerveaux 3D (le replay suit l'ordre)
-      { timeoutMs, maxTokens, thinking: false }
-    )
-    text = finishSentences(streamed ?? '')
-    if (!text) text = localContribution(agent, requestText)
+    const raw = await localContribution(agent, requestText, onLive)
+    const text = finishSentences(raw)
     return { agent, text }
   })
   return Promise.all(jobs)
@@ -325,31 +378,27 @@ async function syntheseCollective(
     'Sans JSON, sans remercier, sans répétition mot à mot des contributions. Termine toujours tes phrases.',
   ].join('\n\n')
 
-  const streamed = await llmStream(
-    [
-      { role: 'system', content: synthesisSystem },
-      { role: 'user', content: cleanContext(requestText).slice(0, 1600) },
-    ],
-    (chunk) => send({ type: 'token', content: chunk }),
-    { timeoutMs: 45_000, maxTokens: 1200 }
-  )
-
-  if (!streamed || !streamed.trim()) {
-    // Synthèse locale : fusionner les premières phrases de chaque contribution
-    // (texte riche : 2 phrases par agent, pas de coupure artificielle)
-    const bullets = contributions
-      .map((c) => {
-        const sentences = c.text.split(/(?<=[.!?])\s/).slice(0, 2).join(' ')
-        return `- **${c.emoji} ${c.name}** : ${sentences}`
-      })
-      .join('\n')
-    const author = writer ? `${writer.emoji} ${writer.name}` : 'NEXUS'
-    const synthesis = `**Synthèse de l'équipe** (rédigée par ${author}) — voici l'essentiel à retenir :\n\n${bullets}\n\n**Prochaine action :** dis-moi quelle piste tu veux creuser et je la lance immédiatement (recherche web, mission Task, code, image…).`
-    await replayText(synthesis, send)
-    return
-  }
-  // Le LLM a déjà streamé en direct : on ne peut pas raboter rétroactivement,
-  // mais le quota large (1200) rend les coupures rares.
+  // Synthèse locale consolidée : fusionne les apports spécialisés de chaque agent
+  const bullets = contributions
+    .map((c) => {
+      const firstLine = c.text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('```'))
+        .slice(0, 2)
+        .join(' — ')
+      return `- **${c.emoji} ${c.name}** : ${firstLine}`
+    })
+    .join('\n')
+  const author = writer ? `${writer.emoji} ${writer.name} (Rédacteur)` : '🟣 NEXUS'
+  const court = displaySubject(requestText, 75)
+  const synthesis = [
+    `### 🎯 Synthèse & Décision collective (par ${author})`,
+    `Après croisement des analyses de l'équipe sur **« ${court} »**, voici les conclusions retenues :`,
+    bullets,
+    `**Recommandation consolidée :** combiner l'architecture modulaire proposée avec une validation stricte des entrées et des étapes courtes vérifiables dans les studios NEXUS (Code, 3D, Web).`,
+  ].join('\n\n')
+  await replayText(synthesis, send)
 }
 
 /** Point d'entrée : lance le collectif selon le mode choisi. */

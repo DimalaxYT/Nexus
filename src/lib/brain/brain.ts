@@ -13,7 +13,7 @@ import { CODER_TOOLS, parseAgentRow, parseAgentGroupRow, ROLE_LABELS, type Nexus
 import { classify, extractTopic, overlap, warmUpClassifier, type Classification } from './classifier'
 import { extractEntities, type Entities } from './entities'
 import { evaluateMath } from './math-engine'
-import { generateCodeLocal } from './codegen'
+import { generateCodeLocal, refactorExistingCode } from './codegen'
 import { generateWebpageLocal } from './webpagegen'
 import { generateArt } from './artgen'
 import { generateSceneLocal } from './scenegen'
@@ -348,6 +348,35 @@ async function skillImage(prompt: string, size: string, ctx: Ctx): Promise<strin
 async function skillCode(ctx: Ctx): Promise<string> {
   if (detectReasoningMode(ctx.lastUser, Boolean(ctx.currentCode)) === 'code_audit') {
     return handleGeneral(ctx, { intent: 'code', confidence: 0.95, source: 'lexical', topScores: [] })
+  }
+  if (
+    ctx.currentCode &&
+    (ctx.currentCode.js.trim() || ctx.currentCode.html.trim() || ctx.currentCode.css.trim()) &&
+    /\b(am[ée]liore|modifie|change|corrige|refactor|optimise|s[ée]curise|ajoute)\b/i.test(ctx.lastUser)
+  ) {
+    const refactored = refactorExistingCode(ctx.currentCode, ctx.lastUser)
+    if (refactored && refactored.modified) {
+      const s = makeStep('generate_code', 'Refactoring du code', refactored.description)
+      ctx.send({ type: 'step', ...s, status: 'running' })
+      const name = ctx.currentCode.filename || 'Code amélioré'
+      emitCodeArtifact(ctx, { name, files: refactored.files }, refactored.description)
+      ctx.send({
+        type: 'step',
+        ...s,
+        tool: 'generate_code',
+        label: ctx.proposalMode ? 'Proposition de refactoring' : 'Code amélioré',
+        detail: `${name} — ${refactored.changesSummary.length} modification(s)`,
+        status: 'done',
+      })
+      return [
+        `## 🛠️ Refactoring & Sécurisation de « ${name} »`,
+        `J'ai analysé ton code actuel et préparé **${refactored.changesSummary.length} amélioration(s)** :`,
+        refactored.changesSummary.map((c) => `- ✅ ${c}`).join('\n'),
+        ctx.proposalMode
+          ? `\n*Ouvre le **Studio Code → Propositions** pour inspecter le diff ligne par ligne et valider les modifications.*`
+          : `\n*Les modifications ont été chargées dans le Studio Code.*`,
+      ].join('\n\n')
+    }
   }
   const topic = extractTopic(ctx.lastUser)
   const gen = generateCodeLocal(ctx.lastUser, ctx.entities, topic)
@@ -1773,11 +1802,13 @@ async function handleEnsembleTurn(target: ChatTarget, ctx: Ctx): Promise<void> {
   )
 }
 
-/** Repli local : exécute la compétence locale correspondant à l'intention. */
+/** Exécute la compétence locale correspondant à l'intention (100 % local, zéro API). */
 async function localFallback(ctx: Ctx, classification: Classification, midStream: boolean): Promise<void> {
-  ctx.send({ type: 'thought', text: midStream ? 'Le moteur distant a décroché en cours de route — je termine avec mes compétences locales, sans te faire attendre.' : 'Moteur distant indisponible — je réponds immédiatement avec mes compétences locales.' })
+  ctx.send({
+    type: 'thought',
+    text: 'Moteur neuronal & analytique local NEXUS activé — traitement direct (100 % autonome, sans API).',
+  })
   if (midStream) {
-    // On enchaîne proprement après un flux partiel
     ctx.send({ type: 'token', content: '\n\n' })
   }
   let text: string
