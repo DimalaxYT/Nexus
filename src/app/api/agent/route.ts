@@ -1,11 +1,12 @@
 // ─── NEXUS Agent — Route SSE 100 % locale ─────────────────────────────────────
-// Le cerveau (src/lib/brain) fait TOUT le travail : classification neuronale,
-// compétences locales, synthèse des réponses. AUCUN appel API/LLM externe.
+// Le cerveau (src/lib/brain) fait le raisonnement avec son réseau neuronal local,
+// sa mémoire et ses compétences. Aucun fournisseur de modèle externe n'est appelé.
 // Les événements SSE restent identiques (contrat v1) → le client est inchangé.
 
 import { NextRequest } from 'next/server'
 import { processTurn } from '@/lib/brain/brain'
 import type { AgentEvent, ChatTarget, CodeFiles } from '@/lib/nexus-types'
+import { normalizeBrainParameters } from '@/lib/brain/parameters'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -114,7 +115,12 @@ export async function POST(req: NextRequest) {
       }, HEARTBEAT_MS)
 
       try {
-        await processTurn({ messages: history, target: parseTarget(body?.target), currentCode: parseCurrentCode(body?.currentCode) }, send)
+        await processTurn({
+          messages: history,
+          target: parseTarget(body?.target),
+          currentCode: parseCurrentCode(body?.currentCode),
+          brainParameters: normalizeBrainParameters(body?.brainParameters),
+        }, send)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Erreur inconnue'
         send({ type: 'error', message: `Un imprévu est survenu : ${message}. Réessaie — mes compétences de repli prennent le relais automatiquement.` })

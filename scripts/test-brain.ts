@@ -7,6 +7,7 @@ import { generateArt } from '../src/lib/brain/artgen'
 import { generateSceneLocal } from '../src/lib/brain/scenegen'
 import { extractMemories, extractExplicitRetention, autoTitle } from '../src/lib/brain/memory-rules'
 import { searchKnowledgeBank } from '../src/lib/brain/knowledge-bank'
+import { rankLocalKnowledge } from '../src/lib/brain/hybrid-retrieval'
 import { INTENTS } from '../src/lib/brain/dataset'
 
 let pass = 0
@@ -43,6 +44,14 @@ const cases: [string, string][] = [
   ['resume https://wikipedia.org', 'readpage'],
   ['ecris un script lua qui spawn des pieces', 'code'],
   ['fais moi un script python de tri', 'code'],
+  ['quesque qui a été changé dans ton code ?', 'smalltalk'],
+  ['qu’est-ce qui a changé dans ton code ?', 'smalltalk'],
+  ['que fait ce programme python ?', 'smalltalk'],
+  ['explique-moi ce script', 'smalltalk'],
+  ['peux-tu m’expliquer ce code ?', 'smalltalk'],
+  ['peux-tu corriger ce script ?', 'code'],
+  ['peux-tu générer un script python ?', 'code'],
+  ['écris-moi un script python, s’il te plaît ?', 'code'],
   ['genere une image de renard', 'image'],
   ['dessine un chateau medieval', 'image'],
   ['cree une scene 3d d une ville', 'scene3d'],
@@ -147,11 +156,50 @@ const k1 = searchKnowledgeBank('explique moi comment fonctionne un datastore rob
 check('datastore trouvé', k1 !== undefined && k1.entry.keywords.includes('datastore'), k1?.entry.question)
 const k2 = searchKnowledgeBank('pourquoi le ciel est bleu', 1)[0]
 check('ciel bleu trouvé', k2 !== undefined && k2.entry.question.includes('bleu'), k2?.entry.question)
+const k3 = searchKnowledgeBank('quelle est la population du Japon', 1)[0]
+check('Japon + population trouve la fiche pays', k3?.entry.question === 'Le Japon en bref', k3?.entry.question)
+check(
+  'une question de jardinage ne reçoit pas une fiche photosynthèse hors sujet',
+  !searchKnowledgeBank('comment planter des tomates', 3).some((hit) => hit.entry.question.includes('photosynthèse'))
+)
+check('une recette inconnue ne récupère pas Internet par collision vectorielle', searchKnowledgeBank('comment faire des crêpes', 3).length === 0)
+check('une question sans sujet ne reçoit pas une fiche arbitraire', searchKnowledgeBank('pourquoi ?', 3).length === 0)
 
 console.log('\n── 9. Sujets & recouvrement ──')
 const t1 = extractTopic('salut nexus, peux-tu ecrire un script de pieces roblox pour moi stp')
 check('sujet nettoyé', !t1.includes('stp') && !/salut/i.test(t1) && t1.length > 3, t1)
 check('overlap', overlap('j aime le lua roblox', 'le lua de roblox') > 0.5)
+
+console.log('\n── 10. Récupération hybride des notes locales ──')
+const localNotes = [
+  {
+    id: 'remote-events',
+    title: 'Sécuriser les RemoteEvents Roblox',
+    content: 'Le serveur valide les arguments reçus du client avant tout achat ou changement de données.',
+    category: 'Roblox',
+    tags: '["sécurité", "client", "serveur"]',
+  },
+  {
+    id: 'sql-indexes',
+    title: 'Index et performances SQL',
+    content: 'Les index accélèrent certaines requêtes de base de données.',
+    category: 'Base de données',
+    tags: '["SQL", "performances"]',
+  },
+]
+const localHits = rankLocalKnowledge('sécurité des RemoteEvents dans Roblox', localNotes, 2)
+check('la note RemoteEvents arrive en premier', localHits[0]?.document.id === 'remote-events', localHits.map((hit) => `${hit.document.id}:${hit.score.toFixed(2)}`).join(', '))
+check('une note SQL sans rapport est écartée', !localHits.some((hit) => hit.document.id === 'sql-indexes'))
+const typoHit = rankLocalKnowledge(
+  'RemoteEventz',
+  [{ id: 'remote-event-typo', title: 'RemoteEvents', content: '', category: '', tags: '' }],
+  1
+)
+check(
+  'la similarité vectorielle locale tolère une faute sans radical commun',
+  overlap('RemoteEventz', 'RemoteEvents') === 0 && typoHit[0]?.document.id === 'remote-event-typo'
+)
+check('une requête vide ne retourne aucune note', rankLocalKnowledge('   ', localNotes).length === 0)
 
 console.log(`\n═══ RÉSULTAT : ${pass} passés, ${fail} échoués ═══`)
 process.exit(fail > 0 ? 1 : 0)

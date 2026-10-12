@@ -80,7 +80,7 @@ export function capabilities(): string {
 - Images **procédurales** (Studio Image), **scènes 3D animées** (Studio 3D), **pages web** interactives, et **vraies vidéos MP4** (Studio Vidéo) — tout est rendu en local
 
 🧠 **Intelligence & mémoire**
-- Moteur de raisonnement LLM + compétences locales en repli instantané, **mémoire longue terme** et **base de connaissances** persistantes
+- **Réseau neuronal local** + raisonnement analytique et compétences intégrées, **mémoire longue terme** et **base de connaissances** persistantes
 - **Salle des Cerveaux 3D** : un cerveau central façon Jarvis relié à chaque agent — tu vois qui travaille en direct
 
 👥 **Équipe multi-agents** (ta création)

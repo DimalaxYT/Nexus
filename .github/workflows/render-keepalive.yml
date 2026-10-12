@@ -1,0 +1,52 @@
+name: Render keep-alive
+
+on:
+  schedule:
+    # Offset from minute 0 to reduce delays; schedules run on the default branch and can still be delayed under load.
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the Render health endpoint
+        env:
+          SITE_URL: ${{ vars.RENDER_SITE_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -u
+
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "::error::Add the RENDER_SITE_URL repository variable (for example, https://your-app.onrender.com)."
+            exit 1
+          fi
+
+          health_url="${SITE_URL%/}/api/health"
+          status="$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 75 \
+            --output /dev/null --write-out '%{http_code}' \
+            "$health_url" || true)"
+
+          if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+            echo "Render health check succeeded (HTTP $status)."
+            exit 0
+          fi
+
+          echo "Render health check failed (HTTP ${status:-000})."
+          if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+            payload="$(jq -n --arg content "⚠️ NEXUS sur Render ne répond pas correctement (HTTP ${status:-000}) : ${health_url}" '{content: $content}')"
+            # Keep webhook responses and URLs out of Actions logs; never print the secret.
+            curl --silent --max-time 10 --output /dev/null \
+              --header 'Content-Type: application/json' \
+              --data "$payload" "$DISCORD_WEBHOOK_URL" || true
+          fi
+          exit 1

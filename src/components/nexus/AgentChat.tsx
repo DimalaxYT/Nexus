@@ -518,6 +518,7 @@ export function AgentChat() {
   // Code actuel du Studio Code (partagé avec les agents en discussion privée)
   // + enregistreur de proposition (diff à valider dans le Studio Code)
   const codeFiles = useNexusStore((s) => s.codeFiles)
+  const brainParameters = useNexusStore((s) => s.brainParameters)
   const setPendingProposal = useNexusStore((s) => s.setPendingProposal)
   // Salle des cerveaux 3D : activité en direct + ouverture du panneau
   const setBrainActivity = useNexusStore((s) => s.setBrainActivity)
@@ -862,6 +863,7 @@ export function AgentChat() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: [...history, { role: 'user', content: text }],
+              brainParameters,
               ...(target.kind !== 'nexus' ? { target } : {}),
               // Discussion avec un agent : on lui donne ACCÈS au code actuel du
               // Studio Code (lecture) — il proposera une version à valider.
@@ -1560,7 +1562,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           )}
         </div>
         <p className="mx-auto mt-2 max-w-3xl text-center text-[10px] text-muted-foreground/70">
-          NEXUS combine un moteur de raisonnement LLM et des compétences locales instantanées — recherche web, lecture de pages, code, images, scènes 3D, missions autonomes et mémoire longue.
+          NEXUS s'appuie sur son réseau neuronal local, son moteur analytique, sa mémoire et ses compétences — recherche web à la demande, lecture, code et studios créatifs.
         </p>
       </div>
 

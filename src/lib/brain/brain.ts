@@ -1,8 +1,8 @@
-// ─── NEXUS Brain v3 — Moteur hybride (LLM opportuniste + compétences locales) ─
-// Philosophie : INTELLIGENT quand le LLM répond, RAPIDE et FIABLE toujours.
-// 1. Chemins déterministes instantanés (salutations, maths, heure, identité…)
-// 2. Boucle agentique LLM : décision JSON → outils → réponse VRAIMENT streamée
-// 3. Repli local instantané sur toute indisponibilité (429/timeout/réseau)
+// ─── NEXUS Brain v3 — modèle neuronal et raisonnement analytique locaux ────
+// Philosophie : traitement déterministe, mémoire locale et compétences autonomes.
+// 1. Classifieur neuronal entraîné localement, renforcé par des garde-fous lexicaux
+// 2. Compétences déterministes (code, recherche, calcul, studios créatifs)
+// 3. Raisonnement analytique local, mémoire sémantique et base de connaissances
 // Les événements SSE (contrat v1) restent identiques → client inchangé.
 
 import { db } from '@/lib/db'
@@ -10,7 +10,8 @@ import { isDuplicateMemory } from '@/lib/memory-utils'
 import { captureScreenshot, rasterizeSvg } from '@/lib/screenshot'
 import type { AgentEvent, AgentTool, ChatTarget, CodeFiles, SourceItem } from '@/lib/nexus-types'
 import { CODER_TOOLS, parseAgentRow, parseAgentGroupRow, ROLE_LABELS, type NexusAgent } from '@/lib/nexus-types'
-import { classify, extractTopic, overlap, warmUpClassifier, type Classification } from './classifier'
+import { classify, extractTopic, overlap, type Classification } from './classifier'
+import { resolveContextualRequest } from './contextual-request'
 import { extractEntities, type Entities } from './entities'
 import { evaluateMath } from './math-engine'
 import { generateCodeLocal, refactorExistingCode } from './codegen'
@@ -22,6 +23,14 @@ import { webSearch, readWebpage, isMediaDomain, type SearchResult } from './sear
 import { searchYouTubeNative, searchYouTubeChannels, latestChannelVideo, readYouTubeVideo, type YouTubeSearchHit, type YouTubeChannelHit } from './youtube'
 import { searchKnowledgeBank } from './knowledge-bank'
 import { deepReasonAndAnswer, detectReasoningMode } from './deep-reasoner'
+import { rankLocalKnowledge } from './hybrid-retrieval'
+import {
+  DEFAULT_BRAIN_PARAMETERS,
+  getBrainReasoningLimits,
+  isExplicitSearchRequest,
+  normalizeBrainParameters,
+  type BrainParameters,
+} from './parameters'
 import { extractKeySentences, synthesizePages, buildSearchQuery, type PageContent } from './synthesize'
 import { extractMemories, extractExplicitRetention, autoTitle } from './memory-rules'
 import * as R from './responder'
@@ -41,6 +50,8 @@ export interface BrainInput {
    * directement : il produit une PROPOSITION validable (diff) au lieu d'écraser les fichiers.
    */
   currentCode?: CodeFiles
+  /** Réglages validés du raisonnement local ; défauts sûrs si absents. */
+  brainParameters?: BrainParameters
 }
 
 export type Emit = (event: AgentEvent) => void
@@ -48,12 +59,20 @@ export type Emit = (event: AgentEvent) => void
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface Ctx {
+  /** Message effectivement tapé par l'utilisateur (mémoire et titre). */
   lastUser: string
-  /** Demande effectivement envoyée au LLM : lastUser enrichie du contexte de suivi. */
+  /** Demande normalisée après résolution du contexte conversationnel. */
+  requestText: string
+  /** Sujet précédent pur, utilisé par les outils pour ne pas diluer la requête. */
+  subjectText?: string
+  /** Demande transmise au moteur génératif, enrichie avec le fil précédent. */
   effectiveUser: string
   history: { role: 'user' | 'assistant'; content: string }[]
   entities: Entities
   memories: string[]
+  brainParameters: BrainParameters
+  /** Ne jamais exécuter un outil web hors d'une demande explicite en mode « never ». */
+  explicitWebSearch: boolean
   send: Emit
   isFirstExchange: boolean
   /** Outils autorisés (spécialisation codeur) — undefined = tous autorisés. */
@@ -70,6 +89,10 @@ interface Ctx {
   proposalMode?: boolean
   /** Outils déjà exécutés en pré-chargement (facts injectés) — retirés du protocole. */
   excludeTools?: Set<string>
+}
+
+function requestTopic(ctx: Ctx): string {
+  return ctx.subjectText?.trim() || extractTopic(ctx.requestText) || ctx.requestText
 }
 
 // ── Aides d'émission ─────────────────────────────────────────────────────────
@@ -138,19 +161,7 @@ interface NoteRow {
 async function searchNotes(query: string, max = 4): Promise<NoteRow[]> {
   try {
     const rows = await db.knowledge.findMany({ orderBy: { updatedAt: 'desc' }, take: 200 })
-    const words = stems(query)
-    const scored = rows
-      .map((k) => {
-        const hay = stems(`${k.title} ${k.category} ${k.tags} ${k.content}`)
-        const haySet = new Set(hay)
-        let score = 0
-        for (const w of words) if (haySet.has(w)) score++
-        return { k, score: score / Math.sqrt(words.length + 1) }
-      })
-      .filter((r) => r.score >= 0.5)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, max)
-    return scored.map((s) => s.k)
+    return rankLocalKnowledge(query, rows, max).map(({ document }) => document)
   } catch {
     return []
   }
@@ -202,48 +213,15 @@ async function updateMission(name: string, status: string, note: string): Promis
   }
 }
 
-/** Compétences récemment acquises (missions) — injectées dans le contexte LLM. */
-async function loadRecentSkills(max = 10): Promise<{ title: string; content: string; category: string }[]> {
-  try {
-    const rows = await db.knowledge.findMany({
-      where: { source: 'agent' },
-      orderBy: { updatedAt: 'desc' },
-      take: max,
-      select: { title: true, content: true, category: true },
-    })
-    return rows.map((r) => ({ title: r.title, content: r.content.slice(0, 220), category: r.category }))
-  } catch {
-    return []
-  }
-}
-
-async function loadActiveMissions(): Promise<{ name: string; status: string; duration: string; objectives: string }[]> {
-  try {
-    const rows = await db.task.findMany({ where: { status: { in: ['todo', 'running'] } }, orderBy: { updatedAt: 'desc' }, take: 5 })
-    return rows.map((r) => ({ name: r.name, status: r.status, duration: r.duration, objectives: r.objectives.slice(0, 300) }))
-  } catch {
-    return []
-  }
-}
-
-/** L'équipe d'agents créée par l'utilisateur — injectée dans le contexte de NEXUS. */
-async function loadTeam(): Promise<{ name: string; emoji: string; role: string; prompt: string }[]> {
-  try {
-    const rows = await db.agentProfile.findMany({ where: { enabled: true }, orderBy: { createdAt: 'asc' } })
-    return rows.map(parseAgentRow).map((a) => ({ name: a.name, emoji: a.emoji, role: ROLE_LABELS[a.role], prompt: a.prompt.slice(0, 120) }))
-  } catch {
-    return []
-  }
-}
-
 // ── Compétence : recherche web locale (rapide + synthèse profonde) ───────────
 
 async function skillSearch(query: string, ctx: Ctx): Promise<string> {
+  const reasoningLimits = getBrainReasoningLimits(ctx.brainParameters.responseDetail)
   const s = makeStep('web_search', 'Recherche web', query)
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: `Recherche multi-sources en parallèle (Google Actualités ∥ Bing ∥ DuckDuckGo) sur « ${query} », puis lecture des pages les plus pertinentes et synthèse extractive.` })
 
-  const results = await webSearch(query, 8)
+  const results = await webSearch(query, reasoningLimits.webResults)
   if (!results || results.length === 0) {
     ctx.send({ type: 'step', ...s, tool: 'web_search', label: 'Recherche web', detail: 'réseau indisponible — repli sur mes connaissances', status: 'done' })
     const bank = searchKnowledgeBank(query, 1)[0]
@@ -255,14 +233,19 @@ async function skillSearch(query: string, ctx: Ctx): Promise<string> {
   ctx.send({ type: 'step', ...s, tool: 'web_search', label: 'Recherche web', detail: `${sources.length} sources trouvées — lecture approfondie…`, status: 'running' })
 
   // Lecture en parallèle des meilleures pages (hors vidéos/réseaux sociaux)
-  const goodPages = await readBestPages(results, 2)
+  const goodPages = await readBestPages(results, reasoningLimits.pagesToRead)
   for (const p of goodPages) {
     ctx.send({ type: 'sources', sources: [{ title: p.title, url: p.url, domain: p.domain, snippet: p.text.slice(0, 220) }] })
   }
 
   ctx.send({ type: 'step', ...s, tool: 'web_search', label: 'Recherche web', detail: `${sources.length} sources · ${goodPages.length} pages lues`, status: 'done' })
 
-  const synthesis = synthesizePages(query, goodPages, 3, 8)
+  const synthesis = synthesizePages(
+    query,
+    goodPages,
+    reasoningLimits.synthesizedSentencesPerPage,
+    reasoningLimits.synthesizedTotalSentences
+  )
   return R.searchAnswerDeep(query, results, synthesis)
 }
 
@@ -317,7 +300,7 @@ async function skillReadPage(url: string, ctx: Ctx): Promise<string> {
   ctx.send({ type: 'step', ...s, tool: 'read_webpage', label: 'Lecture de page', detail: shot ? 'lue + capturée' : 'lue (capture impossible)', status: 'done' })
 
   // Synthèse extractive du contenu (plus fine que les 4 premiers paragraphes)
-  const topic = extractTopic(ctx.lastUser)
+  const topic = requestTopic(ctx)
   const keyPoints = extractKeySentences(page.text, topic || page.title, 4)
   const apercu =
     keyPoints.length > 0
@@ -343,18 +326,18 @@ async function skillImage(prompt: string, size: string, ctx: Ctx): Promise<strin
   return R.imageAnswer(art.description)
 }
 
-// ── Compétence : code (template local — repli si LLM indisponible) ───────────
+// ── Compétence : génération de code par gabarits locaux ─────────────────────
 
 async function skillCode(ctx: Ctx): Promise<string> {
-  if (detectReasoningMode(ctx.lastUser, Boolean(ctx.currentCode)) === 'code_audit') {
+  if (detectReasoningMode(ctx.requestText, Boolean(ctx.currentCode)) === 'code_audit') {
     return handleGeneral(ctx, { intent: 'code', confidence: 0.95, source: 'lexical', topScores: [] })
   }
   if (
     ctx.currentCode &&
     (ctx.currentCode.js.trim() || ctx.currentCode.html.trim() || ctx.currentCode.css.trim()) &&
-    /\b(am[ée]liore|modifie|change|corrige|refactor|optimise|s[ée]curise|ajoute)\b/i.test(ctx.lastUser)
+    /\b(am[ée]liore|modifie|change|corrige|refactor|optimise|s[ée]curise|ajoute)\b/i.test(ctx.requestText)
   ) {
-    const refactored = refactorExistingCode(ctx.currentCode, ctx.lastUser)
+    const refactored = refactorExistingCode(ctx.currentCode, ctx.requestText)
     if (refactored && refactored.modified) {
       const s = makeStep('generate_code', 'Refactoring du code', refactored.description)
       ctx.send({ type: 'step', ...s, status: 'running' })
@@ -378,8 +361,8 @@ async function skillCode(ctx: Ctx): Promise<string> {
       ].join('\n\n')
     }
   }
-  const topic = extractTopic(ctx.lastUser)
-  const gen = generateCodeLocal(ctx.lastUser, ctx.entities, topic)
+  const topic = requestTopic(ctx)
+  const gen = generateCodeLocal(ctx.requestText, ctx.entities, topic)
   const s = makeStep('generate_code', 'Écriture du code', `${gen.language} — ${gen.filename}`)
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: `Gabarit local : sujet « ${topic.slice(0, 60)} » → ${gen.filename} (${gen.language}), paramétrage par tes entités, commentaires français.` })
@@ -397,8 +380,8 @@ async function skillCode(ctx: Ctx): Promise<string> {
 // ── Compétence : page web (template local) ───────────────────────────────────
 
 async function skillWebpage(ctx: Ctx): Promise<string> {
-  const topic = extractTopic(ctx.lastUser)
-  const gen = generateWebpageLocal(ctx.lastUser, topic)
+  const topic = requestTopic(ctx)
+  const gen = generateWebpageLocal(ctx.requestText, topic)
   const s = makeStep('generate_webpage', 'Génération de page web', gen.description.slice(0, 70))
   ctx.send({ type: 'step', ...s, status: 'running' })
   const name = topic.split(/[.,;]/)[0].slice(0, 42) || 'Page web'
@@ -410,11 +393,11 @@ async function skillWebpage(ctx: Ctx): Promise<string> {
 // ── Compétence : scène 3D ────────────────────────────────────────────────────
 
 async function skillScene(ctx: Ctx): Promise<string> {
-  const brief = extractTopic(ctx.lastUser) || ctx.lastUser
+  const brief = requestTopic(ctx)
   const s = makeStep('create_3d_scene', 'Création 3D', brief.slice(0, 70))
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: `Composition procédurale : thème détecté, placement déterministe (graine = hash du brief), éclairage cohérent.` })
-  const scene = generateSceneLocal(ctx.lastUser)
+  const scene = generateSceneLocal(ctx.subjectText ?? ctx.requestText)
   ctx.send({ type: 'scene', scene })
   ctx.send({ type: 'step', ...s, tool: 'create_3d_scene', label: 'Création 3D', detail: `${scene.objects.length} objets — chargée dans le Studio 3D`, status: 'done' })
   return R.sceneAnswer(scene.name, scene.objects.length)
@@ -426,7 +409,7 @@ async function skillVideoWithPrompt(prompt: string, ctx: Ctx): Promise<string> {
   const s = makeStep('generate_video', 'Génération vidéo', prompt.slice(0, 70))
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: 'Moteur vidéo 100 % local : thème détecté depuis le prompt, rendu image par image (parallaxe, eau animée, particules, travelling caméra), encodage MP4 par ffmpeg.' })
-  const durMatch = ctx.lastUser.match(/(\d{1,2})\s*(s\b|sec|secondes)/i)
+  const durMatch = [ctx.requestText, ctx.subjectText ?? ''].join(' ').match(/(\d{1,2})\s*(s\b|sec|secondes)/i)
   const requested = durMatch ? Math.max(3, Math.min(10, parseInt(durMatch[1], 10))) : 5
   const duration = requested >= 8 ? 10 : 5
   try {
@@ -441,13 +424,13 @@ async function skillVideoWithPrompt(prompt: string, ctx: Ctx): Promise<string> {
 }
 
 async function skillVideo(ctx: Ctx): Promise<string> {
-  return skillVideoWithPrompt(extractTopic(ctx.lastUser) || ctx.lastUser, ctx)
+  return skillVideoWithPrompt(requestTopic(ctx), ctx)
 }
 
 // ── Compétence : suivi de mission (manuel) ───────────────────────────────────
 
 async function skillTask(ctx: Ctx): Promise<string> {
-  const text = ctx.lastUser
+  const text = ctx.requestText
   const s = makeStep('update_task', 'Suivi de mission', text.slice(0, 60))
   ctx.send({ type: 'step', ...s, status: 'running' })
 
@@ -477,7 +460,7 @@ async function skillTask(ctx: Ctx): Promise<string> {
 // ── Compétence : base de connaissances ───────────────────────────────────────
 
 async function skillKnowledgeSave(ctx: Ctx): Promise<string> {
-  const text = ctx.lastUser
+  const text = ctx.subjectText ?? ctx.requestText
   const s = makeStep('save_knowledge', 'Base de connaissances', text.slice(0, 60))
   ctx.send({ type: 'step', ...s, status: 'running' })
 
@@ -499,7 +482,7 @@ async function skillKnowledgeSave(ctx: Ctx): Promise<string> {
 }
 
 async function skillKnowledgeQuery(ctx: Ctx): Promise<string> {
-  const query = extractTopic(ctx.lastUser)
+  const query = extractTopic(ctx.subjectText ?? ctx.requestText)
   const s = makeStep('search_knowledge', 'Recherche dans tes notes', query)
   ctx.send({ type: 'step', ...s, status: 'running' })
 
@@ -702,15 +685,15 @@ function youtubeWatchAnswer(d: YouTubeWatchData): string {
 
 /** Compétence complète (chemin déterministe NEXUS) : étapes + sources + réponse. */
 async function skillYouTubeWatch(ctx: Ctx): Promise<string> {
-  const subject = extractVideoSubject(ctx.lastUser)
-  const s = makeStep('web_search', 'Recherche YouTube', subject ? `dernière vidéo de « ${subject} »` : ctx.lastUser.slice(0, 60))
+  const subject = extractVideoSubject(ctx.subjectText ?? ctx.requestText)
+  const s = makeStep('web_search', 'Recherche YouTube', subject ? `dernière vidéo de « ${subject} »` : ctx.requestText.slice(0, 60))
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: `Je cherche la chaîne de « ${subject || 'ce créateur'} » sur YouTube, puis je lis son onglet de vidéos pour trouver LA plus récente — pas une simple recherche par pertinence.` })
 
-  const data = await prepareYouTubeWatch(subject || ctx.lastUser.slice(0, 60))
+  const data = await prepareYouTubeWatch(subject || (ctx.subjectText ?? ctx.requestText).slice(0, 60))
   if (!data) {
     ctx.send({ type: 'step', ...s, tool: 'web_search', label: 'Recherche YouTube', detail: 'aucune chaîne/vidéo trouvée', status: 'error' })
-    return `Je n'ai pas trouvé de chaîne YouTube correspondant à « ${subject || ctx.lastUser.slice(0, 60)} ». Peux-tu vérifier l'orthographe exacte du nom (ou me donner le lien de la chaîne/vidéo) ? Je relirai immédiatement.`
+    return `Je n'ai pas trouvé de chaîne YouTube correspondant à « ${subject || ctx.requestText.slice(0, 60)} ». Peux-tu vérifier l'orthographe exacte du nom (ou me donner le lien de la chaîne/vidéo) ? Je relirai immédiatement.`
   }
 
   const sources: SourceItem[] = [
@@ -841,16 +824,31 @@ Tu peux vaquer à tes occupations — surveille le panneau Task, la progression 
 // ── Conversation générale (repli local) ──────────────────────────────────────
 
 async function handleGeneral(ctx: Ctx, _classification: Classification): Promise<string> {
-  const topic = extractTopic(ctx.lastUser)
-  const notes = await searchNotes(ctx.lastUser, 2)
-  const memoryHits = ctx.memories.filter((m) => overlap(ctx.lastUser, m) > 0.25).slice(0, 4)
+  const topic = requestTopic(ctx)
+  const notes = await searchNotes(topic, ctx.brainParameters.noteLimit)
+  const memoryLimit = ctx.brainParameters.responseDetail === 'concise'
+    ? 1
+    : ctx.brainParameters.responseDetail === 'detailed'
+      ? 5
+      : 3
+  const memoryHits = ctx.brainParameters.usePersonalMemory
+    ? ctx.memories.filter((memory) => overlap(topic, memory) > 0.25).slice(0, memoryLimit)
+    : []
+  const isClarificationFollowUp = ctx.requestText.startsWith('Question de suivi')
+  const lastUserIndex = [...ctx.history].map((message) => message.role).lastIndexOf('user')
+  const previousAssistant = [...ctx.history.slice(0, Math.max(0, lastUserIndex))]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.content.trim().length > 0)?.content
 
   return deepReasonAndAnswer({
-    userText: ctx.lastUser,
+    userText: ctx.requestText,
     topic,
-    memories: memoryHits.length > 0 ? memoryHits : ctx.memories.slice(0, 3),
+    memories: memoryHits,
     notes,
     currentCode: ctx.currentCode,
+    previousAssistant,
+    isClarificationFollowUp,
+    brainParameters: ctx.brainParameters,
     send: ctx.send,
   })
 }
@@ -873,40 +871,16 @@ const TOOLS_PROTOCOL_LINES: { tool: string; spec: string }[] = [
 ]
 
 /** Protocole d'outils, filtré selon les autorisations de l'agent courant. */
-function toolsProtocol(allowed?: Set<string>, exclude?: Set<string>): string {
-  const lines = TOOLS_PROTOCOL_LINES.filter((l) => (!allowed || allowed.has(l.tool)) && (!exclude || !exclude.has(l.tool))).map((l) => l.spec)
+function toolsProtocol(allowed?: Set<string>, exclude?: Set<string>, disableAutomaticWebSearch = false): string {
+  const lines = TOOLS_PROTOCOL_LINES
+    .filter((l) => (!allowed || allowed.has(l.tool)) && (!exclude || !exclude.has(l.tool)))
+    .filter((l) => !disableAutomaticWebSearch || l.tool !== 'web_search')
+    .map((l) => l.spec)
   return `OUTILS DISPONIBLES — pour en appeler un, réponds UNIQUEMENT avec l'objet JSON correspondant (RIEN d'autre : aucun texte avant ni après, aucun préambule) :
 ${lines.join('\n')}
 {"tool":"none"} — si aucun outil n'est utile.`
 }
 const TOOLS_PROTOCOL = toolsProtocol()
-
-async function buildSystemPrompt(): Promise<string> {
-  const now = new Date().toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
-  const [memories, skills, missions, team] = await Promise.all([loadMemories(), loadRecentSkills(), loadActiveMissions(), loadTeam()])
-  const parts: string[] = [
-    `Tu es NEXUS, un ingénieur et architecte IA autonome de haut niveau intégré dans l'environnement NEXUS. Tu réponds TOUJOURS en français, en tutoyant l'utilisateur, avec la rigueur analytique, la clarté pédagogique et la précision technique des meilleurs modèles (niveau Claude).`,
-    `PRINCIPES DE RÉPONSE :
-- Va droit au but : zéro remplissage ni politesse superficielle.
-- Structure tes explications (synthèse directe, mécanismes détaillés, exemple concret, cas limites/sécurité).
-- Quand tu écris du code (Luau/Roblox, TypeScript, Python, React, SQL, GLSL…), fournis un code COMPLET, idiomatique, typé, sécurisé et directement exécutable (jamais de "// ... reste du code").
-- Ne dis jamais ce que tu "pourrais" faire : fais-le immédiatement.`,
-    `Date et heure actuelles : ${now}.`,
-  ]
-  if (memories.length > 0) {
-    parts.push(`MÉMOIRE LONGUE TERME sur l'utilisateur :\n${memories.slice(0, 12).map((m) => `- ${m}`).join('\n')}`)
-  }
-  if (team.length > 0) {
-    parts.push(`TON ÉQUIPE D'AGENTS (créés par l'utilisateur, chacun avec son prompt personnel) :\n${team.map((a) => `- ${a.emoji} ${a.name} (${a.role})${a.prompt ? ` — « ${a.prompt} »` : ''}`).join('\n')}\nL'utilisateur peut leur parler directement via le sélecteur de destinataire : agent seul, table ronde (tous ou un groupe), ou BUREAU (les agents délibèrent ensemble et tu livres la réponse consolidée). Si on te demande qui ils sont, présente-les fidèlement.`)
-  }
-  if (skills.length > 0) {
-    parts.push(`COMPÉTENCES QUE TU AS APPRISES lors de tes missions autonomes (utilise-les pour répondre plus justement) :\n${skills.map((s) => `- [${s.category}] ${s.title} : ${s.content}`).join('\n')}`)
-  }
-  if (missions.length > 0) {
-    parts.push(`MISSIONS ACTIVES confiées par l'utilisateur :\n${missions.map((m) => `- « ${m.name} » (${m.status}${m.duration ? `, ${m.duration}` : ''})`).join('\n')}\nSi l'utilisateur parle de ses missions, tu connais leur état.`)
-  }
-  return parts.join('\n\n')
-}
 
 interface ToolCall {
   tool: string
@@ -929,13 +903,18 @@ interface ToolCall {
 /** Exécute un appel d'outil décidé par le LLM. Retourne le résultat injecté au LLM. */
 async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; sources?: SourceItem[]; artifact?: string }> {
   const tool = call.tool
+  if (tool === 'web_search' && ctx.brainParameters.webResearch === 'never' && !ctx.explicitWebSearch) {
+    return { result: 'La recherche Web automatique est désactivée dans les paramètres. Réponds avec les connaissances disponibles ou demande explicitement une recherche Web à l’utilisateur.' }
+  }
   // Spécialisation : certains agents (codeurs) n'ont qu'un accès restreint aux outils
   if (ctx.allowedTools && !ctx.allowedTools.has(tool)) {
     const allowedList = [...ctx.allowedTools].join(', ')
     return { result: `Outil « ${tool} » NON AUTORISÉ pour ton rôle (spécialisation restreinte). Outils autorisés : ${allowedList}. Continue avec l'un de ceux-là ou réponds directement.` }
   }
   if (tool === 'web_search') {
-    const baseQuery = (call.query ?? '').slice(0, 160) || extractTopic(ctx.lastUser)
+    const reasoningLimits = getBrainReasoningLimits(ctx.brainParameters.responseDetail)
+    const pageExcerptLimit = ctx.brainParameters.responseDetail === 'concise' ? 1500 : ctx.brainParameters.responseDetail === 'detailed' ? 6000 : 3500
+    const baseQuery = (call.query ?? '').slice(0, 160) || requestTopic(ctx)
     const isYoutube = /youtube/i.test(call.site ?? '')
     const s = makeStep('web_search', 'Recherche web', `${baseQuery}${call.site ? ` · site:${call.site}` : ''}`)
     ctx.send({ type: 'step', ...s, status: 'running' })
@@ -956,7 +935,7 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     let results: SearchResult[] | null = null
     let usedQuery = baseQuery
     for (const q of variants) {
-      results = await webSearch(q, 8, call.site || undefined)
+      results = await webSearch(q, reasoningLimits.webResults, call.site || undefined)
       if (results && results.length > 0) {
         usedQuery = q
         break
@@ -966,10 +945,10 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     // YouTube : toujours doubler avec la recherche native (résultats vidéo réels)
     let ytHits: Awaited<ReturnType<typeof searchYouTubeNative>> = []
     if (isYoutube) {
-      ytHits = await searchYouTubeNative(usedQuery, 6)
+      ytHits = await searchYouTubeNative(usedQuery, Math.min(6, reasoningLimits.webResults))
       if ((ytHits.length === 0 || !results || results.length === 0) && variants.length > 1) {
         for (const q of variants.slice(1)) {
-          ytHits = await searchYouTubeNative(q, 6)
+          ytHits = await searchYouTubeNative(q, Math.min(6, reasoningLimits.webResults))
           if (ytHits.length > 0) {
             usedQuery = q
             break
@@ -989,10 +968,10 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     ]
     ctx.send({ type: 'sources', sources })
 
-    const goodPages = await readBestPages(results ?? [], 2)
+    const goodPages = await readBestPages(results ?? [], reasoningLimits.pagesToRead)
     ctx.send({ type: 'step', ...s, tool: 'web_search', label: 'Recherche web', detail: `${sources.length} sources · ${goodPages.length} pages lues${ytHits.length > 0 ? ` · ${ytHits.length} vidéos YouTube` : ''}`, status: 'done' })
 
-    const extra = goodPages.map((p) => `PAGE LUE « ${p.title} » (${p.domain}):\n${p.text.slice(0, 3500)}`).join('\n\n')
+    const extra = goodPages.map((p) => `PAGE LUE « ${p.title} » (${p.domain}):\n${p.text.slice(0, pageExcerptLimit)}`).join('\n\n')
     const ytPart =
       ytHits.length > 0
         ? `\n\nVIDÉOS YOUTUBE TROUVÉES (recherche native) :\n${ytHits.map((h, i) => `${i + 1}. « ${h.title} » — chaîne : ${h.channel}${h.duration ? ` · durée ${h.duration}` : ''}\n   ${h.url}${h.snippet ? `\n   résumé : ${h.snippet.slice(0, 200)}` : ''}`).join('\n')}\n→ Cite ces vidéos avec leur titre et leur chaîne ; pour « la dernière », prends la plus pertinente et dis ce que son titre/chaîne indiquent — propose de lire la page de la vidéo si l'utilisateur veut le détail.`
@@ -1006,25 +985,25 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
   if (tool === 'generate_code') {
     const language = (call.language ?? 'python').slice(0, 20)
     const filename = (call.filename ?? 'script').slice(0, 60)
-    const brief = (call.brief ?? extractTopic(ctx.lastUser)).slice(0, 500)
+    const brief = (call.brief ?? requestTopic(ctx)).slice(0, 500)
     const s = makeStep('generate_code', 'Écriture du code', `${language} — ${filename}`)
     ctx.send({ type: 'step', ...s, status: 'running' })
     // Le LLM écrit le code DANS sa réponse finale (markdown) — on lui demande ici
     return { result: `Tu dois maintenant écrire le code complet dans ta réponse finale : langage ${language}, fichier ${filename}. Demande : ${brief}. Mets le code dans un bloc markdown \`\`\`${language} … \`\`\` (un seul bloc, code complet et fonctionnel, commenté en français).`, artifact: 'code' }
   }
   if (tool === 'generate_webpage') {
-    const brief = (call.brief ?? extractTopic(ctx.lastUser)).slice(0, 500)
+    const brief = (call.brief ?? requestTopic(ctx)).slice(0, 500)
     const s = makeStep('generate_webpage', 'Génération de page web', brief.slice(0, 70))
     ctx.send({ type: 'step', ...s, status: 'running' })
     return { result: `Tu dois maintenant créer la page web complète dans ta réponse finale. Demande : ${brief}. Format OBLIGATOIRE : trois blocs markdown distincts — \`\`\`html … \`\`\`, \`\`\`css … \`\`\`, \`\`\`javascript … \`\`\` (HTML sémantique responsive, CSS moderne, JS interactif ; textes en français).`, artifact: 'webpage' }
   }
   if (tool === 'generate_image') {
-    const prompt = (call.prompt ?? ctx.lastUser).slice(0, 200)
+    const prompt = (call.prompt ?? requestTopic(ctx)).slice(0, 200)
     const text = await skillImage(prompt, '1024x1024', ctx)
     return { result: `Image générée localement (art procédural). Message affiché : ${text}` }
   }
   if (tool === 'generate_video') {
-    const prompt = (call.prompt ?? extractTopic(ctx.lastUser) ?? ctx.lastUser).slice(0, 300)
+    const prompt = (call.prompt ?? requestTopic(ctx)).slice(0, 300)
     const text = await skillVideoWithPrompt(prompt, ctx)
     return { result: `Vidéo MP4 générée localement (moteur procédural + ffmpeg). Message affiché : ${text}` }
   }
@@ -1177,6 +1156,7 @@ function resolveFollowUp(lastUser: string, history: { role: 'user' | 'assistant'
 // ── Boucle principale ────────────────────────────────────────────────────────
 
 export async function processTurn(input: BrainInput, send: Emit): Promise<void> {
+  const brainParameters = normalizeBrainParameters(input.brainParameters ?? DEFAULT_BRAIN_PARAMETERS)
   const history = input.messages.filter((m) => typeof m.content === 'string').slice(-14)
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
   if (!lastUser.trim()) {
@@ -1184,12 +1164,34 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     return
   }
 
-  warmUpClassifier()
-  const entities = extractEntities(lastUser)
-  const memories = await loadMemories()
+  const contextualRequest = resolveContextualRequest(lastUser, history)
+  const requestText = contextualRequest?.requestText ?? lastUser
+  const subjectText = contextualRequest?.subject
+  const entities = extractEntities([requestText, subjectText ?? ''].join('\n'))
+  if (contextualRequest?.language) entities.language = contextualRequest.language
+  const memories = brainParameters.usePersonalMemory ? await loadMemories() : []
   const isFirstExchange = history.filter((m) => m.role === 'user').length <= 1
-  const effectiveUser = resolveFollowUp(lastUser, history) ?? lastUser
-  const ctx: Ctx = { lastUser, effectiveUser, history, entities, memories, send, isFirstExchange, currentCode: input.currentCode }
+  const legacyFollowUp = resolveFollowUp(lastUser, history)
+  const effectiveUser = contextualRequest
+    ? `${contextualRequest.requestText}\n\n[Message de suivi : « ${lastUser.trim()} »]`
+    : legacyFollowUp ?? lastUser
+  const ctx: Ctx = {
+    lastUser,
+    requestText,
+    ...(subjectText ? { subjectText } : {}),
+    effectiveUser,
+    history,
+    entities,
+    memories,
+    brainParameters,
+    explicitWebSearch: isExplicitSearchRequest([lastUser, requestText, subjectText ?? ''].join(' ')),
+    send,
+    isFirstExchange,
+    currentCode: input.currentCode,
+  }
+  if (contextualRequest) {
+    send({ type: 'thought', text: `Contexte compris : ${contextualRequest.reason}. Sujet repris : « ${contextualRequest.subject.slice(0, 120)} ».` })
+  }
 
   const nameMatch = memories.find((m) => /s'appelle/i.test(m))?.match(/s'appelle\s+([\p{L}-]+)/iu)
   const userName = nameMatch?.[1]
@@ -1197,7 +1199,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   // ── Discussion ciblée (sélecteur du chat) : agent seul ou table ronde ──────
   // Les missions (« MISSION : … ») restent gérées par NEXUS : c'est son rôle.
   const target = input.target ?? { kind: 'nexus' as const }
-  const isMissionMessage = /^mission\s*:/i.test(lastUser.trim())
+  const isMissionMessage = /^mission\s*:/i.test(requestText.trim())
   if (target.kind !== 'nexus' && !isMissionMessage) {
     try {
       if (target.kind === 'agent') await handleSoloAgentTurn(target.agentId, ctx)
@@ -1212,8 +1214,11 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   }
 
   // ── Étape 1 : analyse locale affichée (menu déroulant de réflexion) ───────
-  const classification = classify(lastUser)
-  const tokens = stems(lastUser)
+  const initialClassification = classify(requestText)
+  const classification: Classification = contextualRequest
+    ? { ...initialClassification, intent: contextualRequest.intent, confidence: Math.max(0.9, initialClassification.confidence), source: 'mixed' }
+    : initialClassification
+  const tokens = stems(requestText)
   send({ type: 'thought', text: `Analyse de ta demande : ${tokens.length} terme(s) significatif(s), intention « ${classification.intent} » (${Math.round(classification.confidence * 100)} %). Je choisis le meilleur moteur pour y répondre.` })
 
   const analysisStep = makeStep('system', 'Cerveau', 'sélection du moteur de raisonnement')
@@ -1223,16 +1228,16 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   let handled = false
   let finalText = ''
 
-  if (/^mission\s*:/i.test(lastUser.trim())) {
+  if (/^mission\s*:/i.test(requestText.trim())) {
     send({ type: 'step', ...analysisStep, detail: 'mission détectée → exécution autonome', status: 'done' })
-    finalText = await handleMissionMessage(lastUser, ctx)
+    finalText = await handleMissionMessage(requestText, ctx)
     handled = true
   } else if (entities.url) {
     send({ type: 'step', ...analysisStep, detail: 'URL détectée → lecture directe', status: 'done' })
     finalText = await skillReadPage(entities.url, ctx)
     handled = true
   } else if (classification.intent === 'math') {
-    const m = evaluateMath(lastUser)
+    const m = evaluateMath(requestText)
     if (m) {
       send({ type: 'step', ...analysisStep, detail: 'calcul exact → moteur mathématique local', status: 'done' })
       finalText = m.ok
@@ -1244,7 +1249,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     send({ type: 'step', ...analysisStep, detail: 'heure/date → horloge locale', status: 'done' })
     finalText = R.timeAnswer(new Date())
     handled = true
-  } else if (isWatchVideoRequest(lastUser)) {
+  } else if (isWatchVideoRequest([requestText, subjectText ?? ''].join(' '))) {
     // « Regarde la dernière vidéo de X » : chemin DÉTERMINISTE (recherche de
     // chaîne + onglet /videos) — jamais dépendant d'une décision LLM.
     // ⚠️ Toutes les demandes d'ACTION réelles (visionnage, comptes connectés)
@@ -1253,17 +1258,17 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     send({ type: 'step', ...analysisStep, detail: 'demande de visionnage → recherche YouTube réelle', status: 'done' })
     finalText = await skillYouTubeWatch(ctx)
     handled = true
-  } else if (isInboxRequest(lastUser)) {
+  } else if (isInboxRequest([requestText, subjectText ?? ''].join(' '))) {
     // « Lis ma boîte mail » : lecture IMAP RÉELLE de la boîte connectée —
     // chemin déterministe, pas de LLM requis.
     send({ type: 'step', ...analysisStep, detail: 'boîte mail connectée → lecture IMAP réelle', status: 'done' })
     finalText = await skillCheckEmail(ctx)
     handled = true
-  } else if (isGithubAccountRequest(lastUser)) {
+  } else if (isGithubAccountRequest([requestText, subjectText ?? ''].join(' '))) {
     send({ type: 'step', ...analysisStep, detail: 'compte GitHub connecté → API officielle', status: 'done' })
     finalText = await skillGithubAccount(ctx)
     handled = true
-  } else if (isTiktokAccountRequest(lastUser)) {
+  } else if (isTiktokAccountRequest([requestText, subjectText ?? ''].join(' '))) {
     send({ type: 'step', ...analysisStep, detail: 'compte TikTok relié → lecture du profil public', status: 'done' })
     finalText = await skillTiktokAccount(ctx)
     handled = true
@@ -1294,7 +1299,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     if (classification.intent === 'knowledge_save') {
       finalText = await skillKnowledgeSave(ctx)
     } else {
-      const freshMemories = await loadMemories()
+      const freshMemories = brainParameters.usePersonalMemory ? await loadMemories() : []
       finalText = freshItems.length > 0 ? R.memorySavedIntro(freshMemories, freshItems) : R.aboutUser(memories)
     }
     handled = true
@@ -1302,7 +1307,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     send({ type: 'step', ...analysisStep, detail: 'recherche dans tes notes → base de connaissances', status: 'done' })
     finalText = await skillKnowledgeQuery(ctx)
     handled = true
-  } else if (classification.intent === 'video' && !isWatchVideoRequest(lastUser)) {
+  } else if (classification.intent === 'video' && !isWatchVideoRequest([requestText, subjectText ?? ''].join(' '))) {
     // « Génère une vidéo de X » : rendu MP4 RÉEL par le moteur procédural local
     // (rendu image par image + ffmpeg) — chemin déterministe, pas de LLM requis.
     send({ type: 'step', ...analysisStep, detail: 'génération de vidéo → moteur procédural local + ffmpeg', status: 'done' })
@@ -1310,10 +1315,10 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     handled = true
   }
 
-  // ── Étape 3 : moteur LLM (boucle agentique) + repli local ─────────────────
+  // ── Étape 3 : raisonnement neuronal et analytique local ───────────────────
   if (!handled) {
-    const system = await buildSystemPrompt()
-    await runLlmPipeline(ctx, classification, system, analysisStep)
+    send({ type: 'step', ...analysisStep, detail: 'raisonnement local + mémoire et connaissances pertinentes', status: 'done' })
+    await localFallback(ctx, classification, false)
   } else {
     // Chemin déterministe : streamer la réponse locale
     await streamText(finalText, send)
@@ -1335,15 +1340,20 @@ async function runLlmPipeline(
   system: string,
   analysisStep: { id: string; tool: AgentTool; label: string; detail: string } | null
 ): Promise<void> {
-  const historyMsgs: LlmMessage[] = ctx.history.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2500) }))
-  const protocol = toolsProtocol(ctx.allowedTools, ctx.excludeTools)
+  const historyMsgs: LlmMessage[] = ctx.history.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2_500) }))
+  const currentUserIndex = historyMsgs.findLastIndex((m) => m.role === 'user')
+  if (currentUserIndex >= 0 && ctx.effectiveUser !== ctx.lastUser) {
+    historyMsgs[currentUserIndex] = { role: 'user', content: ctx.effectiveUser.slice(0, 4000) }
+  }
+  const blockAutomaticWebSearch = ctx.brainParameters.webResearch === 'never' && !ctx.explicitWebSearch
+  const protocol = toolsProtocol(ctx.allowedTools, ctx.excludeTools, blockAutomaticWebSearch)
 
   const wantsAction = ['search', 'code', 'image', 'scene3d', 'webpage', 'video', 'readpage'].includes(classification.intent)
   if (analysisStep) {
     ctx.send({
       type: 'step',
       ...analysisStep,
-      detail: wantsAction ? 'moteur LLM + outils (action détectée)' : 'moteur LLM (conversation)',
+      detail: wantsAction ? 'intention d’action → compétence locale adaptée' : 'conversation → raisonnement analytique local',
       status: 'done',
     })
   }
@@ -1569,10 +1579,10 @@ async function runLlmPipeline(
         // Mode PROPOSITION, route conversationnelle : l'agent a répondu avec des
         // blocs de code (demande d'amélioration) → on les transforme en
         // PROPOSITION validable au lieu d'un artefact écrit directement.
-        const looksLikeEdit = /am[ée]liore|modifie|change|corrige|refactor|optimise|ajoute|rajoute|retravaille|remplace|met[s]? [àa] jour|update/i.test(ctx.lastUser)
+        const looksLikeEdit = /am[ée]liore|modifie|change|corrige|refactor|optimise|ajoute|rajoute|retravaille|remplace|met[s]? [àa] jour|update/i.test(ctx.requestText)
         if (looksLikeEdit) {
           // Des blocs html/css → page web complète ; sinon le premier bloc (script)
-          const preferWeb = /```(?:html|css)/i.test(streamed) || /<|html/i.test(ctx.lastUser)
+          const preferWeb = /```(?:html|css)/i.test(streamed) || /<|html/i.test(ctx.requestText)
           const artifact = extractCodeArtifact(streamed, preferWeb)
           if (artifact && (artifact.files.html.length + artifact.files.css.length + artifact.files.js.length) > 120) {
             emitCodeArtifact(ctx, artifact, streamed.replace(/```[\s\S]*?```/g, '').trim().slice(0, 500) || 'Version améliorée de ton code actuel.')
@@ -1637,7 +1647,7 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   const hasCode = Boolean(code && (code.html.trim() || code.css.trim() || code.js.trim()))
   if (hasCode) ctx.proposalMode = true
 
-  const classification = classify(ctx.lastUser)
+  const classification = classify(ctx.requestText)
 
   // Identité : l'agent se décrit avec SA fiche et SON prompt personnel
   if (classification.intent === 'identity') {
@@ -1662,11 +1672,11 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   // injectés dans le prompt : l'agent répond avec les VRAIES données même si
   // le moteur distant décroche ensuite. Et NEXUS ajoute ensuite son rappel.
   let ytData: Awaited<ReturnType<typeof prepareYouTubeWatch>> = null
-  if (isWatchVideoRequest(ctx.lastUser)) {
-    const subject = extractVideoSubject(ctx.lastUser)
-    const s = makeStep('web_search', 'Recherche YouTube', subject ? `dernière vidéo de « ${subject} »` : ctx.lastUser.slice(0, 50))
+  if (isWatchVideoRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))) {
+    const subject = extractVideoSubject(ctx.subjectText ?? ctx.requestText)
+    const s = makeStep('web_search', 'Recherche YouTube', subject ? `dernière vidéo de « ${subject} »` : ctx.requestText.slice(0, 50))
     ctx.send({ type: 'step', ...s, status: 'running' })
-    ytData = await prepareYouTubeWatch(subject || ctx.lastUser.slice(0, 60))
+    ytData = await prepareYouTubeWatch(subject || ctx.requestText.slice(0, 60))
     if (ytData) {
       ctx.send({
         type: 'sources',
@@ -1688,9 +1698,9 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   // l'agent « a accès à la boîte mail » exactement comme NEXUS.
   let connFacts = ''
   let connKind: 'email' | 'github' | 'tiktok' | null = null
-  if (isInboxRequest(ctx.lastUser)) connKind = 'email'
-  else if (isGithubAccountRequest(ctx.lastUser)) connKind = 'github'
-  else if (isTiktokAccountRequest(ctx.lastUser)) connKind = 'tiktok'
+  if (isInboxRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))) connKind = 'email'
+  else if (isGithubAccountRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))) connKind = 'github'
+  else if (isTiktokAccountRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))) connKind = 'tiktok'
   if (connKind === 'email') {
     const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
     ctx.send({ type: 'step', ...s, status: 'running' })
@@ -1786,18 +1796,18 @@ async function handleEnsembleTurn(target: ChatTarget, ctx: Ctx): Promise<void> {
 
   // Demande de visionnage : NEXUS prépare la recherche et l'injecte dans la
   // délibération — les agents délibèrent sur des DONNÉES RÉELLES.
-  let contextHint = ctx.effectiveUser !== ctx.lastUser ? ctx.effectiveUser : undefined
-  if (isWatchVideoRequest(ctx.lastUser)) {
-    const subject = extractVideoSubject(ctx.lastUser)
-    const data = await prepareYouTubeWatch(subject || ctx.lastUser.slice(0, 60))
+  let contextHint = ctx.effectiveUser !== ctx.requestText ? ctx.effectiveUser : undefined
+  if (isWatchVideoRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))) {
+    const subject = extractVideoSubject(ctx.requestText)
+    const data = await prepareYouTubeWatch(subject || (ctx.subjectText ?? ctx.requestText).slice(0, 60))
     if (data) {
       ctx.send({ type: 'sources', sources: [{ title: data.video.title, url: data.video.url, domain: 'youtube.com', snippet: `${data.video.channel}${data.video.duration ? ` · ${data.video.duration}` : ''}` }] })
-      contextHint = `[Résultats de la recherche YouTube déjà effectuée par NEXUS — utilise ces données réelles :\n${youtubeFactsBlock(data)}]\n\n${contextHint ?? ctx.lastUser}`
+      contextHint = `[Résultats de la recherche YouTube déjà effectuée par NEXUS — utilise ces données réelles :\n${youtubeFactsBlock(data)}]\n\n${contextHint ?? ctx.requestText}`
     }
   }
 
   await runEnsemble(
-    { messages: ctx.history, lastUser: ctx.lastUser, contextHint, agents: participants, send: ctx.send },
+    { messages: ctx.history, lastUser: ctx.requestText, contextHint, agents: participants, send: ctx.send },
     mode
   )
 }
@@ -1806,7 +1816,7 @@ async function handleEnsembleTurn(target: ChatTarget, ctx: Ctx): Promise<void> {
 async function localFallback(ctx: Ctx, classification: Classification, midStream: boolean): Promise<void> {
   ctx.send({
     type: 'thought',
-    text: 'Moteur neuronal & analytique local NEXUS activé — traitement direct (100 % autonome, sans API).',
+    text: 'Cerveau neuronal et analytique local NEXUS activé — traitement autonome, sans service cloud.',
   })
   if (midStream) {
     ctx.send({ type: 'token', content: '\n\n' })
@@ -1814,7 +1824,11 @@ async function localFallback(ctx: Ctx, classification: Classification, midStream
   let text: string
   switch (classification.intent) {
     case 'search': {
-      const query = buildSearchQuery(extractTopic(ctx.lastUser)) || ctx.lastUser.slice(0, 80)
+      if (ctx.brainParameters.webResearch === 'never' && !ctx.explicitWebSearch) {
+        text = await handleGeneral(ctx, classification)
+        break
+      }
+      const query = buildSearchQuery(requestTopic(ctx)) || requestTopic(ctx).slice(0, 80)
       text = await skillSearch(query, ctx)
       break
     }
@@ -1823,7 +1837,7 @@ async function localFallback(ctx: Ctx, classification: Classification, midStream
       break
     case 'image': {
       const size = ctx.entities.size ?? '1024x1024'
-      text = await skillImage(ctx.lastUser, size, ctx)
+      text = await skillImage(ctx.subjectText ?? ctx.requestText, size, ctx)
       break
     }
     case 'scene3d':
@@ -1835,7 +1849,7 @@ async function localFallback(ctx: Ctx, classification: Classification, midStream
     case 'video':
       // Une demande de visionnage part sur la vraie recherche YouTube ; une
       // demande de GÉNÉRATION part sur le moteur vidéo local (MP4 réel).
-      text = isWatchVideoRequest(ctx.lastUser)
+      text = isWatchVideoRequest([ctx.requestText, ctx.subjectText ?? ''].join(' '))
         ? await skillYouTubeWatch(ctx)
         : await skillVideo(ctx)
       break

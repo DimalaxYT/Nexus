@@ -1769,9 +1769,10 @@ export function refactorExistingCode(
 export function generateCodeLocal(text: string, entities: Entities, topic: string): GeneratedCode {
   const ctx: Ctx = { text, entities, topic }
 
-  // Roblox/Luau : priorité aux templates métier si le sujet correspond
+  // Respecter un langage explicitement choisi avant les templates Roblox/Luau.
+  // Sans langage explicite, un sujet Roblox garde ses gabarits métier locaux.
   const robloxLike = has(text, /roblox|luau|game\.|workspace|instance\.new|obby|studio/i)
-  if (robloxLike || entities.language === 'lua') {
+  if (entities.language === 'lua' || (!entities.language && robloxLike)) {
     if (has(text, /arme|tir|gun|laser|combat|épée|epee|sword|raycast|attaque/i)) return luauCombatRaycast(ctx)
     if (has(text, /pet|familier|compagnon|suiveur/i)) return luauPetFollower(ctx)
     if (has(text, /qu[êe]te|quest|mission|objectif/i)) return luauQuestSystem(ctx)

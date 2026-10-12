@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   return Response.json({ started: true })
 }
 
-/** État du moteur LLM (diagnostic : disponible / en coupure circuit-breaker). */
+/** État du moteur local du cerveau NEXUS. */
 export async function GET() {
   const { llmStatus } = await import('@/lib/llm')
   return Response.json({ llm: llmStatus() })

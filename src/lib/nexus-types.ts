@@ -1,6 +1,6 @@
 // ─── NEXUS — Types partagés ──────────────────────────────────────────────────
 
-export type ViewId = 'hub' | 'agent' | 'studio3d' | 'image' | 'video' | 'code' | 'connexions' | 'cerveaux'
+export type ViewId = 'hub' | 'agent' | 'studio3d' | 'image' | 'video' | 'code' | 'connexions' | 'cerveaux' | 'brain-settings'
 
 // ─── Spécification de scène 3D ───────────────────────────────────────────────
 
