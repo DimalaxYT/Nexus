@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CodeFiles, CodeProposal, Conversation, SceneSpec, ViewId } from '@/lib/nexus-types'
+import { DEFAULT_BRAIN_PARAMETERS, normalizeBrainParameters, type BrainParameters } from '@/lib/brain/parameters'
 
 /** État d'activité d'UN cerveau (agent ou NEXUS) dans la salle des cerveaux 3D. */
 export interface BrainActivityItem {
@@ -20,6 +21,11 @@ interface NexusState {
   setView: (v: ViewId) => void
   sidebarOpen: boolean
   setSidebarOpen: (open: boolean) => void
+
+  // Réglages persistés du raisonnement local NEXUS
+  brainParameters: BrainParameters
+  setBrainParameters: (updates: Partial<BrainParameters>) => void
+  resetBrainParameters: () => void
 
   // Conversations (persistées localStorage + serveur)
   conversations: Conversation[]
@@ -126,6 +132,13 @@ export const useNexusStore = create<NexusState>()(
       setView: (v) => set({ view: v, sidebarOpen: false }),
       sidebarOpen: false,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+      brainParameters: DEFAULT_BRAIN_PARAMETERS,
+      setBrainParameters: (updates) =>
+        set((state) => ({
+          brainParameters: normalizeBrainParameters({ ...state.brainParameters, ...updates }),
+        })),
+      resetBrainParameters: () => set({ brainParameters: DEFAULT_BRAIN_PARAMETERS }),
 
       conversations: [],
       activeConversationId: null,
@@ -294,6 +307,7 @@ export const useNexusStore = create<NexusState>()(
           ),
         })),
         activeConversationId: s.activeConversationId,
+        brainParameters: s.brainParameters,
         // Le code du Studio Code est persisté : les agents y accèdent d'une session à l'autre
         codeFiles: s.codeFiles,
       }),

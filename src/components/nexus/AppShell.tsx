@@ -14,6 +14,7 @@ import {
   Menu,
   Moon,
   Sun,
+  SlidersHorizontal,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Hub } from '@/components/nexus/Hub'
 import { AgentChat } from '@/components/nexus/AgentChat'
 import { ConnectionsPanel } from '@/components/nexus/ConnectionsPanel'
+import { BrainSettings } from '@/components/nexus/BrainSettings'
 import { ImageStudio } from '@/components/nexus/studios/ImageStudio'
 import { VideoStudio } from '@/components/nexus/studios/VideoStudio'
 import { CodeStudio } from '@/components/nexus/studios/CodeStudio'
@@ -52,6 +54,7 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[
   { id: 'hub', label: 'Accueil', icon: Home, hint: 'Centre de contrôle' },
   { id: 'agent', label: 'Agent IA', icon: Bot, hint: 'Agent autonome' },
   { id: 'cerveaux', label: 'Cerveau Jarvis', icon: Brain, hint: 'Le cerveau central en direct' },
+  { id: 'brain-settings', label: 'Paramètres', icon: SlidersHorizontal, hint: 'Réglages du raisonnement' },
   { id: 'studio3d', label: 'Studio 3D', icon: Boxes, hint: 'Création et IA 3D' },
   { id: 'image', label: 'Images', icon: ImageIcon, hint: 'Retouche et création' },
   { id: 'video', label: 'Vidéo', icon: Clapperboard, hint: 'Montage express' },
@@ -135,7 +138,7 @@ export function AppShell() {
         <NavList />
         <div className="border-t border-border/70 p-4">
           <p className="text-[11px] leading-relaxed text-muted-foreground/70">
-            NEXUS v2.0 — IA 100 % locale (réseau de neurones embarqué, zéro API) + studios créatifs intégrés.
+            NEXUS — cerveau neuronal local, raisonnement analytique et studios créatifs intégrés.
           </p>
         </div>
       </aside>
@@ -171,6 +174,7 @@ export function AppShell() {
           {view === 'hub' && <Hub />}
           {view === 'agent' && <AgentChat />}
           {view === 'cerveaux' && <BrainRoomPage />}
+          {view === 'brain-settings' && <BrainSettings />}
           {view === 'studio3d' && <Studio3D />}
           {view === 'image' && <ImageStudio />}
           {view === 'video' && <VideoStudio />}

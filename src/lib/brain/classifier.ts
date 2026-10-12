@@ -141,6 +141,34 @@ function lexicalScores(text: string): Map<IntentLabel, number> {
   return scores
 }
 
+function hasCodeArtifact(text: string): boolean {
+  return /\b(?:code|coder|script|programme|program|fichier(?:\s+source)?|source(?:\s+code)?|fonction|function|algorithme|algorithm|bot|api|module|class|classe|lua|luau|python|javascript|typescript|csharp|java|rust|golang|bash|powershell|sql)\b/.test(text)
+}
+
+function hasExplicitCodeCommand(text: string): boolean {
+  return (
+    /^(?:stp\s+|svp\s+|please\s+)?(?:ecris|genere|cree|fais(?:[- ]moi)?|programme|code(?:[- ]moi)?|developpe|construis|implemente|fabrique|automatise|refactor(?:ise)?|corrige|modifie|change|ameliore|optimise|securise|write|generate|create|build|implement|fix|edit|refactor)\b/.test(text) ||
+    /^(?:(?:(?:est[- ]ce que )?(?:tu peux|tu pourrais))|peux[- ]tu|pourrais[- ]tu|can you|could you)\s+(?:me\s+)?(?:ecrire|generer|creer|faire|coder|programmer|developper|construire|implementer|refactoriser|corriger|modifier|changer|ameliorer|optimiser|securiser|write|generate|create|build|implement|fix|edit|refactor)\b/.test(text)
+  )
+}
+
+/** Évite de confondre une question à propos du code avec une demande de génération. */
+export function isInformationalCodeQuestion(rawText: string): boolean {
+  const text = normalize(rawText)
+  const mentionsCode = hasCodeArtifact(text)
+  if (!mentionsCode) return false
+
+  const questionPrefix = /^(?:qu[' ]?est[- ]?ce(?:\s+(?:que|qui))?|quesque|quest[- ]?ce(?:\s+(?:que|qui))?|que|quoi|qui|quel(?:le)?s?|comment|pourquoi|explique(?:[- ]moi)?|decris(?:[- ]moi)?|resume(?:[- ]moi)?|dis[- ]moi|what|why|which|how|explain|describe|summarize)\b/
+  const asksForExplanation = /^(?:(?:peux|pourrais)[- ]tu|tu peux|tu pourrais|can you|could you)\s+(?:me\s+|m[' ]?)?(?:expliquer|decrire|resumer|dire|montrer|explain|describe|summarize|tell)\b/
+  const hasQuestionShape =
+    questionPrefix.test(text) ||
+    asksForExplanation.test(text) ||
+    (/[?？]/.test(rawText) && /\b(?:que|quoi|qui|quel|quelle|comment|pourquoi|what|which|why|how)\b/.test(text))
+  if (!hasQuestionShape) return false
+
+  return !hasExplicitCodeCommand(text)
+}
+
 /**
  * Classe le message : le réseau de neurones donne une distribution,
  * le scoreur lexical affine. Retourne l'intention + confiance 0→1.
@@ -149,8 +177,6 @@ export function classify(rawText: string): Classification {
   // Le scoreur lexical travaille sur le texte NORMALISÉ (accents retirés) :
   // « décris-toi » doit matcher « decris.?toi » même accentué.
   const text = normalize(rawText)
-  const net = getNet()
-  const nn = predict(net, rawText)
 
   // Garde-fou dur : les questions auto-référentielles sont TOUJOURS identity
   // (jamais code, même si un mot comme « programme » traîne dans la phrase).
@@ -189,6 +215,35 @@ export function classify(rawText: string): Classification {
     }
   }
 
+  // Une commande explicite de génération ou de modification doit primer sur
+  // la sortie du réseau, notamment pour les suivis résolus comme « code-le ».
+  if (hasCodeArtifact(text) && hasExplicitCodeCommand(text)) {
+    return {
+      intent: 'code',
+      confidence: 0.98,
+      source: 'lexical',
+      topScores: [
+        { intent: 'code', score: 0.98 },
+        { intent: 'smalltalk', score: 0.2 },
+      ],
+    }
+  }
+
+  // Un terme comme « code » ou « script » dans une question ne constitue pas
+  // une demande de génération. Cette garde passe avant le réseau entraîné pour
+  // éviter la création d'artefacts sur une question de compréhension.
+  if (isInformationalCodeQuestion(rawText)) {
+    return {
+      intent: 'smalltalk',
+      confidence: 0.88,
+      source: 'lexical',
+      topScores: [
+        { intent: 'smalltalk', score: 0.88 },
+        { intent: 'code', score: 0.12 },
+      ],
+    }
+  }
+
   // Garde-fou SUIVI DE CONVERSATION : « fais-le », « réalise-le », « ok lance-le »,
   // « continue », « vas-y », « exécute »… sont des demandes qui référencent le
   // sujet précédent du chat. Le réseau neuronal se trompe presque toujours sur
@@ -209,6 +264,11 @@ export function classify(rawText: string): Classification {
       ],
     }
   }
+
+  // Ne lancer le modèle neuronal qu'après les garde-fous déterministes : ils sont
+  // plus rapides et priment sur les prédictions probabilistes en cas d'ambiguïté.
+  const net = getNet()
+  const nn = predict(net, rawText)
 
   const lex = lexicalScores(text)
   let lexBest: IntentLabel = 'smalltalk'

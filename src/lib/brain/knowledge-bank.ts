@@ -2,6 +2,7 @@
 // Le cerveau local répond aux questions générales courantes SANS API :
 // science, programmation, Roblox/Luau, histoire, géographie, NEXUS lui-même.
 
+import { extractTopic } from './classifier'
 import { stems } from './text'
 import { semanticSimilarity } from './neural'
 
@@ -65,7 +66,7 @@ end)
 **Règle d'or** : JAMAIS confiance au client. Le serveur vérifie toujours (prix, distance, cooldown). \`RemoteFunction\` attend une réponse, \`RemoteEvent\` est "fire and forget".`,
   },
   {
-    keywords: ['datastore', 'sauvegarde', 'save', 'donnees', 'persist'],
+    keywords: ['datastore', 'sauvegarde', 'save', 'donnees', 'persist', 'roblox datastore'],
     question: 'DataStore : sauvegarder les données joueur',
     answer: `**DataStoreService** sauvegarde des données entre les sessions :
 
@@ -353,7 +354,7 @@ end
 **Pourquoi la chute ?** Combinaison : pression des peuples germaniques, crises économiques, divisions politiques, armée de plus en plus "barbarisée". L'Empire d'Orient (Byzance) a tenu jusqu'en 1453.`,
   },
   {
-    keywords: ['japon', 'tokyo', 'nippon'],
+    keywords: ['japon', 'tokyo', 'nippon', 'population', 'habitants', 'capitale'],
     question: 'Le Japon en bref',
     answer: `**Le Japon** : archipel de 14 000 îles (4 principales), 125 millions d'habitants, capitale **Tokyo** (~37 M d'habitants avec l'agglomération — la plus peuplée du monde).
 
@@ -573,47 +574,82 @@ end
 
 // ── NEXUS : questions sur lui-même (utilisées par l'intention identity) ───────
 
-export const NEXUS_PRESENTATION = `**Moi, c'est NEXUS** — un agent IA **hybride** : un moteur de raisonnement LLM quand il est disponible, et un ensemble de **compétences locales** (écrites from scratch) qui prennent le relais instantanément dès que le moteur distant est limité. Résultat : je réponds **vite et intelligemment**, sans jamais te laisser bloqué par une erreur 429.
+export const NEXUS_PRESENTATION = `**Moi, c'est NEXUS** — un assistant dont le **modèle intégré fonctionne localement**. Mon réseau neuronal classe les intentions; un moteur analytique, la recherche sémantique, ma mémoire et mes compétences locales construisent les réponses. Je n'envoie pas ta conversation à un fournisseur de modèle.
 
 **Sous le capot** :
-- 🧠 Un **moteur de raisonnement** LLM avec disjoncteur automatique + un **classifieur neuronal local** (perceptron multicouche entraîné ici) pour les réponses instantanées
-- 🔎 Un moteur de **recherche web multi-sources en parallèle** (Google Actualités ∥ Bing ∥ DuckDuckGo) + lecteur de pages avec **synthèse extractive** et captures d'écran réelles
-- 🤖 Un **runner de missions autonomes** : tu me confies des missions, je les exécute en arrière-plan — je cherche sur Google, YouTube, TikTok et les sources IA, j'en extrais des **compétences** que je range dans ma base de connaissances, puis je rédige un **rapport**
-- ✍️ Un **générateur de code** (Roblox/Luau, Python, JS…) branché au Studio Code
-- 🎨 Un **générateur d'images procédural** et un **constructeur de scènes 3D**
-- 🗄️ Une **mémoire longue terme** et une **base de connaissances** persistantes (SQLite)
+- 🧠 Un **perceptron multicouche local** (classification d'intentions) combiné à des heuristiques et à des modes de raisonnement (comparaison, diagnostic, plan, audit de code)
+- 📚 Une **banque de connaissances sémantique**, tes notes et ta mémoire locale pour retrouver les éléments utiles
+- 🔎 Une recherche web multi-sources et lecture de pages **uniquement lorsqu'une recherche est nécessaire** — cette action consulte Internet
+- 🤖 Des missions autonomes, une base de connaissances persistante (SQLite) et des compétences réutilisables
+- ✍️ Un générateur local de code (Roblox/Luau, Python, JS…) relié au Studio Code
+- 🎨 Des générateurs procéduraux d'images, de scènes 3D et de vidéos
 
-Chaque mission que tu me donnes me rend **plus compétent** : ce que j'apprends est réinjecté dans mes réponses suivantes. Tu peux me questionner sur mon raisonnement à tout moment !`
+**Limite honnête :** le réseau neuronal intégré est un classifieur, pas un grand modèle génératif. Il oriente et enrichit le moteur local, mais ne possède pas à lui seul les capacités de génération générale des grands LLM. Chaque mission peut toutefois ajouter des connaissances locales réutilisables.`
 
-/** Recherche dans la banque intégrée : retourne les meilleures entrées + score. */
+const QUESTION_FRAMING_STEMS = new Set([
+  'comment', 'pourquoi', 'expliqu', 'explain', 'fonctionn', 'quel', 'quell', 'quand', 'quoi', 'qui',
+  'how', 'what', 'why', 'when', 'where', 'tell', 'show', 'make', 'creat', 'build', 'writ', 'find', 'give',
+  'vs', 'versus', 'differ', 'compar',
+])
+
+const KNOWLEDGE_TERM_SETS = NEXUS_KNOWLEDGE.map(
+  (entry) => new Set(stems(`${entry.question} ${entry.keywords.join(' ')}`))
+)
+const KNOWLEDGE_TERM_FREQUENCY = new Map<string, number>()
+for (const terms of KNOWLEDGE_TERM_SETS) {
+  for (const term of terms) KNOWLEDGE_TERM_FREQUENCY.set(term, (KNOWLEDGE_TERM_FREQUENCY.get(term) ?? 0) + 1)
+}
+
+function queryConceptStems(query: string): Set<string> {
+  return new Set(stems(extractTopic(query)).filter((term) => !QUESTION_FRAMING_STEMS.has(term)))
+}
+
+function weightedTopicCoverage(queryTerms: Set<string>, entryTerms: Set<string>): number {
+  let matchedWeight = 0
+  let totalWeight = 0
+  for (const term of queryTerms) {
+    const documentFrequency = KNOWLEDGE_TERM_FREQUENCY.get(term) ?? 0
+    const weight = 1 + Math.log((NEXUS_KNOWLEDGE.length + 1) / (documentFrequency + 1))
+    totalWeight += weight
+    if (entryTerms.has(term)) matchedWeight += weight
+  }
+  return totalWeight > 0 ? matchedWeight / totalWeight : 0
+}
+
+/** Recherche dans la banque intégrée : score lexical/vectoriel, filtré par couverture du sujet. */
 export function searchKnowledgeBank(query: string, max = 3): { entry: KnowledgeEntry; score: number }[] {
-  const qStems = new Set(stems(query))
+  if (!query.trim() || max <= 0) return []
+  const qStems = queryConceptStems(query)
   if (qStems.size === 0) return []
-  const scored = NEXUS_KNOWLEDGE.map((entry) => {
-    let score = 0
+
+  const scored = NEXUS_KNOWLEDGE.map((entry, index) => {
+    const entryTerms = KNOWLEDGE_TERM_SETS[index]
+    let lexicalScore = 0
     for (const kw of entry.keywords) {
       const kwStems = new Set(stems(kw))
       let matched = 0
-      for (const s of kwStems) if (qStems.has(s)) matched++
+      for (const term of kwStems) if (qStems.has(term)) matched++
       if (matched > 0) {
-        const exact = kwStems.size > 0 && [...kwStems].every((s) => qStems.has(s))
+        const exact = kwStems.size > 0 && [...kwStems].every((term) => qStems.has(term))
         const kwScore =
           matched / kwStems.size +
           (exact && kw.includes(' ') ? 0.5 : 0) +
           kw.length * 0.012 +
           (exact ? 0.35 : 0)
-        score = Math.max(score, kwScore)
+        lexicalScore = Math.max(lexicalScore, kwScore)
       }
     }
-    // Bonus de similarité sémantique neuronale (capte les reformulations et sous-mots)
-    const sem = semanticSimilarity(query, `${entry.question} ${entry.keywords.join(' ')}`)
-    if (sem > 0.35) {
-      score = Math.max(score, sem * 1.15)
-    }
-    return { entry, score }
+
+    const semantic = semanticSimilarity(query, `${entry.question} ${entry.keywords.join(' ')}`)
+    const rawScore = Math.max(lexicalScore, semantic > 0.35 ? semantic * 1.15 : 0)
+    const coverage = weightedTopicCoverage(qStems, entryTerms)
+    const score = rawScore * (0.65 + coverage * 0.35)
+    return { entry, score, coverage, semantic }
   })
-    .filter((r) => r.score > 0.38)
+    .filter((result) => result.score > 0.38 && (result.coverage >= 0.62 || result.semantic >= 0.84))
     .sort((a, b) => b.score - a.score)
     .slice(0, max)
+    .map(({ entry, score }) => ({ entry, score }))
+
   return scored
 }

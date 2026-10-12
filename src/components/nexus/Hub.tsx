@@ -31,7 +31,7 @@ const TOOLS: {
   {
     id: 'agent',
     title: 'Agent IA',
-    desc: 'Un agent IA hybride : moteur de raisonnement LLM + compétences locales instantanées. Il cherche sur le web, apprend des compétences lors de missions autonomes (Google, YouTube, TikTok), génère images, scènes 3D, pages web et scripts.',
+    desc: 'Un cerveau neuronal et analytique entièrement local, enrichi par la mémoire, les connaissances acquises et des compétences spécialisées. Il cherche sur le web à la demande, puis génère code, images, scènes 3D, pages et vidéos.',
     icon: Bot,
     gradient: 'from-violet-500 to-fuchsia-500',
     shadow: 'group-hover:shadow-violet-500/30',
@@ -222,7 +222,7 @@ export function Hub() {
 
         <footer className="mt-auto pb-4 pt-2 text-center">
           <p className="text-xs text-muted-foreground/70">
-            NEXUS v2.0 — cerveau IA local · réseau de neurones embarqué, zéro API externe
+            NEXUS — réseau neuronal local · raisonnement analytique, mémoire et outils intégrés
           </p>
         </footer>
       </div>

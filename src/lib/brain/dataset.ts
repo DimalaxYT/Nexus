@@ -217,6 +217,10 @@ const HANDWRITTEN: Record<IntentLabel, string[]> = {
     'pourquoi la mer est salee', 'comment fonctionne internet',
     'c est quoi un algorithme', 'donne moi un conseil de dev',
     'meilleures pratiques de code', 'c est quoi git', 'explique moi les boucles',
+    'quesque qui a change dans ton code', 'qu est ce qui a change dans ton code',
+    'quels changements as tu apportes a ton code', 'que fait ce programme python',
+    'explique moi ce script', 'pourquoi mon code plante', 'what changed in your code',
+    'what does this script do', 'explain this code to me',
   ],
 }
 
