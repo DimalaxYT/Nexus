@@ -272,11 +272,16 @@ function resolveDbPath(): string {
   if (!raw || raw.includes('/home/z/my-project')) return defaultPath
   if (raw.startsWith('file:')) {
     const rel = raw.slice(5)
-    if (path.isAbsolute(rel)) return fs.existsSync(rel) ? rel : defaultPath
+    // Chemin absolu (ex. `file:/data/custom.db` sur un disque persistant) :
+    // on l'utilise tel quel, même si le fichier n'existe pas encore — sinon on
+    // retomberait sur le dossier du projet, qui est éphémère en production.
+    if (path.isAbsolute(rel)) return rel
     const fromPrisma = path.resolve(process.cwd(), 'prisma', rel)
     if (fs.existsSync(fromPrisma)) return fromPrisma
     return path.resolve(process.cwd(), rel)
   }
+  // Chemin absolu brut, sans préfixe `file:`.
+  if (path.isAbsolute(raw)) return raw
   return defaultPath
 }
 
