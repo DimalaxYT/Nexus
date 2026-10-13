@@ -6,6 +6,8 @@
 import fs from 'fs'
 import path from 'path'
 import { db } from './db'
+import { addObjective, trainerSnapshot } from './devtrainer'
+import { getDaemonState } from './devdaemon'
 import {
   TODO_RE,
   DevFsError,
@@ -28,6 +30,7 @@ export type DevIntent =
   | 'fonctionnalite'
   | 'optimiser'
   | 'verifier'
+  | 'entrainement'
   | 'aide'
   | 'general'
 
@@ -279,6 +282,7 @@ const INTENT_RULES: { intent: DevIntent; words: string[]; weight?: number }[] = 
   { intent: 'debug', words: ['bug', 'erreur', 'ne marche pas', 'ne fonctionne pas', 'cassé', 'corrige', 'répare', 'plante', 'crash', 'pourquoi'], weight: 4 },
   { intent: 'fonctionnalite', words: ['ajoute', 'ajouter', 'crée', 'créer', 'implémente', 'implémenter', 'nouvelle fonctionnalité', 'développe une', 'mets en place'], weight: 4 },
   { intent: 'intelligence', words: ['intelligence', 'plus intelligent', 'améliore nexus', 'améliorer nexus', 'qualité des réponses', 'mieux répondre', 'améliore les réponses'], weight: 5 },
+  { intent: 'entrainement', words: ['entrainement', 'entraînement', 'entraîne', 'entraine', 'daemon', 'cycle', 'navigateur', 'bibliothèque', 'tourne la nuit', '24/24'], weight: 6 },
   { intent: 'verifier', words: ['vérifie', 'verifier', 'teste', 'tester', 'check', 'contrôle'], weight: 3 },
   { intent: 'chercher', words: ['cherche', 'trouve', 'où est', 'ou est', 'localise', 'montre-moi', 'quelle ligne'], weight: 3 },
   { intent: 'expliquer', words: ['explique', 'expliquer', 'comment fonctionne', 'c’est quoi', "c'est quoi", 'décris', 'présente'], weight: 3 },
@@ -319,15 +323,11 @@ function fileLink(p: string, line?: number): string {
   return `\`${p}${line ? `:${line}` : ''}\``
 }
 
-/** Échappe une chaîne pour un littéral de gabarit TypeScript. */
-function tsTemplateLiteral(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
-}
+// ── Fabrique de correctifs ───────────────────────────────────────────────────
+// (déporté dans `devknowledge.ts` : partagé avec l'entraîneur sans cycle d'import)
 
-/** Échappe une chaîne pour un littéral entre simples quotes TypeScript. */
-function tsSingleQuote(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ')
-}
+export { buildKnowledgePatch, KNOWLEDGE_BANK_PATH, tsSingleQuote, tsTemplateLiteral } from './devknowledge'
+import { buildKnowledgePatch, KNOWLEDGE_BANK_PATH, tsSingleQuote, tsTemplateLiteral } from './devknowledge'
 
 /** Mots-clés normalisés (sans accents, sans bruit) pour une entrée de connaissance. */
 function keywordsFrom(text: string, limit = 8): string[] {
@@ -339,7 +339,7 @@ function keywordsFrom(text: string, limit = 8): string[] {
     'sous', 'sans', 'tres', 'très', 'bien', 'tout', 'toute', 'toutes', 'tous', 'aussi', 'comme', 'quand',
     'alors', 'mais', 'ses', 'leur', 'leurs', 'est', 'sont', 'ete', 'été', 'etre', 'être', 'avoir',
     // verbes-outils et mots de liaison : ils polluent la correspondance
-    'faut', 'doit', 'peut', 'fait', 'faire', 'il', 'faut', 'avant', 'apres', 'après', 'depuis',
+    'faut', 'doit', 'peut', 'fait', 'faire', 'faut', 'avant', 'apres', 'après', 'depuis',
     // mots de la consigne elle-même
     'nexus', 'dev', 'apprends', 'apprend', 'savoir', 'connais', 'retiens', 'enseigne',
   ])
@@ -355,7 +355,7 @@ function keywordsFrom(text: string, limit = 8): string[] {
 
 /** Compte les entrées de la banque de connaissances intégrée. */
 function knowledgeBankInfo(): { entries: number; topics: string[]; path: string } {
-  const p = 'src/lib/brain/knowledge-bank.ts'
+  const p = KNOWLEDGE_BANK_PATH
   try {
     const raw = fs.readFileSync(safePath(p), 'utf8')
     const entries = (raw.match(/^\s{2}\{\n\s{4}keywords:/gm) ?? []).length
@@ -422,54 +422,6 @@ export async function findWeakSpots(): Promise<{ reply: string; count: number; e
   }
 }
 
-// ── Fabrique de correctifs ───────────────────────────────────────────────────
-
-const KNOWLEDGE_BANK_PATH = 'src/lib/brain/knowledge-bank.ts'
-
-/**
- * Fabrique le correctif qui ajoute une entrée à la banque de connaissances
- * intégrée. Le remplacement est ciblé : `before` est un extrait réel du fichier
- * (assez long pour être unique), `after` est ce même extrait, complété.
- */
-export function buildKnowledgePatch(input: {
-  keywords: string[]
-  question: string
-  answer: string
-}): DevPatchDraft | null {
-  let raw = ''
-  try {
-    raw = fs.readFileSync(safePath(KNOWLEDGE_BANK_PATH), 'utf8')
-  } catch {
-    return null
-  }
-  const marker = 'export const NEXUS_KNOWLEDGE: KnowledgeEntry[] = ['
-  const start = raw.indexOf(marker)
-  if (start < 0) return null
-  const close = raw.indexOf('\n]\n', start)
-  if (close < 0) return null
-
-  const anchorStart = Math.max(start + marker.length, close - 400)
-  const before = raw.slice(anchorStart, close) + '\n]'
-  const entry = [
-    '  {',
-    `    keywords: [${input.keywords.map((k) => `'${tsSingleQuote(k)}'`).join(', ')}],`,
-    `    question: '${tsSingleQuote(input.question)}',`,
-    '    answer: `' + tsTemplateLiteral(input.answer) + '`,',
-    '  },',
-  ].join('\n')
-  const after = raw.slice(anchorStart, close) + '\n' + entry + '\n]'
-
-  if (raw.split(before).length !== 2) return null // ancre non unique : on s'abstient
-  return {
-    title: `Banque de connaissances : « ${input.question} »`,
-    filePath: KNOWLEDGE_BANK_PATH,
-    before,
-    after,
-    rationale:
-      'Ajoute un savoir vérifiable à la banque intégrée. Il sera servi hors-ligne à tous les comptes, sans passer par une API externe.',
-  }
-}
-
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 function handleHelp(): DevTurnResult {
@@ -490,6 +442,10 @@ function handleHelp(): DevTurnResult {
         '- 🐛 **Diagnostiquer** — « pourquoi les réponses sont génériques ? », « bug sur les clés API »\n' +
         '- ⚡ **Optimiser** — « optimise les performances », « quel fichier est trop lourd ? »\n' +
         '- 🛠️ **Concevoir** — « ajoute un système de notifications »',
+        '- 🎓 **S’entraîner** — « où en est ton entraînement ? », « entraîne-toi sur les bases de SQLite »\n\n' +
+        'Je tourne **24 h/24** : entre deux cycles, mon daemon choisit un objectif, navigue avec **mon propre navigateur**, ' +
+        'extrait le savoir, le rédige, le note, et le dépose en correctif. Les trous que je mesure chez NEXUS deviennent ' +
+        'mes prochains objectifs — et chaque cycle m’apprend **quelles sources rapportent le plus**.',
       'Chaque correctif que je propose apparaît dans l’onglet **Correctifs** : tu le relis, tu l’appliques d’un clic, et une sauvegarde automatique est faite avant l’écriture.'
     ),
   }
@@ -942,6 +898,94 @@ function handleFonctionnalite(message: string): DevTurnResult {
   }
 }
 
+/**
+ * L'agent Dev parle de son propre entraînement : où il en est, ce qu'il a
+ * appris, et il accepte les demandes du type « entraîne-toi sur … ».
+ */
+async function handleEntrainement(message: string, userId: string): Promise<DevTurnResult> {
+  const snap = await trainerSnapshot(userId)
+  const { counts, score, lessons, config } = snap
+  const daemon = getDaemonState()
+
+  // « entraîne-toi sur X » → objectif prioritaire, le daemon s'en charge.
+  const m = message.match(/(?:entraine|entraîne)[- ]toi sur (.+)$/i)
+  if (m && m[1] && m[1].trim().length > 3) {
+    const topic = m[1].trim().replace(/[.!?]+$/, '')
+    await addObjective(userId, topic, topic, 'demande')
+    return {
+      intent: 'entrainement',
+      thoughts: ['Demande d’entraînement explicite…', 'Création d’un objectif prioritaire…'],
+      files: [],
+      tasks: [],
+      reply: md(
+        `## Objectif ajouté : ${topic}`,
+        'Il est placé **en tête du curriculum** (priorité haute). Mon daemon le prend au prochain cycle automatique' +
+          (daemon?.minutesToNext ? ` — dans ${daemon.minutesToNext} minute(s) au plus.` : '.'),
+        'Tu peux forcer l’entraînement tout de suite depuis l’onglet **Entraînement → Forcer un cycle**.'
+      ),
+    }
+  }
+
+  const pct = Math.round(score.score * 100)
+  const bestLessons = lessons.slice(0, 5)
+  const misses = score.misses.slice(0, 8)
+
+  return {
+    intent: 'entrainement',
+    thoughts: [
+      'Lecture de l’état du daemon…',
+      'Mesure de la couverture de NEXUS…',
+      'Relecture des leçons tirées des cycles précédents…',
+    ],
+    files: [
+      { path: 'src/lib/devtrainer.ts', note: 'le moteur d’entraînement' },
+      { path: 'src/lib/devdaemon.ts', note: 'la boucle 24 h/24' },
+      { path: 'src/lib/devbrowser.ts', note: 'mon navigateur' },
+    ],
+    tasks: misses.length
+      ? [
+          {
+            title: `Combler ${misses.length} lacune(s) mesurée(s)`,
+            detail: misses.slice(0, 3).join(' · '),
+            category: 'intelligence',
+            priority: 'haute',
+          },
+        ]
+      : [],
+    reply: md(
+      '## Mon entraînement',
+      `**${config.enabled ? 'Actif' : 'En pause'}** — cadence ${config.intervalMin} min · ${counts.runs} cycle(s) lancé(s) · ${counts.objectivesDone}/${counts.objectives} objectif(s) traité(s).`,
+      '### Ce que NEXUS sait maintenant\n' +
+        '| Indicateur | Valeur |\n|---|---:|\n' +
+        `| Couverture du banc d’épreuve | **${pct} %** (${score.covered}/${score.total}) |\n` +
+        `| Savoirs récoltés | ${counts.itemsValid} actifs, ${counts.itemsCandidate} en attente |\n` +
+        `| Pages lues par mon navigateur | ${counts.pages} (${counts.domains} domaine(s)) |\n` +
+        `| Leçons tirées | ${counts.lessons} |\n` +
+        `| Autonomie | ${config.autonomy === 'auto' ? 'j’applique les correctifs moi-même' : 'les correctifs attendent ta validation'} |`,
+      misses.length
+        ? '### Lacunes restantes\n' + misses.map((x) => `- « ${x} »`).join('\n')
+        : '### Lacunes restantes\nAucune : NEXUS couvre tout le banc d’épreuve. Le curriculum va se renouveler.',
+      bestLessons.length
+        ? '### Ce que mes cycles m’ont appris\n' +
+          'Je note à chaque cycle ce qui a marché, et ces notes orientent mes choix suivants :\n\n' +
+          bestLessons.map((l) => `- **${l.kind}** \`${l.key}\` → ${l.value.toFixed(2)} (${l.samples} essai(s))`).join('\n')
+        : '### Ce que mes cycles m’ont appris\nPas encore assez de cycles pour dégager une tendance.',
+      '### Comment je m’améliore indirectement\n' +
+        '1. Je **mesure** NEXUS sur un banc d’épreuve.\n' +
+        '2. Les trous deviennent des **objectifs** de curriculum.\n' +
+        '3. Je navigue avec **mon navigateur** (repli sur le corpus local si le réseau manque).\n' +
+        '4. J’extrais, je rédige, je **note** la qualité de ce que j’ai produit.\n' +
+        '5. Je retiens **quelle source et quelle catégorie** rapportent le plus — c’est ma mémoire d’entraîneur.\n' +
+        '6. Comme NEXUS et moi partageons le même cerveau, ce que je lui apprends me rend meilleur aussi.\n\n' +
+        '> Dis-moi **« entraîne-toi sur <sujet> »** pour ajouter un objectif à la main.'
+    ),
+  }
+}
+
+function countLines(arr: string[]): number {
+  return arr?.length ?? 0
+}
+
 function handleGeneral(message: string): DevTurnResult {
   const found = findModule(message)
   const terms = message
@@ -1018,6 +1062,9 @@ export async function runDevTurn(
       case 'verifier':
         result = handleAudit(counts)
         result.intent = 'verifier'
+        break
+      case 'entrainement':
+        result = await handleEntrainement(text, userId)
         break
       case 'fonctionnalite':
         result = handleFonctionnalite(text)

@@ -148,6 +148,88 @@ const TABLES: Record<string, TableSpec> = {
       origin: 'agent',
     },
   },
+  /** Bibliothèque du navigateur de l'agent Dev (pages visitées et extraites). */
+  devPage: {
+    table: 'DevPage',
+    dateCols: ['fetchedAt'],
+    defaults: {
+      userId: '',
+      url: '',
+      title: '',
+      domain: '',
+      text: '',
+      bytes: 0,
+      runId: '',
+      origin: 'agent',
+      hits: 0,
+    },
+  },
+  /** Objectifs d'entraînement : la file d'apprentissage de NEXUS. */
+  trainingObjective: {
+    table: 'TrainingObjective',
+    dateCols: ['createdAt', 'updatedAt', 'lastRunAt'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      label: '',
+      query: '',
+      category: 'culture',
+      priority: 5,
+      status: 'a_faire',
+      attempts: 0,
+      lastScore: 0,
+      origin: 'auto',
+    },
+  },
+  /** Connaissances produites par l'entraînement (candidates, validées ou refusées). */
+  trainingItem: {
+    table: 'TrainingItem',
+    dateCols: ['createdAt', 'appliedAt', 'lastHitAt'],
+    defaults: {
+      userId: '',
+      objectiveId: '',
+      runId: '',
+      question: '',
+      answer: '',
+      keywords: '[]',
+      sources: '[]',
+      score: 0,
+      status: 'candidat',
+      hits: 0,
+      offline: false,
+    },
+  },
+  /** Journal des cycles d'entraînement (un cycle = une ligne). */
+  trainingRun: {
+    table: 'TrainingRun',
+    dateCols: ['startedAt', 'endedAt'],
+    defaults: {
+      userId: '',
+      status: 'en_cours',
+      objective: '',
+      steps: '[]',
+      pages: 0,
+      items: 0,
+      scoreBefore: 0,
+      scoreAfter: 0,
+      offline: false,
+      error: '',
+    },
+  },
+  /** Leçons de l'entraîneur : ce qui a marché, pour qu'il s'améliore lui-même. */
+  trainingLesson: {
+    table: 'TrainingLesson',
+    dateCols: ['createdAt', 'updatedAt'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      kind: '',
+      key: '',
+      value: 0,
+      samples: 0,
+      note: '',
+    },
+  },
   /** File d'améliorations : idées, diagnostics et tâches de l'agent Dev. */
   devTask: {
     table: 'DevTask',
@@ -546,6 +628,79 @@ function createSqliteClient() {
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "appliedAt" DATETIME
     );
+    CREATE TABLE IF NOT EXISTS "DevPage" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "url" TEXT NOT NULL DEFAULT '',
+      "title" TEXT NOT NULL DEFAULT '',
+      "domain" TEXT NOT NULL DEFAULT '',
+      "text" TEXT NOT NULL DEFAULT '',
+      "bytes" INTEGER NOT NULL DEFAULT 0,
+      "runId" TEXT NOT NULL DEFAULT '',
+      "origin" TEXT NOT NULL DEFAULT 'agent',
+      "hits" INTEGER NOT NULL DEFAULT 0,
+      "fetchedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "TrainingObjective" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "label" TEXT NOT NULL DEFAULT '',
+      "query" TEXT NOT NULL DEFAULT '',
+      "category" TEXT NOT NULL DEFAULT 'culture',
+      "priority" INTEGER NOT NULL DEFAULT 5,
+      "status" TEXT NOT NULL DEFAULT 'a_faire',
+      "attempts" INTEGER NOT NULL DEFAULT 0,
+      "lastScore" REAL NOT NULL DEFAULT 0,
+      "origin" TEXT NOT NULL DEFAULT 'auto',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "lastRunAt" DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS "TrainingItem" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "objectiveId" TEXT NOT NULL DEFAULT '',
+      "runId" TEXT NOT NULL DEFAULT '',
+      "question" TEXT NOT NULL DEFAULT '',
+      "answer" TEXT NOT NULL DEFAULT '',
+      "keywords" TEXT NOT NULL DEFAULT '[]',
+      "sources" TEXT NOT NULL DEFAULT '[]',
+      "score" REAL NOT NULL DEFAULT 0,
+      "status" TEXT NOT NULL DEFAULT 'candidat',
+      "hits" INTEGER NOT NULL DEFAULT 0,
+      "offline" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "appliedAt" DATETIME,
+      "lastHitAt" DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS "TrainingRun" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "status" TEXT NOT NULL DEFAULT 'en_cours',
+      "objective" TEXT NOT NULL DEFAULT '',
+      "steps" TEXT NOT NULL DEFAULT '[]',
+      "pages" INTEGER NOT NULL DEFAULT 0,
+      "items" INTEGER NOT NULL DEFAULT 0,
+      "scoreBefore" REAL NOT NULL DEFAULT 0,
+      "scoreAfter" REAL NOT NULL DEFAULT 0,
+      "offline" BOOLEAN NOT NULL DEFAULT false,
+      "error" TEXT NOT NULL DEFAULT '',
+      "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "endedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "TrainingLesson" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "kind" TEXT NOT NULL DEFAULT '',
+      "key" TEXT NOT NULL DEFAULT '',
+      "value" REAL NOT NULL DEFAULT 0,
+      "samples" INTEGER NOT NULL DEFAULT 0,
+      "note" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS "DevTask" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "userId" TEXT NOT NULL DEFAULT '',
@@ -573,9 +728,18 @@ function createSqliteClient() {
   addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
   sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
   addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
+  for (const t of ['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson']) {
+    addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
+  }
   sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "SiteSetting_key_key" ON "SiteSetting"("key")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPatch_userId_idx" ON "DevPatch"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "DevTask_userId_idx" ON "DevTask"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPage_userId_idx" ON "DevPage"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPage_url_idx" ON "DevPage"("url")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingObjective_userId_idx" ON "TrainingObjective"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingItem_userId_idx" ON "TrainingItem"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingRun_userId_idx" ON "TrainingRun"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingLesson_userId_idx" ON "TrainingLesson"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKeyLog_keyId_idx" ON "ApiKeyLog"("keyId")')
@@ -597,10 +761,14 @@ function createSqliteClient() {
     siteSetting: createModelDelegate(sqlite, TABLES.siteSetting),
     devPatch: createModelDelegate(sqlite, TABLES.devPatch),
     devTask: createModelDelegate(sqlite, TABLES.devTask),
+    devPage: createModelDelegate(sqlite, TABLES.devPage),
+    trainingObjective: createModelDelegate(sqlite, TABLES.trainingObjective),
+    trainingItem: createModelDelegate(sqlite, TABLES.trainingItem),
+    trainingRun: createModelDelegate(sqlite, TABLES.trainingRun),
+    trainingLesson: createModelDelegate(sqlite, TABLES.trainingLesson),
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const globalForPrisma = globalThis as unknown as { prisma: any }
 
 export const db = globalForPrisma.prisma ?? createSqliteClient()

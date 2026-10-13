@@ -20,6 +20,7 @@ import {
   Layers,
   ListChecks,
   Loader2,
+  GraduationCap,
   Palette,
   Play,
   RefreshCw,
@@ -42,6 +43,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { DevAgentPanel } from '@/components/nexus/DevAgentPanel'
+import { DevTrainerPanel } from '@/components/nexus/DevTrainerPanel'
 import { useSiteSettings } from '@/lib/site-settings-client'
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from '@/lib/site-types'
 
@@ -1038,6 +1040,7 @@ export function DevDashboard() {
               { value: 'vue', label: 'Vue d’ensemble', icon: Gauge },
               { value: 'site', label: 'Site', icon: Palette },
               { value: 'agent', label: 'Agent Dev', icon: Terminal },
+              { value: 'entrainement', label: 'Entraînement', icon: GraduationCap },
               { value: 'code', label: 'Code', icon: Code2 },
               { value: 'correctifs', label: 'Correctifs', icon: ListChecks },
               { value: 'taches', label: 'Améliorations', icon: Layers },
@@ -1076,6 +1079,9 @@ export function DevDashboard() {
             <div className="h-[calc(100vh-13rem)] min-h-[420px]">
               <DevAgentPanel />
             </div>
+          </TabsContent>
+          <TabsContent value="entrainement" className="mt-0">
+            <DevTrainerPanel />
           </TabsContent>
           <TabsContent value="code" className="mt-0">
             <div className="h-[calc(100vh-13rem)] min-h-[420px]">

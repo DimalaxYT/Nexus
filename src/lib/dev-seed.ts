@@ -164,7 +164,10 @@ export async function ensureDevBootstrap(): Promise<DevBootstrapResult> {
   }
   if (!bootstrapping) {
     bootstrapping = doBootstrap().then((r) => {
-      bootstrapped = true
+      // Tant qu'aucun compte n'existe, l'amorçage n'a rien pu faire : on ne
+      // verrouille PAS le drapeau, sinon le compte Dev ne serait jamais créé
+      // (une simple tentative de connexion avant inscription suffirait).
+      if (r.userId) bootstrapped = true
       bootstrapping = null
       return r
     })
