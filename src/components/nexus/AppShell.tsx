@@ -15,6 +15,7 @@ import {
   Menu,
   Moon,
   Sun,
+  Terminal,
   User as UserIcon,
   Workflow,
   X,
@@ -22,6 +23,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useNexusStore } from '@/lib/store'
 import { AuthProvider, useAuth } from '@/lib/auth-client'
+import { SiteSettingsProvider, useSiteSettings } from '@/lib/site-settings-client'
 import type { ViewId } from '@/lib/nexus-types'
 import { Button } from '@/components/ui/button'
 import {
@@ -42,6 +44,7 @@ import { AuthGate } from '@/components/nexus/AuthGate'
 import { AccountPanel } from '@/components/nexus/AccountPanel'
 import { BlueprintsPanel } from '@/components/nexus/BlueprintsPanel'
 import { ApiKeysPanel } from '@/components/nexus/ApiKeysPanel'
+import { DevDashboard } from '@/components/nexus/DevDashboard'
 
 const Studio3D = dynamic(
   () => import('@/components/nexus/studios/Studio3D').then((m) => m.Studio3D),
@@ -64,6 +67,14 @@ function StudioLoading({ label }: { label: string }) {
   )
 }
 
+/** Entrée réservée au compte Dev : dashboard, site, code et agent Dev. */
+const DEV_NAV_ITEM: { id: ViewId; label: string; icon: typeof Home; hint: string } = {
+  id: 'dev',
+  label: 'Espace Dev',
+  icon: Terminal,
+  hint: 'Dashboard & code',
+}
+
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[] = [
   { id: 'hub', label: 'Accueil', icon: Home, hint: 'Centre de contrôle' },
   { id: 'agent', label: 'Agent IA', icon: Bot, hint: 'Agent autonome' },
@@ -79,14 +90,21 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[
 ]
 
 function Logo() {
+  const { settings } = useSiteSettings()
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-rose-500 shadow-lg shadow-violet-500/25">
-        <Bot className="h-5 w-5 text-white" />
+      <div
+        className="flex h-9 w-9 items-center justify-center rounded-xl text-lg shadow-lg"
+        style={{
+          background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})`,
+          boxShadow: `0 10px 25px -8px ${settings.accent}66`,
+        }}
+      >
+        {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : <Bot className="h-5 w-5 text-white" />}
       </div>
       <div className="leading-tight">
-        <p className="text-sm font-extrabold tracking-widest text-foreground">NEXUS</p>
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Agent IA</p>
+        <p className="text-sm font-extrabold tracking-widest text-foreground">{settings.appName}</p>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{settings.tagline}</p>
       </div>
     </div>
   )
@@ -94,9 +112,16 @@ function Logo() {
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const { view, setView } = useNexusStore()
+  const { user } = useAuth()
+  const isDev = user?.role === 'dev'
+
+  const items = isDev
+    ? [...NAV_ITEMS.slice(0, 1), DEV_NAV_ITEM, ...NAV_ITEMS.slice(1)]
+    : NAV_ITEMS
+
   return (
     <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Navigation principale">
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon
         const active = view === item.id
         return (
@@ -107,14 +132,13 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               onNavigate?.()
             }}
             aria-current={active ? 'page' : undefined}
+            style={active ? { background: 'var(--dev-accent-soft)', color: 'var(--dev-accent)' } : undefined}
             className={cn(
               'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all',
-              active
-                ? 'bg-violet-500/15 text-violet-300 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.3)]'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+              !active && 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
             )}
           >
-            <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-violet-400' : 'text-muted-foreground group-hover:text-foreground/80')} />
+            <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? '' : 'text-muted-foreground group-hover:text-foreground/80')} />
             <span className="flex-1">{item.label}</span>
             <span className="hidden text-[10px] text-muted-foreground/70 group-hover:block lg:block">{item.hint}</span>
           </button>
@@ -198,6 +222,8 @@ function AccountMenu() {
 function NexusApp() {
   const { view, sidebarOpen, setSidebarOpen } = useNexusStore()
   const { user, loading, accountsExist } = useAuth()
+  const { settings } = useSiteSettings()
+  const footer = settings.footerText || 'IA 100 % locale — aucune donnée ne quitte cette machine.'
 
   if (loading) {
     return (
@@ -225,9 +251,7 @@ function NexusApp() {
         <NavList />
         <div className="space-y-2 border-t border-border/70 p-3">
           <AccountMenu />
-          <p className="text-[10px] leading-relaxed text-muted-foreground/70">
-            NEXUS v2.1 — IA 100 % locale (réseau de neurones embarqué, zéro API) + comptes, blueprints et clés API.
-          </p>
+          <p className="text-[10px] leading-relaxed text-muted-foreground/70">{footer}</p>
         </div>
       </aside>
 
@@ -273,6 +297,7 @@ function NexusApp() {
           {view === 'video' && <VideoStudio />}
           {view === 'code' && <CodeStudio />}
           {view === 'connexions' && <ConnectionsPanel />}
+          {view === 'dev' && user?.role === 'dev' && <DevDashboard />}
         </main>
       </div>
     </div>
@@ -281,8 +306,10 @@ function NexusApp() {
 
 export function AppShell() {
   return (
-    <AuthProvider>
-      <NexusApp />
-    </AuthProvider>
+    <SiteSettingsProvider>
+      <AuthProvider>
+        <NexusApp />
+      </AuthProvider>
+    </SiteSettingsProvider>
   )
 }

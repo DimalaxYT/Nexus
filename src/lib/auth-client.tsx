@@ -14,6 +14,8 @@ export interface AuthUser {
   name: string
   isAdmin: boolean
   plan: string
+  /** 'owner' | 'dev' | 'client' — seul 'dev' ouvre l'espace développeur. */
+  role: 'owner' | 'dev' | 'client'
   profile: {
     displayName?: string
     assistantName?: string

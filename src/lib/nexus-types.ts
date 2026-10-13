@@ -12,6 +12,7 @@ export type ViewId =
   | 'blueprints'
   | 'cles'
   | 'compte'
+  | 'dev'
 
 // ─── Spécification de scène 3D ───────────────────────────────────────────────
 
@@ -366,6 +367,11 @@ export interface NexusAgent {
   writer: boolean // ✍️ rédacteur du Bureau : rédige la réponse finale quand il participe
   /** Blueprint actif : schéma d'utilisation construit par l'utilisateur. */
   blueprintId: string
+  /**
+   * Agent système (ex. 'dev') : créé et géré par NEXUS, ni supprimable,
+   * ni visible depuis un autre compte. Chaîne vide pour un agent normal.
+   */
+  systemKey: string
   createdAt: number
 }
 
@@ -420,6 +426,7 @@ export function parseAgentRow(row: {
   enabled: boolean
   writer?: boolean
   blueprintId?: string | null
+  systemKey?: string | null
   createdAt: Date
 }): NexusAgent {
   let specialties: string[] = []
@@ -444,6 +451,7 @@ export function parseAgentRow(row: {
     enabled: row.enabled,
     writer: row.writer ?? false,
     blueprintId: String(row.blueprintId ?? ''),
+    systemKey: String(row.systemKey ?? ''),
     createdAt: row.createdAt.getTime(),
   }
 }

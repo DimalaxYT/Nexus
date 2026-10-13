@@ -38,15 +38,28 @@ export interface UserProfile {
   website?: string
 }
 
+/**
+ * Rôle du compte.
+ * - `owner`  : propriétaire de l'instance (premier compte créé)
+ * - `dev`    : développeur — dashboard technique, personnalisation du site,
+ *              agent Dev. Jamais visible depuis un compte `client`.
+ * - `client` : compte standard (chat, agents, blueprints, clés API)
+ */
+export type UserRole = 'owner' | 'dev' | 'client'
+
 export interface PublicUser {
   id: string
   email: string
   name: string
   isAdmin: boolean
   plan: string
+  role: UserRole
   profile: UserProfile
   createdAt: Date | string | number
 }
+
+/** Rôles autorisés à ouvrir l'espace développeur. */
+const DEV_ROLES: UserRole[] = ['dev']
 
 // ── Mots de passe ────────────────────────────────────────────────────────────
 
@@ -102,9 +115,21 @@ function toPublicUser(row: any): PublicUser {
     name: String(row.name ?? ''),
     isAdmin: Boolean(row.isAdmin),
     plan: String(row.plan ?? 'free'),
+    role: normalizeRole(row.role, row.isAdmin, row.plan),
     profile: parseProfile(row.profile),
     createdAt: row.createdAt,
   }
+}
+
+/**
+ * Déduit le rôle d'une ligne User, y compris pour les comptes créés avant
+ * l'apparition de la colonne `role` (le propriétaire reste propriétaire).
+ */
+function normalizeRole(raw: unknown, isAdmin: boolean, plan: unknown): UserRole {
+  const value = String(raw ?? '').trim()
+  if (value === 'dev' || value === 'owner' || value === 'client') return value
+  if (isAdmin || plan === 'owner') return 'owner'
+  return 'client'
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
@@ -188,6 +213,24 @@ export function ownerFilter(userId: string | null | undefined): Record<string, u
   return { userId }
 }
 
+/** Objet JSON sûr renvoyé par toutes les routes d'authentification. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function publicUserJson(user: any) {
+  return {
+    id: user?.id,
+    email: user?.email,
+    name: user?.name,
+    isAdmin: Boolean(user?.isAdmin),
+    plan: user?.plan ?? 'free',
+    role: normalizeRole(user?.role, user?.isAdmin, user?.plan),
+    profile: parseProfile(user?.profile),
+    createdAt: user?.createdAt,
+  }
+}
+
+/** Identifiant réservé au compte développeur (jamais inscriptible publiquement). */
+export const DEV_LOGIN = 'dev'
+
 /** Nombre de comptes existants (pour offrir le rôle admin au premier inscrit). */
 export async function countUsers(): Promise<number> {
   try {
@@ -257,4 +300,38 @@ export async function ownerGuard(): Promise<
     return { ok: false, response: Response.json({ error: 'Non connecté — reconnectez-vous.' }, { status: 401 }) }
   }
   return { ok: true, userId: user?.id ?? null, scope: ownerFilter(user?.id ?? null) }
+}
+
+/** Vrai si le compte dispose de l'espace développeur (rôle `dev`). */
+export function isDevUser(user: { role?: UserRole | string } | null | undefined): boolean {
+  if (!user) return false
+  return DEV_ROLES.includes(String(user.role ?? 'client') as UserRole)
+}
+
+/**
+ * Garde-fou de l'espace développeur : dashboard, personnalisation du site,
+ * explorateur de code et agent Dev. Réservé au compte `dev` — un compte
+ * `client` (ou une requête anonyme) est refusé, même connecté.
+ */
+export async function devGuard(): Promise<
+  | { ok: true; user: PublicUser; userId: string }
+  | { ok: false; response: Response }
+> {
+  const user = await getCurrentUser()
+  if (!user) {
+    return {
+      ok: false,
+      response: Response.json({ error: 'Connectez-vous avec le compte développeur.' }, { status: 401 }),
+    }
+  }
+  if (!isDevUser(user)) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: 'Espace réservé au compte développeur. Connectez-vous avec le compte Dev.' },
+        { status: 403 }
+      ),
+    }
+  }
+  return { ok: true, user, userId: user.id }
 }

@@ -86,6 +86,7 @@ const TABLES: Record<string, TableSpec> = {
       isAdmin: false,
       profile: '{}',
       plan: 'free',
+      role: 'client',
     },
   },
   session: {
@@ -122,6 +123,45 @@ const TABLES: Record<string, TableSpec> = {
     dateCols: ['createdAt'],
     boolCols: ['ok'],
     defaults: { keyId: '', message: '', reply: '', ms: 0 },
+  },
+
+  // ── Espace développeur (compte Dev) ────────────────────────────────────────
+  /** Réglages du site modifiables depuis le web (une ligne par clé). */
+  siteSetting: {
+    table: 'SiteSetting',
+    dateCols: ['updatedAt'],
+    hasUpdatedAt: true,
+    defaults: { value: '', updatedBy: '' },
+  },
+  /** Correctifs proposés par l'agent Dev, appliqués ou refusés. */
+  devPatch: {
+    table: 'DevPatch',
+    dateCols: ['createdAt', 'appliedAt'],
+    defaults: {
+      userId: '',
+      title: '',
+      filePath: '',
+      before: '',
+      after: '',
+      rationale: '',
+      status: 'propose',
+      origin: 'agent',
+    },
+  },
+  /** File d'améliorations : idées, diagnostics et tâches de l'agent Dev. */
+  devTask: {
+    table: 'DevTask',
+    dateCols: ['createdAt', 'updatedAt'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      title: '',
+      detail: '',
+      category: 'intelligence',
+      priority: 'normale',
+      status: 'a_faire',
+      filePath: '',
+    },
   },
 }
 
@@ -485,6 +525,39 @@ function createSqliteClient() {
       "ok" BOOLEAN NOT NULL DEFAULT true,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS "SiteSetting" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "key" TEXT NOT NULL,
+      "value" TEXT NOT NULL DEFAULT '',
+      "updatedBy" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "DevPatch" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "title" TEXT NOT NULL DEFAULT '',
+      "filePath" TEXT NOT NULL DEFAULT '',
+      "before" TEXT NOT NULL DEFAULT '',
+      "after" TEXT NOT NULL DEFAULT '',
+      "rationale" TEXT NOT NULL DEFAULT '',
+      "status" TEXT NOT NULL DEFAULT 'propose',
+      "origin" TEXT NOT NULL DEFAULT 'agent',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "appliedAt" DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS "DevTask" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "title" TEXT NOT NULL DEFAULT '',
+      "detail" TEXT NOT NULL DEFAULT '',
+      "category" TEXT NOT NULL DEFAULT 'intelligence',
+      "priority" TEXT NOT NULL DEFAULT 'normale',
+      "status" TEXT NOT NULL DEFAULT 'a_faire',
+      "filePath" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `)
 
   // Colonnes ajoutées après coup (bases existantes) + index de cloisonnement
@@ -493,7 +566,16 @@ function createSqliteClient() {
     sqlite.exec(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
   }
   addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
+  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
+  // depuis un autre compte.
+  addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\'')
+  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
+  addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
   sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
+  addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
+  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "SiteSetting_key_key" ON "SiteSetting"("key")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPatch_userId_idx" ON "DevPatch"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevTask_userId_idx" ON "DevTask"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId")')
   sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKeyLog_keyId_idx" ON "ApiKeyLog"("keyId")')
@@ -512,6 +594,9 @@ function createSqliteClient() {
     blueprint: createModelDelegate(sqlite, TABLES.blueprint),
     apiKey: createModelDelegate(sqlite, TABLES.apiKey),
     apiKeyLog: createModelDelegate(sqlite, TABLES.apiKeyLog),
+    siteSetting: createModelDelegate(sqlite, TABLES.siteSetting),
+    devPatch: createModelDelegate(sqlite, TABLES.devPatch),
+    devTask: createModelDelegate(sqlite, TABLES.devTask),
   }
 }
 

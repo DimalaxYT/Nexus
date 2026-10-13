@@ -3,7 +3,7 @@
 
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getCurrentUser, isValidEmail, parseProfile } from '@/lib/auth'
+import { getCurrentUser, isValidEmail, parseProfile, publicUserJson } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,18 +61,7 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const updated = await db.user.update({ where: { id: user.id }, data: patch })
-    return Response.json({
-      ok: true,
-      user: {
-        id: updated?.id,
-        email: updated?.email,
-        name: updated?.name,
-        isAdmin: Boolean(updated?.isAdmin),
-        plan: updated?.plan ?? 'free',
-        profile: parseProfile(updated?.profile),
-        createdAt: updated?.createdAt,
-      },
-    })
+    return Response.json({ ok: true, user: publicUserJson(updated) })
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : 'Mise à jour impossible' },

@@ -129,6 +129,76 @@ Réponse :
 - Codes : `401` clé absente/invalide · `403` clé désactivée ou origine refusée · `429` limite atteinte.
 - L'historique d'une conversation peut être transmis dans `history` (tableau `{role, content}`).
 
+## 🛠️ Compte Dev & agent Dev
+
+En plus des comptes classiques, NEXUS crée automatiquement un **compte développeur** juste après la
+création du premier compte (le propriétaire). Il ouvre un espace technique **invisible depuis les
+comptes standards**.
+
+```
+identifiant  : dev
+mot de passe : dev2026          ← à changer depuis le menu « Mon compte »
+```
+
+> Le mot de passe initial se surcharge avec la variable d'environnement `NEXUS_DEV_PASSWORD`.
+> Il est affiché **une seule fois** dans la console du serveur, lors de la création du compte.
+
+L'espace développeur (**Espace Dev**, dans la barre latérale) réunit sept onglets :
+
+| Onglet | Ce qu'il fait |
+|---|---|
+| **Vue d'ensemble** | Compteurs de la base, poids du code par dossier, fichiers les plus lourds, charge système, et les **sujets mal couverts** détectés dans le journal d'appels |
+| **Site** | Personnalisation du site depuis le web : nom, slogan, emoji du logo, deux couleurs d'accent, textes de connexion et d'accueil, pied de page, visibilité des tuiles de l'accueil, **CSS libre** — avec aperçu en direct |
+| **Agent Dev** | Discuter avec l'agent qui lit le code |
+| **Code** | Explorateur de fichiers + recherche dans tout le projet (avec numéros de ligne) |
+| **Correctifs** | Les propositions de l'agent Dev, à relire et à appliquer d'un clic |
+| **Améliorations** | File de tâches alimentée par l'agent Dev et par vous |
+| **Journal** | Derniers appels d'API, état des clés, sessions actives révocables |
+
+### L'agent Dev
+
+C'est le **seul agent qui a accès au code**, et **uniquement depuis le compte Dev** : il n'apparaît
+dans l'équipe d'aucun autre compte, et il est marqué « système » (non supprimable).
+
+Son moteur (`src/lib/devbrain.ts`) est 100 % local : il connaît la carte d'architecture du projet,
+lit les vrais fichiers sur le disque, et répond avec des faits vérifiables (fichier + numéro de
+ligne). Il sait :
+
+- **Auditer** — « fais un audit du projet » : taille, répartition, dette technique, TODO réels
+  (uniquement ceux en commentaire), état de la base.
+- **Améliorer l'intelligence** — « comment rendre NEXUS plus intelligent ? » : les quatre leviers
+  classés par rentabilité, avec l'état réel de la banque de connaissances.
+- **Apprendre un fait** — « apprends à NEXUS que le support répond sous 24 h » : il fabrique
+  l'entrée de connaissance **et le correctif prêt à appliquer** sur
+  `src/lib/brain/knowledge-bank.ts`. Une fois appliqué, NEXUS répond avec ce savoir — hors-ligne.
+- **Chercher / expliquer** — « où est gérée l'authentification ? », « explique-moi les blueprints ».
+- **Diagnostiquer** — classement des fichiers suspects par densité de correspondances.
+- **Optimiser** — fichiers les plus lourds, fonctions démesurées, `any`, `console.log`, `catch` vides.
+
+Il fonctionne aussi bien dans l'onglet **Agent Dev** que dans le chat normal (sélectionnez l'agent
+**🛠️ Dev**), et en passant par `POST /api/dev/agent`.
+
+### Correctifs : rien n'est écrit sans validation
+
+L'agent ne modifie jamais un fichier de lui-même. Chaque proposition :
+
+1. est enregistrée avec son **ancre exacte** (un extrait réel du fichier, assez long pour être unique),
+2. s'affiche en **diff avant/après** dans l'onglet Correctifs,
+3. ne s'écrit qu'après votre clic sur **Appliquer** — avec une **sauvegarde horodatée** du fichier
+   dans `.arena/dev-backups/` avant l'écriture.
+
+Si le code a changé entre la proposition et l'application, l'ancre n'est plus trouvée et
+l'application est **refusée** plutôt que d'écrire au mauvais endroit.
+
+### Sécurité de l'espace Dev
+
+- `devGuard()` : seules les requêtes du compte `dev` passent (401 anonyme, 403 pour tout autre
+  compte connecté — propriétaire compris).
+- Accès fichiers confiné à la racine du projet : `../` refusé, et liste noire sur `.git`,
+  `node_modules`, `.env*`, `*.db`, les clés et les certificats.
+- CSS personnalisé assaini (pas de `</style`, pas de `<script`, pas d'`@import` distant).
+- L'identifiant `dev` est réservé : impossible à créer en inscription publique.
+
 ## Base de données
 
 - Schéma : `prisma/schema.prisma` (référence) — l'accès se fait via la couche légère `src/lib/db.ts`
@@ -140,6 +210,10 @@ Modèles ajoutés en v2.1 : `User`, `Session`, `Blueprint`, `ApiKey`, `ApiKeyLog
 `userId` sur `Conversation`, `Knowledge`, `Memory`, `Task`, `AgentProfile`, `AgentGroup`,
 `AccountConnection` et un champ `blueprintId` sur `AgentProfile`.
 
+Modèles de l'espace Dev : `SiteSetting` (réglages du site), `DevPatch` (correctifs proposés),
+`DevTask` (file d'améliorations), plus les colonnes `role` sur `User` (`owner` / `dev` / `client`)
+et `systemKey` sur `AgentProfile` (`'dev'` pour l'agent système).
+
 ## Structure
 
 ```
@@ -147,6 +221,7 @@ src/
   app/api/         → Routes API (auth, blueprints, clés, v1 publique, outils…)
   components/      → Composants UI (Bureau, Jarvis Brain, IDE, Hub, Blueprints, Clés API…)
   lib/             → Cerveau IA local, orchestrateur multi-agents, auth, blueprints, connecteurs
+                     + espace Dev : devbrain.ts (agent), devfs.ts (accès code), site-settings.ts
   lib/brain/       → Le cerveau : classifieur, neurones, moteurs (maths, code, image, 3D, vidéo…)
   hooks/           → Hooks React
 prisma/            → Schéma de base de données
@@ -159,6 +234,8 @@ scripts/           → Scripts utilitaires
 
 - **Cerveau IA local** — raisonnement, mémoire, base de connaissances (aucun appel externe)
 - **Comptes** — connexion, historique et personnalisation par utilisateur
+- **Espace Dev** — dashboard, personnalisation du site depuis le web, agent Dev qui lit et améliore
+  le code (`src/lib/devbrain.ts`, `src/lib/devfs.ts`, `src/lib/dev-seed.ts`)
 - **Blueprints** — schémas d'agents construits visuellement
 - **Clés API** — chatbots configurables et revendables (API publique v1)
 - **Bureau** — délibérations multi-agents

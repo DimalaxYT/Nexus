@@ -16,10 +16,13 @@ import {
   Sparkles,
   UserRound,
   Wand2,
+  Terminal,
   Workflow,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useNexusStore } from '@/lib/store'
+import { useAuth } from '@/lib/auth-client'
+import { useSiteSettings } from '@/lib/site-settings-client'
 import type { ViewId } from '@/lib/nexus-types'
 
 const TOOLS: {
@@ -114,6 +117,16 @@ const TOOLS: {
   },
 ]
 
+const DEV_TOOL = {
+  id: 'dev' as ViewId,
+  title: 'Espace développeur',
+  desc: 'Dashboard technique : personnalisation du site depuis le web, statistiques, journal d’appels, explorateur de code et agent Dev qui lit et améliore le code de NEXUS.',
+  icon: Terminal,
+  gradient: 'from-cyan-500 to-blue-600',
+  shadow: 'group-hover:shadow-cyan-500/30',
+  tag: 'Réservé au Dev',
+}
+
 const CAPABILITIES = [
   { icon: Globe, label: 'Recherche web autonome' },
   { icon: Wand2, label: 'Art procédural local' },
@@ -129,6 +142,14 @@ const CAPABILITIES = [
 
 export function Hub() {
   const setView = useNexusStore((s) => s.setView)
+  const { user, logout } = useAuth()
+  const { settings } = useSiteSettings()
+  const isDev = user?.role === 'dev'
+  const isOwner = user?.role === 'owner'
+
+  // Les tuiles masquées depuis l'espace Dev disparaissent de l'accueil.
+  const tools = TOOLS.filter((t) => !settings.hiddenTiles.includes(t.id))
+  const shown = isDev ? [DEV_TOOL, ...tools] : tools
 
   return (
     <div className="h-full overflow-y-auto">
@@ -149,8 +170,9 @@ export function Hub() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.08 }}
             className="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-rose-400 bg-clip-text text-4xl font-extrabold tracking-tight text-transparent md:text-6xl"
+            style={{ backgroundImage: `linear-gradient(to right, ${settings.accent}, ${settings.accent2})` }}
           >
-            NEXUS
+            {settings.appName}
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
@@ -158,10 +180,7 @@ export function Hub() {
             transition={{ duration: 0.5, delay: 0.16 }}
             className="mt-4 max-w-2xl text-balance text-base leading-relaxed text-muted-foreground md:text-lg"
           >
-            Ton agent IA personnel : il répond vite, cherche sur le web en synthétisant les
-            pages, compose des images procédurales, construit des mondes en 3D, retouche tes
-            photos, écrit des scripts — et exécute seul tes missions en arrière-plan,
-            en apprenant des compétences au passage.
+            {settings.welcomeSubtitle}
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -189,9 +208,32 @@ export function Hub() {
           </motion.div>
         </section>
 
+        {/* Rappel discret : l'espace développeur vit sur son propre compte */}
+        {isOwner && (
+          <section className="mx-auto mb-6 w-full max-w-3xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                <p className="text-xs text-foreground/85">
+                  L’espace développeur (dashboard, personnalisation du site, agent Dev) vit sur le{' '}
+                  <strong>compte Dev</strong> — identifiant <code className="font-mono text-cyan-300">dev</code>.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-cyan-500/40 text-cyan-200"
+                onClick={() => void logout()}
+              >
+                Se connecter en Dev
+              </Button>
+            </div>
+          </section>
+        )}
+
         {/* Cartes outils */}
         <section className="grid gap-4 pb-8 sm:grid-cols-2" aria-label="Outils disponibles">
-          {TOOLS.map((tool, i) => {
+          {shown.map((tool, i) => {
             const Icon = tool.icon
             return (
               <motion.button

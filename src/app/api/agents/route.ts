@@ -163,6 +163,12 @@ export async function DELETE(req: NextRequest) {
     const guard = await ownerGuard()
     if (!guard.ok) return guard.response
     const { scope, userId } = guard
+    const existing = await db.agentProfile.findUnique({ where: { id, ...(scope ?? {}) } })
+    if (!existing) return Response.json({ error: 'Agent introuvable' }, { status: 404 })
+    // L'agent système (Dev) fait partie de NEXUS : on ne le supprime pas.
+    if (String((existing as { systemKey?: unknown }).systemKey ?? '')) {
+      return Response.json({ error: 'Cet agent système fait partie de NEXUS et ne peut pas être supprimé.' }, { status: 403 })
+    }
     await db.agentProfile.delete({ where: { id, ...(scope ?? {}) } })
     return Response.json({ ok: true })
   } catch (err) {

@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Power,
+  ShieldCheck,
   Trash2,
   Users,
   UsersRound,
@@ -254,15 +255,25 @@ const AgentCard = memo(function AgentCard({
           >
             <Power className={cn('h-3.5 w-3.5', agent.enabled && 'text-emerald-400')} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-300"
-            onClick={() => onRemove(agent)}
-            aria-label={`Supprimer ${agent.name}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {agent.systemKey ? (
+            <span
+              className="flex h-7 items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-[10px] font-semibold text-cyan-300"
+              title="Agent système : fait partie de NEXUS, il ne peut pas être supprimé"
+            >
+              <ShieldCheck className="h-3 w-3" />
+              système
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-300"
+              onClick={() => onRemove(agent)}
+              aria-label={`Supprimer ${agent.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/lib/auth-client'
+import { useSiteSettings } from '@/lib/site-settings-client'
 import { cn } from '@/lib/utils'
 
 /**
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils'
  */
 export function AuthGate() {
   const { login, register, accountsExist, accountCount } = useAuth()
+  const { settings } = useSiteSettings()
   // Mode initial : création de compte si l'instance n'en a aucun, connexion sinon.
   const [mode, setMode] = useState<'login' | 'register'>(accountsExist ? 'login' : 'register')
   const [name, setName] = useState('')
@@ -50,14 +52,22 @@ export function AuthGate() {
 
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-rose-500 shadow-xl shadow-violet-500/30">
-            <Bot className="h-8 w-8 text-white" />
+          <div
+            className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-xl"
+            style={{
+              background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})`,
+              boxShadow: `0 20px 40px -12px ${settings.accent}80`,
+            }}
+          >
+            {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : <Bot className="h-8 w-8 text-white" />}
           </div>
-          <h1 className="text-2xl font-extrabold tracking-widest text-foreground">NEXUS</h1>
-          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">Agent IA 100 % local</p>
+          <h1 className="text-2xl font-extrabold tracking-widest text-foreground">{settings.appName}</h1>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{settings.tagline}</p>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{settings.loginSubtitle}</p>
         </div>
 
         <div className="rounded-2xl border border-border/70 bg-card/80 p-6 shadow-2xl backdrop-blur">
+          <h2 className="mb-4 text-center text-sm font-semibold text-foreground">{settings.loginTitle}</h2>
           <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-muted/60 p-1">
             <button
               onClick={() => { setMode('login'); setError('') }}
@@ -104,18 +114,17 @@ export function AuthGate() {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="auth-email">Adresse e-mail</Label>
+              <Label htmlFor="auth-email">Adresse e-mail ou identifiant</Label>
               <div className="relative">
                 <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="auth-email"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="vous@exemple.fr"
                   className="pl-9"
-                  required
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
             </div>
