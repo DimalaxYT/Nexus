@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { ownerGuard } from '@/lib/auth'
 import { parseKnowledgeRow } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -9,7 +10,10 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim().toLowerCase()
   const category = (req.nextUrl.searchParams.get('category') ?? '').trim().toLowerCase()
   try {
-    const rows = await db.knowledge.findMany({ orderBy: { updatedAt: 'desc' }, take: 300 })
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const rows = await db.knowledge.findMany({ where: scope, orderBy: { updatedAt: 'desc' }, take: 300 })
     let items = rows.map(parseKnowledgeRow)
     if (q) {
       items = items.filter(
@@ -49,13 +53,17 @@ export async function POST(req: NextRequest) {
   const id = typeof body?.id === 'string' && body.id.trim() ? body.id.trim() : null
 
   try {
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const owned = userId ? { userId } : {}
     const row = id
       ? await db.knowledge.update({
-          where: { id },
+          where: { id, ...(scope ?? {}) },
           data: { title, content, category, tags: JSON.stringify(tags), links: JSON.stringify(links) },
         })
       : await db.knowledge.create({
-          data: { title, content, category, tags: JSON.stringify(tags), links: JSON.stringify(links), source },
+          data: { title, content, category, tags: JSON.stringify(tags), links: JSON.stringify(links), source, ...owned },
         })
     return Response.json({ item: parseKnowledgeRow(row) })
   } catch (err) {
@@ -71,12 +79,15 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')
   const all = req.nextUrl.searchParams.get('all')
   try {
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
     if (all === '1') {
-      await db.knowledge.deleteMany({})
+      await db.knowledge.deleteMany({ where: scope })
       return Response.json({ ok: true, deleted: 'all' })
     }
     if (!id) return Response.json({ error: 'Paramètre id requis' }, { status: 400 })
-    await db.knowledge.delete({ where: { id } })
+    await db.knowledge.delete({ where: { id, ...(scope ?? {}) } })
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(

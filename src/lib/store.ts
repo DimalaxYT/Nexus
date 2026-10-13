@@ -31,6 +31,12 @@ interface NexusState {
   deleteAllConversations: () => void
   hydrated: boolean
   hydrateFromServer: () => Promise<void>
+  /**
+   * Changement de compte connecté (connexion / déconnexion) : on vide
+   * l'historique affiché puis on recharge CELUI DU COMPTE depuis le serveur.
+   * Évite tout mélange de conversations entre deux utilisateurs.
+   */
+  switchUserData: (userId: string | null) => Promise<void>
 
   // Transferts entre l'agent et les studios
   pendingScene: SceneSpec | null
@@ -51,6 +57,13 @@ interface NexusState {
   // Proposition de code d'un agent en attente de validation (diff → Studio Code)
   pendingProposal: CodeProposal | null
   setPendingProposal: (p: CodeProposal | null) => void
+
+  /**
+   * Agent mise en avant par le panneau Équipe (« ⚙️ Schéma ») : l'atelier
+   * Blueprints ouvre directement le schéma de cet agent (et le crée au besoin).
+   */
+  blueprintAgentFocus: string | null
+  setBlueprintAgentFocus: (id: string | null) => void
 
   // SALLE DES CERVEAUX 3D : activité en direct des agents + NEXUS (session)
   brainActivity: Record<string, BrainActivityItem>
@@ -222,6 +235,18 @@ export const useNexusStore = create<NexusState>()(
           /* serveur injoignable : le localStorage reste la source */
         }
       },
+
+      switchUserData: async (userId) => {
+        // Annule les sauvegardes en attente (elles appartiennent à l'ancien compte)
+        for (const timer of syncTimers.values()) clearTimeout(timer)
+        syncTimers.clear()
+        set({ conversations: [], activeConversationId: null, hydrated: false, pendingProposal: null })
+        if (!userId) return
+        await get().hydrateFromServer()
+      },
+
+      blueprintAgentFocus: null,
+      setBlueprintAgentFocus: (id) => set({ blueprintAgentFocus: id }),
 
       pendingScene: null,
       setPendingScene: (s) => set({ pendingScene: s }),

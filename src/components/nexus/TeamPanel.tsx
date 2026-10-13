@@ -7,9 +7,11 @@ import {
   Pencil,
   Plus,
   Power,
+  ShieldCheck,
   Trash2,
   Users,
   UsersRound,
+  Workflow,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -85,11 +87,14 @@ export function TeamPanel({
   onOpenChange,
   agents,
   onRefresh,
+  onOpenBlueprint,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   agents: NexusAgent[]
   onRefresh: () => void
+  /** Ouvre l'atelier Blueprints sur le schéma de cet agent. */
+  onOpenBlueprint?: (agent: NexusAgent) => void
 }) {
   const [tab, setTab] = useState<'agents' | 'groupes'>('agents')
 
@@ -147,7 +152,7 @@ export function TeamPanel({
         </SheetHeader>
 
         {tab === 'agents' ? (
-          <AgentsTab agents={agents} onRefresh={onRefresh} />
+          <AgentsTab agents={agents} onRefresh={onRefresh} onOpenBlueprint={onOpenBlueprint} />
         ) : (
           <GroupsTab agents={agents} groups={groups} onRefresh={refreshGroups} />
         )}
@@ -168,11 +173,13 @@ const AgentCard = memo(function AgentCard({
   onEdit,
   onToggle,
   onRemove,
+  onBlueprint,
 }: {
   agent: NexusAgent
   onEdit: (agent: NexusAgent) => void
   onToggle: (agent: NexusAgent) => void
   onRemove: (agent: NexusAgent) => void
+  onBlueprint?: (agent: NexusAgent) => void
 }) {
   return (
     <div
@@ -218,6 +225,18 @@ const AgentCard = memo(function AgentCard({
           )}
         </div>
         <div className="flex shrink-0 gap-0.5">
+          {onBlueprint && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:bg-violet-500/10 hover:text-violet-300"
+              onClick={() => onBlueprint(agent)}
+              aria-label={`Schéma de ${agent.name}`}
+              title={agent.blueprintId ? 'Schéma branché — ouvrir' : 'Construire son schéma (blueprint)'}
+            >
+              <Workflow className={cn('h-3.5 w-3.5', agent.blueprintId && 'text-violet-400')} />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -236,22 +255,40 @@ const AgentCard = memo(function AgentCard({
           >
             <Power className={cn('h-3.5 w-3.5', agent.enabled && 'text-emerald-400')} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-300"
-            onClick={() => onRemove(agent)}
-            aria-label={`Supprimer ${agent.name}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {agent.systemKey ? (
+            <span
+              className="flex h-7 items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-[10px] font-semibold text-cyan-300"
+              title="Agent système : fait partie de NEXUS, il ne peut pas être supprimé"
+            >
+              <ShieldCheck className="h-3 w-3" />
+              système
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-300"
+              onClick={() => onRemove(agent)}
+              aria-label={`Supprimer ${agent.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
   )
 })
 
-function AgentsTab({ agents, onRefresh }: { agents: NexusAgent[]; onRefresh: () => void }) {
+function AgentsTab({
+  agents,
+  onRefresh,
+  onOpenBlueprint,
+}: {
+  agents: NexusAgent[]
+  onRefresh: () => void
+  onOpenBlueprint?: (agent: NexusAgent) => void
+}) {
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)

@@ -1,6 +1,18 @@
 // ─── NEXUS — Types partagés ──────────────────────────────────────────────────
 
-export type ViewId = 'hub' | 'agent' | 'studio3d' | 'image' | 'video' | 'code' | 'connexions' | 'cerveaux'
+export type ViewId =
+  | 'hub'
+  | 'agent'
+  | 'studio3d'
+  | 'image'
+  | 'video'
+  | 'code'
+  | 'connexions'
+  | 'cerveaux'
+  | 'blueprints'
+  | 'cles'
+  | 'compte'
+  | 'dev'
 
 // ─── Spécification de scène 3D ───────────────────────────────────────────────
 
@@ -353,6 +365,13 @@ export interface NexusAgent {
   color: string
   enabled: boolean
   writer: boolean // ✍️ rédacteur du Bureau : rédige la réponse finale quand il participe
+  /** Blueprint actif : schéma d'utilisation construit par l'utilisateur. */
+  blueprintId: string
+  /**
+   * Agent système (ex. 'dev') : créé et géré par NEXUS, ni supprimable,
+   * ni visible depuis un autre compte. Chaîne vide pour un agent normal.
+   */
+  systemKey: string
   createdAt: number
 }
 
@@ -406,6 +425,8 @@ export function parseAgentRow(row: {
   color: string
   enabled: boolean
   writer?: boolean
+  blueprintId?: string | null
+  systemKey?: string | null
   createdAt: Date
 }): NexusAgent {
   let specialties: string[] = []
@@ -429,6 +450,8 @@ export function parseAgentRow(row: {
     color: row.color || '#a78bfa',
     enabled: row.enabled,
     writer: row.writer ?? false,
+    blueprintId: String(row.blueprintId ?? ''),
+    systemKey: String(row.systemKey ?? ''),
     createdAt: row.createdAt.getTime(),
   }
 }
@@ -609,6 +632,224 @@ export interface AccountConnectionInfo {
 }
 
 // Registre mémoire des images générées (session uniquement, pleine qualité)
+// ─── BLUEPRINTS — schéma d'utilisation d'un agent, construit à la main ─────────
+// L'utilisateur dessine lui-même le parcours de son agent : règles (« quand tu
+// lis X réponds Y »), conditions, appels au cerveau local, recherche dans sa
+// base de connaissances, outils, puis la réponse finale. Exécuté par
+// src/lib/blueprint.ts — 100 % local, sans aucun modèle externe.
+
+export type BlueprintNodeType =
+  | 'start'
+  | 'rule'
+  | 'condition'
+  | 'brain'
+  | 'knowledge'
+  | 'tool'
+  | 'variable'
+  | 'webhook'
+  | 'reply'
+  | 'end'
+
+export interface BlueprintNode {
+  id: string
+  type: BlueprintNodeType
+  x: number
+  y: number
+  title: string
+  /** Configuration propre au type de nœud (voir NODE_SPECS dans le module UI). */
+  config: Record<string, unknown>
+}
+
+export interface BlueprintEdge {
+  id: string
+  from: string
+  /** Port de sortie : 'out' | 'match' | 'nomatch' | 'true' | 'false' | 'error' */
+  fromPort: string
+  to: string
+}
+
+export interface BlueprintGraph {
+  nodes: BlueprintNode[]
+  edges: BlueprintEdge[]
+}
+
+export interface BlueprintSummary {
+  id: string
+  userId: string
+  agentId: string
+  name: string
+  description: string
+  graph: BlueprintGraph
+  enabled: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export const EMPTY_GRAPH: BlueprintGraph = { nodes: [], edges: [] }
+
+/** Description d'un type de nœud (palette + ports de sortie du canvas). */
+export interface BlueprintNodeSpec {
+  type: BlueprintNodeType
+  label: string
+  emoji: string
+  color: string
+  hint: string
+  /** Sorties possibles : 'out' par défaut. */
+  ports: { id: string; label: string }[]
+  /** Champs du formulaire d'inspection du nœud. */
+  fields: { key: string; label: string; kind: 'text' | 'textarea' | 'select' | 'number'; options?: string[]; placeholder?: string }[]
+}
+
+export const BLUEPRINT_NODE_SPECS: BlueprintNodeSpec[] = [
+  {
+    type: 'start', label: 'Départ', emoji: '🟢', color: '#22c55e',
+    hint: 'Entrée du schéma : reçoit le message du visiteur.',
+    ports: [{ id: 'out', label: 'Suite' }],
+    fields: [{ key: 'greeting', label: "Message d'accueil (optionnel)", kind: 'text', placeholder: 'Bonjour, comment puis-je aider ?' }],
+  },
+  {
+    type: 'rule', label: 'Règle', emoji: '🎯', color: '#f59e0b',
+    hint: '« Quand tu lis … réponds … » — déclencheur + réponse exacte.',
+    ports: [{ id: 'match', label: 'Si oui' }, { id: 'nomatch', label: 'Sinon' }],
+    fields: [
+      { key: 'match', label: 'Quand tu lis', kind: 'textarea', placeholder: 'Pourquoi mon ordinateur ne fonctionne pas' },
+      { key: 'mode', label: 'Type de correspondance', kind: 'select', options: ['contains', 'exact', 'startsWith', 'endsWith', 'fuzzy', 'regex'] },
+      { key: 'reply', label: 'Réponds', kind: 'textarea', placeholder: 'Cela doit probablement être dû à la carte mère.' },
+    ],
+  },
+  {
+    type: 'condition', label: 'Condition', emoji: '🔀', color: '#38bdf8',
+    hint: 'Teste le message, une intention ou une variable. Deux sorties : Vrai / Faux.',
+    ports: [{ id: 'true', label: 'Vrai' }, { id: 'false', label: 'Faux' }],
+    fields: [
+      { key: 'left', label: 'Tester', kind: 'select', options: ['message', 'variable'] },
+      { key: 'variable', label: 'Nom de la variable', kind: 'text', placeholder: 'resultat' },
+      { key: 'operator', label: 'Opérateur', kind: 'select', options: ['contains', 'equals', 'notEquals', 'isEmpty', 'startsWith', 'regex'] },
+      { key: 'value', label: 'Valeur', kind: 'text', placeholder: 'texte à comparer' },
+    ],
+  },
+  {
+    type: 'brain', label: 'Cerveau IA', emoji: '🧠', color: '#a78bfa',
+    hint: 'Fait réfléchir le cerveau local de NEXUS avec votre consigne.',
+    ports: [{ id: 'out', label: 'Suite' }],
+    fields: [
+      { key: 'instruction', label: 'Consigne pour le cerveau', kind: 'textarea', placeholder: 'Réponds en technicien SAV, en 3 étapes maximum.' },
+      { key: 'variable', label: 'Stocker dans la variable', kind: 'text', placeholder: 'reponse' },
+      { key: 'useHistory', label: 'Tenir compte de la conversation', kind: 'select', options: ['true', 'false'] },
+    ],
+  },
+  {
+    type: 'knowledge', label: 'Connaissance', emoji: '📚', color: '#34d399',
+    hint: 'Cherche dans la base de connaissances du compte.',
+    ports: [{ id: 'out', label: 'Suite' }],
+    fields: [
+      { key: 'query', label: 'Recherche (vide = le message)', kind: 'text', placeholder: 'garantie' },
+      { key: 'variable', label: 'Stocker dans la variable', kind: 'text', placeholder: 'connaissances' },
+      { key: 'max', label: 'Nombre de notes', kind: 'number' },
+    ],
+  },
+  {
+    type: 'tool', label: 'Outil', emoji: '🛠️', color: '#f472b6',
+    hint: 'Recherche web, lecture de page, calcul, mails, GitHub…',
+    ports: [{ id: 'out', label: 'Suite' }, { id: 'error', label: 'Échec' }],
+    fields: [
+      {
+        key: 'tool', label: 'Outil', kind: 'select',
+        options: ['web_search', 'read_webpage', 'math', 'check_email', 'github_activity', 'memory', 'datetime'],
+      },
+      { key: 'argument', label: 'Argument (vide = le message)', kind: 'text', placeholder: 'requête, URL ou expression' },
+      { key: 'variable', label: 'Stocker dans la variable', kind: 'text', placeholder: 'donnees' },
+    ],
+  },
+  {
+    type: 'variable', label: 'Variable', emoji: '🏷️', color: '#94a3b8',
+    hint: 'Crée ou modifie une valeur réutilisable plus loin.',
+    ports: [{ id: 'out', label: 'Suite' }],
+    fields: [
+      { key: 'name', label: 'Nom de la variable', kind: 'text', placeholder: 'client' },
+      { key: 'value', label: 'Valeur', kind: 'textarea', placeholder: '{{message}} — tu peux réutiliser {{autre}}' },
+    ],
+  },
+  {
+    type: 'webhook', label: 'Webhook', emoji: '🔌', color: '#60a5fa',
+    hint: 'Appelle une URL externe (votre CRM, votre base, un script).',
+    ports: [{ id: 'out', label: 'Suite' }, { id: 'error', label: 'Échec' }],
+    fields: [
+      { key: 'url', label: 'URL', kind: 'text', placeholder: 'https://…' },
+      { key: 'method', label: 'Méthode', kind: 'select', options: ['POST', 'GET'] },
+      { key: 'body', label: 'Corps JSON', kind: 'textarea', placeholder: '{"message":"{{message}}"}' },
+      { key: 'variable', label: 'Stocker la réponse dans', kind: 'text', placeholder: 'api' },
+      { key: 'timeoutMs', label: 'Délai max (ms)', kind: 'number' },
+    ],
+  },
+  {
+    type: 'reply', label: 'Réponse', emoji: '💬', color: '#fb7185',
+    hint: 'Texte final envoyé au visiteur (variables autorisées : {{nom}}).',
+    ports: [],
+    fields: [{ key: 'text', label: 'Texte de la réponse', kind: 'textarea', placeholder: 'Voici la réponse : {{reponse}}' }],
+  },
+  {
+    type: 'end', label: 'Fin', emoji: '⛔', color: '#64748b',
+    hint: "Termine le parcours (sans texte : la réponse calculée s'affiche).",
+    ports: [],
+    fields: [{ key: 'text', label: 'Texte final (optionnel)', kind: 'textarea' }],
+  },
+]
+
+export function nodeSpec(type: BlueprintNodeType): BlueprintNodeSpec {
+  return BLUEPRINT_NODE_SPECS.find((s) => s.type === type) ?? BLUEPRINT_NODE_SPECS[8]
+}
+
+export function parseGraph(raw: unknown): BlueprintGraph {
+  if (typeof raw !== 'string' || !raw.trim()) return { nodes: [], edges: [] }
+  try {
+    const parsed = JSON.parse(raw) as BlueprintGraph
+    if (!parsed || !Array.isArray(parsed.nodes)) return { nodes: [], edges: [] }
+    return {
+      nodes: (parsed.nodes ?? []).map((n) => ({
+        id: String(n?.id ?? ''),
+        type: (n?.type ?? 'reply') as BlueprintNodeType,
+        x: Number(n?.x) || 0,
+        y: Number(n?.y) || 0,
+        title: String(n?.title ?? ''),
+        config: (n?.config && typeof n.config === 'object' ? n.config : {}) as Record<string, unknown>,
+      })),
+      edges: (Array.isArray(parsed.edges) ? parsed.edges : []).map((e) => ({
+        id: String(e?.id ?? ''),
+        from: String(e?.from ?? ''),
+        fromPort: String(e?.fromPort ?? 'out'),
+        to: String(e?.to ?? ''),
+      })),
+    }
+  } catch {
+    return { nodes: [], edges: [] }
+  }
+}
+
+export function parseBlueprintRow(row: {
+  id: string
+  userId: string
+  agentId: string
+  name: string
+  description: string
+  graph: string
+  enabled: boolean
+  createdAt: Date
+  updatedAt: Date
+}): BlueprintSummary {
+  return {
+    id: String(row.id),
+    userId: String(row.userId ?? ''),
+    agentId: String(row.agentId ?? ''),
+    name: String(row.name ?? 'Blueprint'),
+    description: String(row.description ?? ''),
+    graph: parseGraph(row.graph),
+    enabled: Boolean(row.enabled),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
 export const runtimeImages = new Map<string, string>()
 
 // Registre des vignettes persistées : les images générées restent visibles

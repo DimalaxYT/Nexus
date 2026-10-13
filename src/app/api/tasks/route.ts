@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { ownerGuard } from '@/lib/auth'
 import { parseTaskRow } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -13,7 +14,10 @@ export const runtime = 'nodejs'
  */
 export async function GET() {
   try {
-    const rows = await db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 100 })
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const rows = await db.task.findMany({ where: scope, orderBy: { updatedAt: 'desc' }, take: 100 })
     return Response.json({ tasks: rows.map(parseTaskRow) })
   } catch (err) {
     return Response.json(
@@ -41,6 +45,9 @@ export async function POST(req: NextRequest) {
     ? body.agents.map((a: unknown) => String(a).trim()).filter(Boolean).slice(0, 10)
     : []
 
+  const guard = await ownerGuard()
+  if (!guard.ok) return guard.response
+  const { scope, userId } = guard
   try {
     const created = await db.task.create({
       data: {
@@ -51,6 +58,7 @@ export async function POST(req: NextRequest) {
         status: 'todo',
         progress: '[]',
         agents: JSON.stringify(agents),
+        ...(userId ? { userId } : {}),
       },
     })
     return Response.json({ task: parseTaskRow(created) }, { status: 201 })
@@ -71,8 +79,11 @@ export async function PATCH(req: NextRequest) {
   const status = ['todo', 'running', 'done', 'blocked'].includes(statusRaw) ? statusRaw : null
   const note = String(body?.note ?? '').trim().slice(0, 600)
 
+  const guard = await ownerGuard()
+  if (!guard.ok) return guard.response
+  const { scope, userId } = guard
   try {
-    const existing = await db.task.findUnique({ where: { id } })
+    const existing = await db.task.findUnique({ where: { id, ...(scope ?? {}) } })
     if (!existing) return Response.json({ error: 'Mission introuvable' }, { status: 404 })
 
     const progress = (() => {
@@ -105,13 +116,16 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   const all = searchParams.get('all')
+  const guard = await ownerGuard()
+  if (!guard.ok) return guard.response
+  const { scope, userId } = guard
   try {
     if (all) {
-      await db.task.deleteMany({})
+      await db.task.deleteMany({ where: scope })
       return Response.json({ ok: true })
     }
     if (id) {
-      await db.task.delete({ where: { id } })
+      await db.task.delete({ where: { id, ...(scope ?? {}) } })
       return Response.json({ ok: true })
     }
     return Response.json({ error: 'id requis' }, { status: 400 })

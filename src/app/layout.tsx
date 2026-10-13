@@ -1,18 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Polices 100 % LOCALES (pile système) : NEXUS se construit et se lance sans
+// aucun accès à Internet. Aucun téléchargement depuis Google Fonts au build.
 
 export const metadata: Metadata = {
   title: "NEXUS — Votre Agent IA tout-en-un",
@@ -32,9 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr" className="dark" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-      >
+      <body className="antialiased bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           {children}
           <Toaster />

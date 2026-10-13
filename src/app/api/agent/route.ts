@@ -5,6 +5,9 @@
 
 import { NextRequest } from 'next/server'
 import { processTurn } from '@/lib/brain/brain'
+import { getUserById, ownerGuard } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { runDevTurn } from '@/lib/devbrain'
 import type { AgentEvent, ChatTarget, CodeFiles } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -72,6 +75,26 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Messages requis' }, { status: 400 })
   }
 
+  // Compte courant : cloisonnement des données + personnalisation du cerveau.
+  // Si des comptes existent sur l'instance, une session est obligatoire.
+  const guard = await ownerGuard()
+  if (!guard.ok) return guard.response
+  const user = guard.userId ? await getUserById(guard.userId) : null
+
+  // L'agent Dev (systemKey = 'dev') n'existe QUE sur le compte développeur :
+  // on le trouve donc déjà cloisonné. Il ne passe pas par le cerveau général,
+  // mais par son propre moteur qui lit le code et propose des correctifs.
+  const target = parseTarget(body?.target)
+  let devAgentId: string | null = null
+  if (target.kind === 'agent' && guard.userId) {
+    const agent = await db.agentProfile
+      .findUnique({ where: { id: target.agentId, userId: guard.userId } })
+      .catch(() => null)
+    if (agent && String((agent as { systemKey?: unknown }).systemKey ?? '') === 'dev') {
+      devAgentId = String(agent.id)
+    }
+  }
+
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -114,7 +137,46 @@ export async function POST(req: NextRequest) {
       }, HEARTBEAT_MS)
 
       try {
-        await processTurn({ messages: history, target: parseTarget(body?.target), currentCode: parseCurrentCode(body?.currentCode) }, send)
+        if (devAgentId && guard.userId) {
+          send({ type: 'speaker', id: devAgentId, name: 'Dev', emoji: '🛠️', color: '#22d3ee' })
+          for (const thought of ['Lecture du code…', 'Analyse…']) {
+            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#22d3ee', text: thought })
+          }
+          const result = await runDevTurn(history[history.length - 1]?.content ?? '', history.slice(0, -1), guard.userId)
+          for (const t of result.thoughts) {
+            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#22d3ee', text: t })
+          }
+          if (result.files.length) {
+            send({
+              type: 'step',
+              id: 'dev-files',
+              tool: 'search_knowledge',
+              label: 'Code consulté',
+              detail: result.files.map((f) => f.path).join(', '),
+              status: 'done',
+            })
+          }
+          // Envoi progressif : l'effet « frappe au clavier » sans casser le flux SSE.
+          const text = result.reply
+          for (let i = 0; i < text.length; i += 60) {
+            send({ type: 'token', content: text.slice(i, i + 60) })
+          }
+          send({ type: 'meta', title: result.patch ? 'Correctif proposé' : undefined })
+          send({ type: 'done' })
+          close()
+          return
+        }
+
+        await processTurn(
+          {
+            messages: history,
+            target,
+            currentCode: parseCurrentCode(body?.currentCode),
+            userId: guard.userId,
+            profile: user?.profile,
+          },
+          send
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Erreur inconnue'
         send({ type: 'error', message: `Un imprévu est survenu : ${message}. Réessaie — mes compétences de repli prennent le relais automatiquement.` })

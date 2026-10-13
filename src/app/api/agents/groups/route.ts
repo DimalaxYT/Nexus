@@ -4,6 +4,7 @@
 
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { ownerGuard } from '@/lib/auth'
 import { parseAgentGroupRow } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -28,7 +29,10 @@ function normalizeMembers(raw: unknown): string[] {
  */
 export async function GET() {
   try {
-    const rows = await db.agentGroup.findMany({ orderBy: { createdAt: 'asc' } })
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const rows = await db.agentGroup.findMany({ where: scope, orderBy: { createdAt: 'asc' } })
     return Response.json({ groups: rows.map(parseAgentGroupRow) })
   } catch (err) {
     return Response.json(
@@ -48,8 +52,11 @@ export async function POST(req: NextRequest) {
   const members = normalizeMembers(body?.members)
 
   try {
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
     const created = await db.agentGroup.create({
-      data: { name, emoji, color, members: JSON.stringify(members) },
+      data: { name, emoji, color, members: JSON.stringify(members), ...(userId ? { userId } : {}) },
     })
     return Response.json({ group: parseAgentGroupRow(created) }, { status: 201 })
   } catch (err) {
@@ -73,7 +80,10 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(data).length === 0) return Response.json({ error: 'Rien à mettre à jour' }, { status: 400 })
 
   try {
-    const updated = await db.agentGroup.update({ where: { id }, data })
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const updated = await db.agentGroup.update({ where: { id, ...(scope ?? {}) }, data })
     return Response.json({ group: parseAgentGroupRow(updated) })
   } catch (err) {
     return Response.json(

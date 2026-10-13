@@ -192,16 +192,17 @@ function sourceHints(text: string): SourceKey[] {
 // ── Équipe multi-agents ──────────────────────────────────────────────────────
 
 const VIRTUAL_TEAM: NexusAgent[] = [
-  { id: 'virtual-scout', name: 'Scout', emoji: '🔎', role: 'chercheur', description: 'Chercheur web — trouve les meilleures sources', prompt: '', specialties: ['google', 'youtube'], color: '#38bdf8', enabled: true, writer: false, createdAt: 0 },
-  { id: 'virtual-analyste', name: 'Analyste', emoji: '🧠', role: 'analyste', description: 'Extrait et retient les points clés', prompt: '', specialties: ['analyse'], color: '#a78bfa', enabled: true, writer: false, createdAt: 0 },
-  { id: 'virtual-redacteur', name: 'Rédacteur', emoji: '✍️', role: 'redacteur', description: 'Rédige la synthèse finale', prompt: '', specialties: ['redaction'], color: '#34d399', enabled: true, writer: false, createdAt: 0 },
+  { id: 'virtual-scout', name: 'Scout', emoji: '🔎', role: 'chercheur', description: 'Chercheur web — trouve les meilleures sources', prompt: '', specialties: ['google', 'youtube'], color: '#38bdf8', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
+  { id: 'virtual-analyste', name: 'Analyste', emoji: '🧠', role: 'analyste', description: 'Extrait et retient les points clés', prompt: '', specialties: ['analyse'], color: '#a78bfa', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
+  { id: 'virtual-redacteur', name: 'Rédacteur', emoji: '✍️', role: 'redacteur', description: 'Rédige la synthèse finale', prompt: '', specialties: ['redaction'], color: '#34d399', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
 ]
 
 /** Charge l'équipe activée ; si l'utilisateur a désigné des agents pour cette
  *  mission, on les utilise en priorité. Fallback : équipe virtuelle par défaut. */
-async function loadTeam(preferredIds: string[]): Promise<{ team: NexusAgent[]; fromDb: boolean }> {
+async function loadTeam(preferredIds: string[], userId?: string | null): Promise<{ team: NexusAgent[]; fromDb: boolean }> {
   try {
-    const rows = await db.agentProfile.findMany({ where: { enabled: true }, orderBy: { createdAt: 'asc' } })
+    const { ownerFilter } = await import('@/lib/auth')
+    const rows = await db.agentProfile.findMany({ where: { enabled: true, ...(ownerFilter(userId) ?? {}) }, orderBy: { createdAt: 'asc' } })
     let agents = rows.map(parseAgentRow)
     if (preferredIds.length > 0) {
       const chosen = agents.filter((a) => preferredIds.includes(a.id))
@@ -610,7 +611,7 @@ export async function runMission(taskId: string): Promise<void> {
       researchSteps.some((o) => /\byoutube|video|chaine\b/.test(normalize(o.text)))
     const topic = missionTopic(objectives, task.name, task.description)
 
-    const { team } = await loadTeam(preferredAgentIds)
+    const { team } = await loadTeam(preferredAgentIds, String(task.userId ?? '') || null)
     const scout = pickByRole(team, ['chercheur', 'specialiste'], team[0] ?? VIRTUAL_TEAM[0])
     const analyst = pickByRole(team, ['analyste', 'chercheur', 'specialiste'], VIRTUAL_TEAM[1])
     const writer = pickByRole(team, ['redacteur', 'analyste', 'specialiste'], VIRTUAL_TEAM[2])
