@@ -6,6 +6,7 @@
 
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { ownerGuard } from '@/lib/auth'
 import { CONNECTION_PROVIDERS, type AccountConnectionInfo, type ConnectionProvider } from '@/lib/nexus-types'
 import { checkRateLimit, encryptSecret, maskSecretValue, sanitizeImapQuoted } from '@/lib/security'
 
@@ -149,7 +150,10 @@ async function verifyGmail(email: string, appPassword: string): Promise<{ ok: bo
 
 export async function GET() {
   try {
-    const rows = await db.accountConnection.findMany({ orderBy: { updatedAt: 'desc' } })
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const rows = await db.accountConnection.findMany({ where: scope, orderBy: { updatedAt: 'desc' } })
     return Response.json({ connections: rows.map(toInfo) })
   } catch (err) {
     return Response.json(
@@ -200,11 +204,14 @@ export async function POST(req: NextRequest) {
   const encryptedSecret = provider === 'tiktok' ? 'profil-public' : encryptSecret(secret)
 
   try {
-    const existing = await db.accountConnection.findFirst({ where: { provider } })
-    const data = { provider, handle, secret: encryptedSecret, status, note }
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const existing = await db.accountConnection.findFirst({ where: { provider, ...(scope ?? {}) } })
+    const data: Record<string, unknown> = { provider, handle, secret: encryptedSecret, status, note }
     const row = existing
       ? await db.accountConnection.update({ where: { id: existing.id }, data })
-      : await db.accountConnection.create({ data })
+      : await db.accountConnection.create({ data: { ...data, ...(userId ? { userId } : {}) } })
     return Response.json({ connection: toInfo(row), ok: verdict.ok })
   } catch (err) {
     return Response.json(
@@ -218,12 +225,15 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   try {
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
     if (id === 'all') {
-      await db.accountConnection.deleteMany({})
+      await db.accountConnection.deleteMany({ where: scope })
       return Response.json({ ok: true })
     }
     if (!id) return Response.json({ error: 'id requis' }, { status: 400 })
-    await db.accountConnection.delete({ where: { id } })
+    await db.accountConnection.delete({ where: { id, ...(scope ?? {}) } })
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(

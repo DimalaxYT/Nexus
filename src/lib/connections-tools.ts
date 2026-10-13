@@ -19,9 +19,10 @@ export interface ConnectedAccount {
 }
 
 /** Lit la connexion ACTIVE d'un fournisseur et déchiffre son secret AES-256-GCM en mémoire. */
-export async function getConnectedAccount(provider: ConnectionProvider): Promise<ConnectedAccount | null> {
+export async function getConnectedAccount(provider: ConnectionProvider, userId?: string | null): Promise<ConnectedAccount | null> {
   try {
-    const row = await db.accountConnection.findFirst({ where: { provider, status: 'connected' } })
+    const { ownerFilter } = await import('@/lib/auth')
+    const row = await db.accountConnection.findFirst({ where: { provider, status: 'connected', ...(ownerFilter(userId) ?? {}) } })
     if (!row || !row.secret) return null
     const secret = decryptSecret(row.secret)
     if (!secret && provider !== 'tiktok') return null
@@ -97,14 +98,14 @@ async function streamToText(stream: AsyncIterable<Buffer> | undefined, limit = 6
  * Lit les derniers mails de la boîte Gmail connectée (IMAP RÉEL).
  * Retourne les `max` messages les plus récents de la boîte de réception.
  */
-export async function fetchRecentEmails(max = 6, steps?: string[]): Promise<EmailResult> {
+export async function fetchRecentEmails(max = 6, steps?: string[], userId?: string | null): Promise<EmailResult> {
   const t0 = Date.now()
   const mark = (m: string) => {
     const line = `[+${Date.now() - t0} ms] ${m}`
     steps?.push(line)
     return line
   }
-  const account = await getConnectedAccount('gmail')
+  const account = await getConnectedAccount('gmail', userId)
   mark(`compte lu: ${account?.handle ?? 'AUCUN'}`)
   if (!account) {
     return { ok: false, emails: [], note: 'Aucun compte Gmail connecté — demande au créateur de relier son compte dans le panneau Connexions.' }
@@ -258,8 +259,8 @@ export interface GithubResult {
   note?: string
 }
 
-export async function fetchGithubActivity(): Promise<GithubResult> {
-  const account = await getConnectedAccount('github')
+export async function fetchGithubActivity(userId?: string | null): Promise<GithubResult> {
+  const account = await getConnectedAccount('github', userId)
   const empty: GithubResult = { ok: false, login: '', publicRepos: 0, followers: 0, repos: [], notifications: [] }
   if (!account) return { ...empty, note: 'Aucun compte GitHub connecté — relie-le dans le panneau Connexions (Personal Access Token).' }
   const headers = {
@@ -346,8 +347,8 @@ function compact(n: number): number {
   return Number.isFinite(n) ? n : 0
 }
 
-export async function fetchTikTokProfile(handleInput?: string): Promise<TiktokResult> {
-  const account = await getConnectedAccount('tiktok')
+export async function fetchTikTokProfile(handleInput?: string, userId?: string | null): Promise<TiktokResult> {
+  const account = await getConnectedAccount('tiktok', userId)
   const handle = (handleInput || account?.handle || '').replace(/^@/, '').trim()
   const empty: TiktokResult = { ok: false, handle, nickname: '', followers: 0, likes: 0, videoCount: 0, videos: [] }
   if (!handle) return { ...empty, note: 'Aucun compte TikTok relié — donne ton @pseudo dans le panneau Connexions.' }

@@ -14,6 +14,7 @@ datasource db {
 // extraits automatiquement des conversations ou ajoutés manuellement.
 model Memory {
   id        String   @id @default(cuid())
+  userId    String?  // propriétaire du compte (null = données historiques)
   content   String
   kind      String   @default("fact") // fact | preference | project | person | other
   source    String   @default("auto") // auto | manual
@@ -23,6 +24,7 @@ model Memory {
 // Historique des conversations, persisté côté serveur (messages en JSON).
 model Conversation {
   id        String   @id
+  userId    String?
   title     String
   data      String // JSON des messages
   createdAt DateTime @default(now())
@@ -33,6 +35,7 @@ model Conversation {
 // étiquetées et reliées entre elles (liens entre concepts).
 model Knowledge {
   id        String   @id @default(cuid())
+  userId    String?
   title     String
   content   String
   category  String   @default("Général") // chemin hiérarchique ex: "Programmation/Python"
@@ -49,6 +52,7 @@ model Knowledge {
 // la mission et affiché directement dans le panneau Missions.
 model Task {
   id          String    @id @default(cuid())
+  userId      String?
   name        String
   duration    String    @default("") // ex: "Cette semaine", "2 jours"
   objectives  String    @default("[]") // JSON array de strings
@@ -68,6 +72,7 @@ model Task {
 // spécialités. L'équipe par défaut est semée automatiquement au premier lancement.
 model AgentProfile {
   id          String   @id @default(cuid())
+  userId      String?
   name        String
   emoji       String   @default("🤖")
   role        String   @default("chercheur") // chercheur | analyste | redacteur | specialiste | codeur
@@ -76,6 +81,7 @@ model AgentProfile {
   specialties String   @default("[]") // JSON array de strings (ex: ["youtube","ia"])
   color       String   @default("#a78bfa")
   enabled     Boolean  @default(true)
+  blueprintId String   @default("")   // schéma d'utilisation (Blueprint) branché sur l'agent
   writer      Boolean  @default(false) // RÉDACTEUR DU BUREAU : quand il participe à une délibération, c'est lui qui rédige la réponse finale (à la place de NEXUS)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -86,6 +92,7 @@ model AgentProfile {
 // l'app est personnelle, les secrets ne quittent jamais ce serveur.
 model AccountConnection {
   id        String   @id @default(cuid())
+  userId    String?
   provider  String // gmail | github | discord
   handle    String   @default("") // identifiant public vérifié (login GitHub, username Discord, adresse Gmail)
   secret    String   @default("") // token / mot de passe d'application (jamais renvoyé au client : masqué)
@@ -99,10 +106,84 @@ model AccountConnection {
 // un groupe entier (table ronde suivie d'une synthèse) plutôt qu'à un agent seul.
 model AgentGroup {
   id        String   @id @default(cuid())
+  userId    String?
   name      String
   emoji     String   @default("👥")
   color     String   @default("#38bdf8")
   members   String   @default("[]") // JSON array d'ids d'AgentProfile
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Comptes, sessions, schémas et clés API ──────────────────────────────────
+
+// Compte utilisateur : chaque compte possède ses conversations, ses agents, sa
+// mémoire, ses connaissances, ses missions, ses connexions, ses blueprints et
+// ses clés API. Le mot de passe est haché en local (scrypt) avec un sel unique.
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String    @default("")
+  passwordHash String    @default("")
+  salt         String    @default("")
+  isAdmin      Boolean   @default(false)
+  plan         String    @default("free")
+  profile      String    @default("{}") // JSON : prénom, ton, consignes, avatar…
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastSeenAt   DateTime?
+}
+
+// Session de connexion (jeton aléatoire conservé dans un cookie httpOnly).
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  userAgent  String   @default("")
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  lastSeenAt DateTime
+}
+
+// Blueprint : schéma d'utilisation d'un agent dessiné par l'utilisateur
+// (nœuds + liens au format JSON), exécuté par src/lib/blueprint.ts.
+model Blueprint {
+  id          String   @id @default(cuid())
+  userId      String
+  agentId     String   @default("")
+  name        String
+  description String   @default("")
+  graph       String   @default("{}") // JSON : { nodes, edges }
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Clé API = un chatbot prêt à vendre. Le secret n'est JAMAIS stocké en clair :
+// seule son empreinte SHA-256 l'est (plus un préfixe et 4 caractères d'affichage).
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String    @default("Clé API")
+  prefix      String    @default("")
+  hash        String    @default("")
+  last4       String    @default("")
+  agentId     String    @default("")
+  blueprintId String    @default("")
+  config      String    @default("{}") // JSON : règles, prompt, accueil, CORS, limites
+  enabled     Boolean   @default(true)
+  totalCalls  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastUsedAt  DateTime?
+}
+
+// Journal des appels d'une clé API (diagnostic : 200 derniers appels par clé).
+model ApiKeyLog {
+  id        String   @id @default(cuid())
+  keyId     String   @default("")
+  message   String   @default("")
+  reply     String   @default("")
+  ms        Int      @default(0)
+  ok        Boolean  @default(true)
+  createdAt DateTime @default(now())
 }

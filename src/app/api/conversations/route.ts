@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { ownerGuard } from '@/lib/auth'
 import type { ChatMessage } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -47,9 +48,13 @@ function sanitizeMessages(messages: unknown): ChatMessage[] {
 /** Liste les conversations (?list=1) ou renvoie une conversation complète (?id=). */
 export async function GET(req: NextRequest) {
   try {
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+
     const id = req.nextUrl.searchParams.get('id')
     if (id) {
-      const conv = await db.conversation.findUnique({ where: { id } })
+      const conv = await db.conversation.findUnique({ where: { id, ...(scope ?? {}) } })
       if (!conv) return Response.json({ error: 'Introuvable' }, { status: 404 })
       let messages: ChatMessage[] = []
       try {
@@ -63,6 +68,7 @@ export async function GET(req: NextRequest) {
     }
 
     const conversations = await db.conversation.findMany({
+      where: scope,
       orderBy: { updatedAt: 'desc' },
       take: MAX_CONVERSATIONS,
       select: { id: true, title: true, createdAt: true, updatedAt: true },
@@ -85,10 +91,21 @@ export async function PUT(req: NextRequest) {
     const title = String(body?.title ?? 'Conversation').slice(0, 120)
     const messages = sanitizeMessages(body?.messages)
 
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
+    const owned = userId ? { userId } : {}
+
+    // Une conversation appartenant à un AUTRE compte n'est jamais écrasée.
+    const existing = await db.conversation.findUnique({ where: { id } })
+    if (existing && userId && String(existing.userId ?? '')) {
+      if (String(existing.userId) !== userId) return Response.json({ error: 'Accès refusé' }, { status: 403 })
+    }
+
     await db.conversation.upsert({
       where: { id },
-      create: { id, title, data: JSON.stringify(messages) },
-      update: { title, data: JSON.stringify(messages) },
+      create: { id, title, data: JSON.stringify(messages), ...owned },
+      update: { title, data: JSON.stringify(messages), ...owned },
     })
     return Response.json({ ok: true })
   } catch (err) {
@@ -104,12 +121,15 @@ export async function DELETE(req: NextRequest) {
   try {
     const id = req.nextUrl.searchParams.get('id')
     const all = req.nextUrl.searchParams.get('all')
+    const guard = await ownerGuard()
+    if (!guard.ok) return guard.response
+    const { scope, userId } = guard
     if (all === '1') {
-      await db.conversation.deleteMany({})
+      await db.conversation.deleteMany({ where: scope })
       return Response.json({ ok: true })
     }
     if (!id) return Response.json({ error: 'id requis' }, { status: 400 })
-    await db.conversation.delete({ where: { id } })
+    await db.conversation.delete({ where: { id, ...(scope ?? {}) } })
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(

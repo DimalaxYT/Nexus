@@ -5,6 +5,7 @@
 
 import { NextRequest } from 'next/server'
 import { processTurn } from '@/lib/brain/brain'
+import { getUserById, ownerGuard } from '@/lib/auth'
 import type { AgentEvent, ChatTarget, CodeFiles } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
@@ -72,6 +73,12 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Messages requis' }, { status: 400 })
   }
 
+  // Compte courant : cloisonnement des données + personnalisation du cerveau.
+  // Si des comptes existent sur l'instance, une session est obligatoire.
+  const guard = await ownerGuard()
+  if (!guard.ok) return guard.response
+  const user = guard.userId ? await getUserById(guard.userId) : null
+
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -114,7 +121,16 @@ export async function POST(req: NextRequest) {
       }, HEARTBEAT_MS)
 
       try {
-        await processTurn({ messages: history, target: parseTarget(body?.target), currentCode: parseCurrentCode(body?.currentCode) }, send)
+        await processTurn(
+          {
+            messages: history,
+            target: parseTarget(body?.target),
+            currentCode: parseCurrentCode(body?.currentCode),
+            userId: guard.userId,
+            profile: user?.profile,
+          },
+          send
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Erreur inconnue'
         send({ type: 'error', message: `Un imprévu est survenu : ${message}. Réessaie — mes compétences de repli prennent le relais automatiquement.` })

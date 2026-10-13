@@ -72,7 +72,73 @@ const TABLES: Record<string, TableSpec> = {
     hasUpdatedAt: true,
     defaults: { emoji: '👥', color: '#38bdf8', members: '[]' },
   },
+
+  // ── Comptes & sessions (authentification locale, zéro service externe) ─────
+  user: {
+    table: 'User',
+    dateCols: ['createdAt', 'updatedAt', 'lastSeenAt'],
+    boolCols: ['isAdmin'],
+    hasUpdatedAt: true,
+    defaults: {
+      name: '',
+      passwordHash: '',
+      salt: '',
+      isAdmin: false,
+      profile: '{}',
+      plan: 'free',
+    },
+  },
+  session: {
+    table: 'Session',
+    dateCols: ['createdAt', 'expiresAt', 'lastSeenAt'],
+    defaults: { userAgent: '' },
+  },
+  blueprint: {
+    table: 'Blueprint',
+    dateCols: ['createdAt', 'updatedAt'],
+    boolCols: ['enabled'],
+    hasUpdatedAt: true,
+    defaults: { agentId: '', description: '', graph: '{}', enabled: true },
+  },
+  apiKey: {
+    table: 'ApiKey',
+    dateCols: ['createdAt', 'updatedAt', 'lastUsedAt'],
+    boolCols: ['enabled'],
+    hasUpdatedAt: true,
+    defaults: {
+      name: 'Clé API',
+      prefix: '',
+      hash: '',
+      last4: '',
+      agentId: '',
+      blueprintId: '',
+      config: '{}',
+      enabled: true,
+      totalCalls: 0,
+    },
+  },
+  apiKeyLog: {
+    table: 'ApiKeyLog',
+    dateCols: ['createdAt'],
+    boolCols: ['ok'],
+    defaults: { keyId: '', message: '', reply: '', ms: 0 },
+  },
 }
+
+/**
+ * Tables cloisonnées par compte : une colonne `userId` est ajoutée
+ * automatiquement (migration légère) pour que chaque utilisateur ne voie QUE
+ * ses conversations, agents, connaissances, mémoires, missions et connexions.
+ */
+const USER_SCOPED_TABLES = [
+  'Conversation',
+  'Knowledge',
+  'Memory',
+  'Task',
+  'AgentProfile',
+  'AgentGroup',
+  'AccountConnection',
+] as const
 
 function cuid(): string {
   return `c${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`
@@ -274,6 +340,20 @@ function createSqliteClient() {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
   const sqlite = new DatabaseSync(dbPath)
   sqlite.exec('PRAGMA busy_timeout = 5000;')
+  sqlite.exec('PRAGMA journal_mode = WAL;')
+
+  // ── Migrations légères : ajoute les colonnes manquantes aux tables existantes
+  // (les bases créées avant l'arrivée des comptes/blueprints n'ont pas userId).
+  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
+    try {
+      const cols = sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]
+      if (!cols.some((c) => c.name === column)) {
+        sqlite.exec(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`)
+      }
+    } catch {
+      /* table pas encore créée : le CREATE TABLE ci-dessous la créera complète */
+    }
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS "Memory" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -344,10 +424,81 @@ function createSqliteClient() {
       "emoji" TEXT NOT NULL DEFAULT '👥',
       "color" TEXT NOT NULL DEFAULT '#38bdf8',
       "members" TEXT NOT NULL DEFAULT '[]',
+      "userId" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS "User" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "email" TEXT NOT NULL,
+      "name" TEXT NOT NULL DEFAULT '',
+      "passwordHash" TEXT NOT NULL DEFAULT '',
+      "salt" TEXT NOT NULL DEFAULT '',
+      "isAdmin" BOOLEAN NOT NULL DEFAULT false,
+      "plan" TEXT NOT NULL DEFAULT 'free',
+      "profile" TEXT NOT NULL DEFAULT '{}',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      "lastSeenAt" DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS "Session" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "userAgent" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "expiresAt" DATETIME NOT NULL,
+      "lastSeenAt" DATETIME NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "Blueprint" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "agentId" TEXT NOT NULL DEFAULT '',
+      "name" TEXT NOT NULL,
+      "description" TEXT NOT NULL DEFAULT '',
+      "graph" TEXT NOT NULL DEFAULT '{}',
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "ApiKey" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "name" TEXT NOT NULL DEFAULT 'Clé API',
+      "prefix" TEXT NOT NULL DEFAULT '',
+      "hash" TEXT NOT NULL DEFAULT '',
+      "last4" TEXT NOT NULL DEFAULT '',
+      "agentId" TEXT NOT NULL DEFAULT '',
+      "blueprintId" TEXT NOT NULL DEFAULT '',
+      "config" TEXT NOT NULL DEFAULT '{}',
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "totalCalls" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      "lastUsedAt" DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS "ApiKeyLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "keyId" TEXT NOT NULL DEFAULT '',
+      "message" TEXT NOT NULL DEFAULT '',
+      "reply" TEXT NOT NULL DEFAULT '',
+      "ms" INTEGER NOT NULL DEFAULT 0,
+      "ok" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `)
+
+  // Colonnes ajoutées après coup (bases existantes) + index de cloisonnement
+  for (const table of USER_SCOPED_TABLES) {
+    addColumnIfMissing(table, 'userId', '"userId" TEXT')
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
+  }
+  addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
+  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKeyLog_keyId_idx" ON "ApiKeyLog"("keyId")')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS "Blueprint_userId_idx" ON "Blueprint"("userId")')
+
   return {
     memory: createModelDelegate(sqlite, TABLES.memory),
     conversation: createModelDelegate(sqlite, TABLES.conversation),
@@ -356,6 +507,11 @@ function createSqliteClient() {
     agentProfile: createModelDelegate(sqlite, TABLES.agentProfile),
     accountConnection: createModelDelegate(sqlite, TABLES.accountConnection),
     agentGroup: createModelDelegate(sqlite, TABLES.agentGroup),
+    user: createModelDelegate(sqlite, TABLES.user),
+    session: createModelDelegate(sqlite, TABLES.session),
+    blueprint: createModelDelegate(sqlite, TABLES.blueprint),
+    apiKey: createModelDelegate(sqlite, TABLES.apiKey),
+    apiKeyLog: createModelDelegate(sqlite, TABLES.apiKeyLog),
   }
 }
 

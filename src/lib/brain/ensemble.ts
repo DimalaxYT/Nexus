@@ -14,6 +14,7 @@
 // avec sa perspective locale et le collectif continue.
 
 import type { AgentEvent, NexusAgent } from '@/lib/nexus-types'
+import type { UserProfile } from '@/lib/auth'
 import { ROLE_LABELS } from '@/lib/nexus-types'
 import { type LlmMessage } from '@/lib/llm'
 import { generateCodeLocal } from './codegen'
@@ -21,6 +22,7 @@ import { analyzeCodeStatic, detectReasoningMode } from './deep-reasoner'
 import { extractEntities } from './entities'
 import { searchKnowledgeBank } from './knowledge-bank'
 import { webSearch } from './search'
+import { personaBlock } from '@/lib/persona'
 
 export type Emit = (event: AgentEvent) => void
 
@@ -34,6 +36,10 @@ export interface EnsembleInput {
   contextHint?: string
   agents: NexusAgent[] // participants DÉJÀ filtrés (enabled, membres du groupe si groupe)
   send: Emit
+  /** Compte propriétaire (cloisonnement mémoire). */
+  userId?: string | null
+  /** Personnalisation du compte (ton, prénom, consignes). */
+  profile?: UserProfile
 }
 
 export const NEXUS_SPEAKER = { id: 'nexus', name: 'NEXUS', emoji: '🟣', color: '#a78bfa' }
@@ -260,7 +266,7 @@ async function runTableRonde(input: EnsembleInput): Promise<void> {
   const historyMsgs: LlmMessage[] = messages
     .slice(-8)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 1600) }))
-  const memoryLines = await loadMemoryLines()
+  const memoryLines = await loadMemoryLines(input.userId)
 
   send({ type: 'thought', text: `Table ronde : ${speakers.length} agent${speakers.length > 1 ? 's' : ''} réfléchissent en parallèle avec leur personnalité, puis la synthèse est rédigée.` })
 
@@ -285,7 +291,7 @@ async function runTableRonde(input: EnsembleInput): Promise<void> {
     contributions.push({ name: agent.name, emoji: agent.emoji, text })
   }
 
-  await syntheseCollective(contributions, lastUser, requestText, send, 'la table ronde', speakers, true)
+  await syntheseCollective(contributions, lastUser, requestText, send, 'la table ronde', speakers, true, input.profile)
 }
 
 /** BUREAU : les agents délibèrent, leurs échanges sont visibles, puis UNE réponse. */
@@ -297,7 +303,7 @@ async function runBureau(input: EnsembleInput): Promise<void> {
   const historyMsgs: LlmMessage[] = messages
     .slice(-8)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 1600) }))
-  const memoryLines = await loadMemoryLines()
+  const memoryLines = await loadMemoryLines(input.userId)
 
   const step = { id: `bureau-${Date.now()}`, tool: 'system' as const, label: 'Bureau — délibération de l\'équipe', detail: `${members.length} agent${members.length > 1 ? 's' : ''} réfléchissent en parallèle` }
   send({ type: 'step', ...step, status: 'running' })
@@ -328,7 +334,7 @@ async function runBureau(input: EnsembleInput): Promise<void> {
   send({ type: 'step', ...step, tool: 'system', label: step.label, detail: `${answers.filter((a) => a.text).length} contributions · échanges visibles · réponse consolidée`, status: 'done' })
 
   const contributions = answers.map(({ agent, text }) => ({ name: agent.name, emoji: agent.emoji, text }))
-  await syntheseCollective(contributions, lastUser, requestText, send, 'le bureau', members, false)
+  await syntheseCollective(contributions, lastUser, requestText, send, 'le bureau', members, false, input.profile)
 }
 
 /**
@@ -344,7 +350,8 @@ async function syntheseCollective(
   send: Emit,
   source: string,
   participants: NexusAgent[],
-  announceSpeaker: boolean
+  announceSpeaker: boolean,
+  profile?: UserProfile
 ): Promise<void> {
   // Le rédacteur désigné parmi les participants (sinon un rôle « rédacteur »,
   // sinon NEXUS assure la fusion comme d'habitude).
@@ -376,7 +383,10 @@ async function syntheseCollective(
     '2. La recommandation concrète de l\'équipe — tranche, ne reste pas vague, réponds VRAIMENT à la demande (avec du contenu : plan, étapes, arguments).',
     '3. La prochaine action proposée à l\'utilisateur (une seule, précise).',
     'Sans JSON, sans remercier, sans répétition mot à mot des contributions. Termine toujours tes phrases.',
-  ].join('\n\n')
+    personaBlock(profile),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   // Synthèse locale consolidée : fusionne les apports spécialisés de chaque agent
   const bullets = contributions
@@ -420,10 +430,11 @@ function speakerOf(agent: NexusAgent): { id: string; name: string; emoji: string
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function loadMemoryLines(): Promise<string[]> {
+async function loadMemoryLines(userId?: string | null): Promise<string[]> {
   try {
     const { db } = await import('@/lib/db')
-    const rows = await db.memory.findMany({ orderBy: { createdAt: 'desc' }, take: 8, select: { content: true } })
+    const { ownerFilter } = await import('@/lib/auth')
+    const rows = await db.memory.findMany({ where: ownerFilter(userId), orderBy: { createdAt: 'desc' }, take: 8, select: { content: true } })
     return rows.map((r) => r.content)
   } catch {
     return []

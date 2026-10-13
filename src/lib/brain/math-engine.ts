@@ -53,6 +53,16 @@ function tokenize(src: string): Token[] | null {
     [/\b(de|du|des|la|le|les|l|d|et|valant|fait|font|combien|calcule|resous|donne|moi|resultat|de|s'il|te|plait)\b/g, ' '],
   ]
   for (const [re, rep] of words) expr = expr.replace(re, ` ${rep} `)
+
+  // Symboles typographiques → opérateurs
+  expr = expr.replace(/×/g, ' * ').replace(/÷/g, ' / ')
+
+  // BUG CORRIGÉ : la ponctuation (« ? », « ! », « , »…) était un « caractère
+  // illégal » qui faisait échouer TOUT le calcul — « Combien font 12 + 45 ? »
+  // partait en réponse générique au lieu de répondre 57. On neutralise ici
+  // tout ce qui n'appartient pas au vocabulaire du calcul.
+  expr = expr.replace(/[^\p{L}\p{N}+\-*/^%().]/gu, ' ')
+
   expr = expr.replace(/\s+/g, '')
 
   while (i < expr.length) {

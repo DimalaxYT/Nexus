@@ -10,10 +10,13 @@ import {
   Code2,
   Globe,
   Image as ImageIcon,
+  KeyRound,
   Link2,
   PenTool,
   Sparkles,
+  UserRound,
   Wand2,
+  Workflow,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useNexusStore } from '@/lib/store'
@@ -91,6 +94,24 @@ const TOOLS: {
     shadow: 'group-hover:shadow-indigo-500/30',
     tag: 'Tes comptes',
   },
+  {
+    id: 'blueprints',
+    title: 'Blueprints',
+    desc: 'Construis toi-même le schéma d’utilisation de tes agents : règles « quand tu lis X, réponds Y », conditions, cerveau local, connaissances, outils et réponses — sur un canvas à glisser-déposer, avec testeur en direct.',
+    icon: Workflow,
+    gradient: 'from-violet-500 to-sky-500',
+    shadow: 'group-hover:shadow-sky-500/30',
+    tag: 'Schémas d’agents',
+  },
+  {
+    id: 'cles',
+    title: 'Clés API',
+    desc: 'Vends des chatbots : une clé = un assistant avec ses propres réponses imposées, son schéma, son accueil, ses origines autorisées et sa limite d’appels. Snippet d’intégration fourni.',
+    icon: KeyRound,
+    gradient: 'from-amber-500 to-orange-500',
+    shadow: 'group-hover:shadow-amber-500/30',
+    tag: 'Prêt à vendre',
+  },
 ]
 
 const CAPABILITIES = [
@@ -101,6 +122,9 @@ const CAPABILITIES = [
   { icon: PenTool, label: 'Retouche photo locale' },
   { icon: Code2, label: 'Scripts Roblox/Luau & +14 langages' },
   { icon: Sparkles, label: 'Mémoire & base de connaissances' },
+  { icon: Workflow, label: 'Blueprints (schémas d’agents)' },
+  { icon: KeyRound, label: 'Clés API & chatbots revendables' },
+  { icon: UserRound, label: 'Comptes, historique & personnalisation' },
 ]
 
 export function Hub() {

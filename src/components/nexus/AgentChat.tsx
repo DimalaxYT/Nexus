@@ -519,6 +519,8 @@ export function AgentChat() {
   // + enregistreur de proposition (diff à valider dans le Studio Code)
   const codeFiles = useNexusStore((s) => s.codeFiles)
   const setPendingProposal = useNexusStore((s) => s.setPendingProposal)
+  // Atelier Blueprints : ouvre le schéma d'un agent depuis le panneau Équipe
+  const setBlueprintAgentFocus = useNexusStore((s) => s.setBlueprintAgentFocus)
   // Salle des cerveaux 3D : activité en direct + ouverture du panneau
   const setBrainActivity = useNexusStore((s) => s.setBrainActivity)
   const setBrainActivities = useNexusStore((s) => s.setBrainActivities)
@@ -1592,7 +1594,17 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
         busy={streaming}
         agents={agents}
       />
-      <TeamPanel open={teamOpen} onOpenChange={setTeamOpen} agents={agents} onRefresh={refreshAgents} />
+      <TeamPanel
+        open={teamOpen}
+        onOpenChange={setTeamOpen}
+        agents={agents}
+        onRefresh={refreshAgents}
+        onOpenBlueprint={(agent) => {
+          setTeamOpen(false)
+          setBlueprintAgentFocus(agent.id)
+          setView('blueprints')
+        }}
+      />
     </div>
   )
 }

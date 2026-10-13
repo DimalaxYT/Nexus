@@ -6,10 +6,13 @@
 // Les événements SSE (contrat v1) restent identiques → client inchangé.
 
 import { db } from '@/lib/db'
+import { ownerFilter, type UserProfile } from '@/lib/auth'
+import { runBlueprintGraph } from '@/lib/blueprint'
+import { personaBlock } from '@/lib/persona'
 import { isDuplicateMemory } from '@/lib/memory-utils'
 import { captureScreenshot, rasterizeSvg } from '@/lib/screenshot'
 import type { AgentEvent, AgentTool, ChatTarget, CodeFiles, SourceItem } from '@/lib/nexus-types'
-import { CODER_TOOLS, parseAgentRow, parseAgentGroupRow, ROLE_LABELS, type NexusAgent } from '@/lib/nexus-types'
+import { CODER_TOOLS, parseAgentRow, parseAgentGroupRow, parseGraph, ROLE_LABELS, type NexusAgent } from '@/lib/nexus-types'
 import { classify, extractTopic, overlap, warmUpClassifier, type Classification } from './classifier'
 import { extractEntities, type Entities } from './entities'
 import { evaluateMath } from './math-engine'
@@ -41,6 +44,18 @@ export interface BrainInput {
    * directement : il produit une PROPOSITION validable (diff) au lieu d'écraser les fichiers.
    */
   currentCode?: CodeFiles
+  /** Compte connecté : cloisonne mémoire / connaissances / missions / agents. */
+  userId?: string | null
+  /** Personnalisation du compte (ton, prénom, consignes permanentes…). */
+  profile?: UserProfile
+  /** Désactive l'exécution du blueprint de l'agent (évite la récursion). */
+  noBlueprint?: boolean
+  /**
+   * Consignes système additionnelles (prompt d'un chatbot vendu, ton d'un
+   * blueprint…). Transmises à part du message : le texte de l'utilisateur
+   * reste intact, sinon il pollue l'analyse du sujet des réponses.
+   */
+  systemPrompt?: string
 }
 
 export type Emit = (event: AgentEvent) => void
@@ -70,6 +85,12 @@ interface Ctx {
   proposalMode?: boolean
   /** Outils déjà exécutés en pré-chargement (facts injectés) — retirés du protocole. */
   excludeTools?: Set<string>
+  /** Compte propriétaire de la conversation (cloisonnement des données). */
+  userId?: string | null
+  /** Personnalisation du compte (injectée dans le prompt système). */
+  profile?: UserProfile
+  /** Consignes système additionnelles (chatbot / blueprint). */
+  systemPrompt?: string
 }
 
 // ── Aides d'émission ─────────────────────────────────────────────────────────
@@ -100,24 +121,24 @@ async function streamText(text: string, send: Emit): Promise<void> {
 
 // ── Accès DB : mémoire, connaissances, missions ──────────────────────────────
 
-async function loadMemories(): Promise<string[]> {
+async function loadMemories(userId?: string | null): Promise<string[]> {
   try {
-    const rows = await db.memory.findMany({ orderBy: { createdAt: 'desc' }, take: 30, select: { content: true } })
+    const rows = await db.memory.findMany({ where: ownerFilter(userId), orderBy: { createdAt: 'desc' }, take: 30, select: { content: true } })
     return rows.map((r) => r.content)
   } catch {
     return []
   }
 }
 
-async function saveMemoryItems(items: { content: string; kind: string }[]): Promise<number> {
+async function saveMemoryItems(items: { content: string; kind: string }[], saveScope?: string | null): Promise<number> {
   let added = 0
   try {
-    const existing = await db.memory.findMany({ select: { content: true } })
+    const existing = await db.memory.findMany({ where: ownerFilter(saveScope), select: { content: true } })
     for (const item of items) {
       const content = item.content.trim().slice(0, 400)
       if (content.length < 8) continue
       if (isDuplicateMemory(content, existing)) continue
-      await db.memory.create({ data: { content, kind: item.kind, source: 'auto' } })
+      await db.memory.create({ data: { content, kind: item.kind, source: 'auto', ...(saveScope ? { userId: saveScope } : {}) } })
       existing.push({ content })
       added++
     }
@@ -135,9 +156,9 @@ interface NoteRow {
   tags: string
 }
 
-async function searchNotes(query: string, max = 4): Promise<NoteRow[]> {
+async function searchNotes(query: string, max = 4, userId?: string | null): Promise<NoteRow[]> {
   try {
-    const rows = await db.knowledge.findMany({ orderBy: { updatedAt: 'desc' }, take: 200 })
+    const rows = await db.knowledge.findMany({ where: ownerFilter(userId), orderBy: { updatedAt: 'desc' }, take: 200 })
     const words = stems(query)
     const scored = rows
       .map((k) => {
@@ -156,12 +177,13 @@ async function searchNotes(query: string, max = 4): Promise<NoteRow[]> {
   }
 }
 
-async function saveNote(title: string, content: string, category: string, tags: string[]): Promise<'created' | 'updated' | 'error'> {
+async function saveNote(title: string, content: string, category: string, tags: string[], userId?: string | null): Promise<'created' | 'updated' | 'error'> {
   try {
-    const existing = await db.knowledge.findMany({ select: { id: true, title: true } })
+    const existing = await db.knowledge.findMany({ where: ownerFilter(userId), select: { id: true, title: true } })
     const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
     const match = existing.find((k) => norm(k.title) === norm(title))
-    const data = { title, content, category, tags: JSON.stringify(tags) }
+    const data: Record<string, unknown> = { title, content, category, tags: JSON.stringify(tags) }
+    if (userId) data.userId = userId
     if (match) {
       await db.knowledge.update({ where: { id: match.id }, data })
       return 'updated'
@@ -173,9 +195,9 @@ async function saveNote(title: string, content: string, category: string, tags: 
   }
 }
 
-async function updateMission(name: string, status: string, note: string): Promise<{ name: string; status: string; id?: string } | null> {
+async function updateMission(name: string, status: string, note: string, userId?: string | null): Promise<{ name: string; status: string; id?: string } | null> {
   try {
-    const tasks = await db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 50 })
+    const tasks = await db.task.findMany({ where: ownerFilter(userId), orderBy: { updatedAt: 'desc' }, take: 50 })
     const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
     const target =
       (name &&
@@ -203,10 +225,10 @@ async function updateMission(name: string, status: string, note: string): Promis
 }
 
 /** Compétences récemment acquises (missions) — injectées dans le contexte LLM. */
-async function loadRecentSkills(max = 10): Promise<{ title: string; content: string; category: string }[]> {
+async function loadRecentSkills(max = 10, userId?: string | null): Promise<{ title: string; content: string; category: string }[]> {
   try {
     const rows = await db.knowledge.findMany({
-      where: { source: 'agent' },
+      where: { source: 'agent', ...(ownerFilter(userId) ?? {}) },
       orderBy: { updatedAt: 'desc' },
       take: max,
       select: { title: true, content: true, category: true },
@@ -217,9 +239,9 @@ async function loadRecentSkills(max = 10): Promise<{ title: string; content: str
   }
 }
 
-async function loadActiveMissions(): Promise<{ name: string; status: string; duration: string; objectives: string }[]> {
+async function loadActiveMissions(userId?: string | null): Promise<{ name: string; status: string; duration: string; objectives: string }[]> {
   try {
-    const rows = await db.task.findMany({ where: { status: { in: ['todo', 'running'] } }, orderBy: { updatedAt: 'desc' }, take: 5 })
+    const rows = await db.task.findMany({ where: { status: { in: ['todo', 'running'] }, ...(ownerFilter(userId) ?? {}) }, orderBy: { updatedAt: 'desc' }, take: 5 })
     return rows.map((r) => ({ name: r.name, status: r.status, duration: r.duration, objectives: r.objectives.slice(0, 300) }))
   } catch {
     return []
@@ -227,9 +249,9 @@ async function loadActiveMissions(): Promise<{ name: string; status: string; dur
 }
 
 /** L'équipe d'agents créée par l'utilisateur — injectée dans le contexte de NEXUS. */
-async function loadTeam(): Promise<{ name: string; emoji: string; role: string; prompt: string }[]> {
+async function loadTeam(userId?: string | null): Promise<{ name: string; emoji: string; role: string; prompt: string }[]> {
   try {
-    const rows = await db.agentProfile.findMany({ where: { enabled: true }, orderBy: { createdAt: 'asc' } })
+    const rows = await db.agentProfile.findMany({ where: { enabled: true, ...(ownerFilter(userId) ?? {}) }, orderBy: { createdAt: 'asc' } })
     return rows.map(parseAgentRow).map((a) => ({ name: a.name, emoji: a.emoji, role: ROLE_LABELS[a.role], prompt: a.prompt.slice(0, 120) }))
   } catch {
     return []
@@ -463,7 +485,7 @@ async function skillTask(ctx: Ctx): Promise<string> {
       .trim()
       .slice(0, 400) || `Point d'étape enregistré`
 
-  const result = await updateMission(name, status, note)
+  const result = await updateMission(name, status, note, ctx.userId ?? null)
   if (!result) {
     ctx.send({ type: 'step', ...s, tool: 'update_task', label: 'Suivi de mission', detail: 'aucune mission trouvée', status: 'error' })
     return R.taskNotFound(name)
@@ -488,7 +510,7 @@ async function skillKnowledgeSave(ctx: Ctx): Promise<string> {
   const tags = stems(text).slice(0, 5)
   const category = /roblox|luau/i.test(text) ? 'Programmation/Roblox' : /python|code|script/i.test(text) ? 'Programmation' : 'Général'
 
-  const result = await saveNote(title, content, category, tags)
+  const result = await saveNote(title, content, category, tags, ctx.userId ?? null)
   if (result === 'error') {
     ctx.send({ type: 'step', ...s, tool: 'save_knowledge', label: 'Base de connaissances', detail: 'échec d’enregistrement', status: 'error' })
     return R.apology('écriture en base impossible')
@@ -503,7 +525,7 @@ async function skillKnowledgeQuery(ctx: Ctx): Promise<string> {
   const s = makeStep('search_knowledge', 'Recherche dans tes notes', query)
   ctx.send({ type: 'step', ...s, status: 'running' })
 
-  const notes = await searchNotes(query, 4)
+  const notes = await searchNotes(query, 4, ctx.userId ?? null)
   const bankHits = searchKnowledgeBank(query, 1)
 
   if (notes.length === 0 && bankHits.length === 0) {
@@ -769,7 +791,7 @@ async function skillCheckEmail(ctx: Ctx): Promise<string> {
   const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
   ctx.send({ type: 'step', ...s, status: 'running' })
   ctx.send({ type: 'thought', text: 'Connexion IMAP réelle à la boîte Gmail reliée (le mot de passe d\'application est stocké localement) : je récupère les derniers mails avec expéditeurs, sujets, dates et extraits.' })
-  const result = await fetchRecentEmails(6)
+  const result = await fetchRecentEmails(6, undefined, ctx.userId ?? null)
   if (!result.ok) {
     ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: result.note ?? 'boîte inaccessible', status: 'error' })
     return result.note?.startsWith('Aucun compte') ? R.notConnected('Gmail') : `Je n'ai pas réussi à lire ta boîte mail : ${result.note ?? 'erreur inconnue'}. Réessaie dans un instant — ou vérifie la connexion dans le panneau **Connexions**.`
@@ -783,7 +805,7 @@ async function skillGithubAccount(ctx: Ctx): Promise<string> {
   const s = makeStep('github_activity', 'GitHub', 'repos + notifications du compte connecté')
   ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: 'appel de l\'API GitHub officielle…', status: 'running' })
   ctx.send({ type: 'thought', text: 'J\'interroge l\'API GitHub avec le token relié : profil, repos poussés récemment, notifications en attente.' })
-  const result = await fetchGithubActivity()
+  const result = await fetchGithubActivity(ctx.userId ?? null)
   if (!result.ok) {
     ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: result.note ?? 'compte inaccessible', status: 'error' })
     return result.note?.startsWith('Aucun compte') ? R.notConnected('GitHub') : `Je n'ai pas réussi à lire ton compte GitHub : ${result.note ?? 'erreur inconnue'}. Réessaie dans un instant.`
@@ -797,7 +819,7 @@ async function skillTiktokAccount(ctx: Ctx): Promise<string> {
   const s = makeStep('tiktok_activity', 'TikTok', 'profil connecté + dernières vidéos')
   ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: 'lecture du profil public…', status: 'running' })
   ctx.send({ type: 'thought', text: 'Je lis le profil TikTok relié : abonnés, j\'aime, et les dernières vidéos avec leurs compteurs réels.' })
-  const result = await fetchTikTokProfile()
+  const result = await fetchTikTokProfile(undefined, ctx.userId ?? null)
   if (!result.ok) {
     ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: result.note ?? 'profil inaccessible', status: 'error' })
     return result.note?.startsWith('Aucun compte') ? R.notConnected('TikTok') : `Je n'ai pas réussi à lire ton TikTok : ${result.note ?? 'erreur inconnue'}. Réessaie dans un instant.`
@@ -815,7 +837,7 @@ async function handleMissionMessage(text: string, ctx: Ctx): Promise<string> {
   const objectives = (text.match(/Objectifs\s*:\s*([^\n]+)/i)?.[1] ?? '').trim()
   const description = (text.match(/Description\s*:\s*([\s\S]+)$/i)?.[1] ?? '').trim().slice(0, 600)
 
-  const result = await updateMission(name, 'running', 'Mission prise en charge — exécution autonome démarrée')
+  const result = await updateMission(name, 'running', 'Mission prise en charge — exécution autonome démarrée', ctx.userId ?? null)
   if (result) {
     ctx.send({ type: 'task', name: result.name, status: 'running', note: 'Mission prise en charge — exécution autonome démarrée' })
     ctx.send({ type: 'step', ...s, tool: 'update_task', label: 'Mission', detail: `${result.name} → exécution en arrière-plan`, status: 'done' })
@@ -842,7 +864,7 @@ Tu peux vaquer à tes occupations — surveille le panneau Task, la progression 
 
 async function handleGeneral(ctx: Ctx, _classification: Classification): Promise<string> {
   const topic = extractTopic(ctx.lastUser)
-  const notes = await searchNotes(ctx.lastUser, 2)
+  const notes = await searchNotes(ctx.lastUser, 2, ctx.userId ?? null)
   const memoryHits = ctx.memories.filter((m) => overlap(ctx.lastUser, m) > 0.25).slice(0, 4)
 
   return deepReasonAndAnswer({
@@ -881,9 +903,10 @@ ${lines.join('\n')}
 }
 const TOOLS_PROTOCOL = toolsProtocol()
 
-async function buildSystemPrompt(): Promise<string> {
+async function buildSystemPrompt(ctx?: Ctx): Promise<string> {
   const now = new Date().toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })
-  const [memories, skills, missions, team] = await Promise.all([loadMemories(), loadRecentSkills(), loadActiveMissions(), loadTeam()])
+  const uid = ctx?.userId ?? null
+  const [memories, skills, missions, team] = await Promise.all([loadMemories(uid), loadRecentSkills(10, uid), loadActiveMissions(uid), loadTeam(uid)])
   const parts: string[] = [
     `Tu es NEXUS, un ingénieur et architecte IA autonome de haut niveau intégré dans l'environnement NEXUS. Tu réponds TOUJOURS en français, en tutoyant l'utilisateur, avec la rigueur analytique, la clarté pédagogique et la précision technique des meilleurs modèles (niveau Claude).`,
     `PRINCIPES DE RÉPONSE :
@@ -904,6 +927,14 @@ async function buildSystemPrompt(): Promise<string> {
   }
   if (missions.length > 0) {
     parts.push(`MISSIONS ACTIVES confiées par l'utilisateur :\n${missions.map((m) => `- « ${m.name} » (${m.status}${m.duration ? `, ${m.duration}` : ''})`).join('\n')}\nSi l'utilisateur parle de ses missions, tu connais leur état.`)
+  }
+  const persona = personaBlock(ctx?.profile)
+  if (persona) parts.push(persona)
+  const extra = (ctx?.systemPrompt ?? '').trim()
+  if (extra) {
+    parts.push(
+      `CONSIGNES PROPRES À CE CONTEXTE (chatbot ou schéma d'agent) — elles priment sur le style par défaut :\n${extra}`
+    )
   }
   return parts.join('\n\n')
 }
@@ -1036,14 +1067,14 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     const title = call.title.slice(0, 120)
     const content = call.content.slice(0, 8000)
     const category = (call.category ?? 'Général').slice(0, 100)
-    const res = await saveNote(title, content, category, stems(content).slice(0, 5))
+    const res = await saveNote(title, content, category, stems(content).slice(0, 5), ctx.userId ?? null)
     const s = makeStep('save_knowledge', 'Base de connaissances', title)
     ctx.send({ type: 'step', ...s, tool: 'save_knowledge', label: 'Base de connaissances', detail: `« ${title} » → ${category}`, status: res === 'error' ? 'error' : 'done' })
     if (res !== 'error') ctx.send({ type: 'knowledge', title, category })
     return { result: res === 'error' ? 'Échec de sauvegarde en base.' : `Note « ${title} » enregistrée dans ${category}.` }
   }
   if (tool === 'update_task') {
-    const res = await updateMission(call.name ?? '', call.status ?? 'running', (call.note ?? '').slice(0, 400))
+    const res = await updateMission(call.name ?? '', call.status ?? 'running', (call.note ?? '').slice(0, 400), ctx.userId ?? null)
     if (res) {
       ctx.send({ type: 'task', name: res.name, status: res.status, note: call.note ?? '' })
       return { result: `Mission « ${res.name} » mise à jour (${res.status}).` }
@@ -1054,7 +1085,7 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     const max = Math.min(8, Math.max(3, typeof call.max === 'number' ? call.max : 6))
     const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
     ctx.send({ type: 'step', ...s, status: 'running' })
-    const result = await fetchRecentEmails(max)
+    const result = await fetchRecentEmails(max, undefined, ctx.userId ?? null)
     if (!result.ok) {
       ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: result.note ?? 'boîte inaccessible', status: 'error' })
       return { result: `Lecture de la boîte mail IMPOSSIBLE : ${result.note ?? 'cause inconnue'}. Dis-le honnêtement à l'utilisateur et oriente-le vers le panneau Connexions pour (re)lier son compte Gmail.` }
@@ -1065,7 +1096,7 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
   if (tool === 'github_activity') {
     const s = makeStep('web_search', 'GitHub', 'repos + notifications du compte connecté')
     ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: 'appel de l\'API GitHub officielle…', status: 'running' })
-    const result = await fetchGithubActivity()
+    const result = await fetchGithubActivity(ctx.userId ?? null)
     if (!result.ok) {
       ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: result.note ?? 'compte inaccessible', status: 'error' })
       return { result: `Lecture GitHub IMPOSSIBLE : ${result.note ?? 'cause inconnue'}. Dis-le honnêtement et oriente vers le panneau Connexions.` }
@@ -1076,7 +1107,7 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
   if (tool === 'tiktok_activity') {
     const s = makeStep('web_search', 'TikTok', 'profil connecté + dernières vidéos')
     ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: 'lecture du profil public…', status: 'running' })
-    const result = await fetchTikTokProfile()
+    const result = await fetchTikTokProfile(undefined, ctx.userId ?? null)
     if (!result.ok) {
       ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: result.note ?? 'profil inaccessible', status: 'error' })
       return { result: `Lecture TikTok IMPOSSIBLE : ${result.note ?? 'cause inconnue'}. Dis-le honnêtement et oriente vers le panneau Connexions.` }
@@ -1176,6 +1207,51 @@ function resolveFollowUp(lastUser: string, history: { role: 'user' | 'assistant'
 
 // ── Boucle principale ────────────────────────────────────────────────────────
 
+/**
+ * Exécute le BLUEPRINT d'un agent (schéma dessiné par l'utilisateur).
+ * Renvoie `true` si le schéma a produit une réponse (le tour est terminé),
+ * `false` si l'agent n'a pas de schéma actif → comportement normal de l'agent.
+ */
+async function runAgentBlueprint(agentId: string, ctx: Ctx, input: BrainInput): Promise<boolean> {
+  if (input.noBlueprint) return false
+  try {
+    const agentRow = await db.agentProfile.findUnique({ where: { id: agentId, ...(ownerFilter(ctx.userId) ?? {}) } })
+    const blueprintId = String(agentRow?.blueprintId ?? '')
+    if (!blueprintId) return false
+    const row = await db.blueprint.findUnique({ where: { id: blueprintId } })
+    if (!row || !row.enabled) return false
+    const graph = parseGraph(row.graph)
+    if (graph.nodes.length === 0) return false
+
+    ctx.send({ type: 'thought', text: `Schéma « ${String(row.name)} » — j'exécute le parcours que tu as construit, étape par étape.` })
+    const result = await runBlueprintGraph(graph, {
+      message: ctx.lastUser,
+      history: ctx.history,
+      userId: ctx.userId ?? null,
+      fallback: '',
+      onStep: (st) =>
+        ctx.send({
+          type: 'step',
+          id: `bp-${st.nodeId}`,
+          tool: 'system',
+          label: `Schéma · ${st.label}`,
+          detail: st.detail,
+          status: st.status,
+        }),
+    })
+    if (!result.reply) return false
+
+    // Diffusion progressive : le visiteur voit la réponse s'écrire.
+    for (let i = 0; i < result.reply.length; i += 18) {
+      ctx.send({ type: 'token', content: result.reply.slice(i, i + 18) })
+      if (i + 18 < result.reply.length) await sleep(8)
+    }
+    return true
+  } catch {
+    return false // un schéma cassé ne doit JAMAIS empêcher l'agent de répondre
+  }
+}
+
 export async function processTurn(input: BrainInput, send: Emit): Promise<void> {
   const history = input.messages.filter((m) => typeof m.content === 'string').slice(-14)
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
@@ -1186,13 +1262,26 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
 
   warmUpClassifier()
   const entities = extractEntities(lastUser)
-  const memories = await loadMemories()
+  const memories = await loadMemories(input.userId ?? null)
   const isFirstExchange = history.filter((m) => m.role === 'user').length <= 1
   const effectiveUser = resolveFollowUp(lastUser, history) ?? lastUser
-  const ctx: Ctx = { lastUser, effectiveUser, history, entities, memories, send, isFirstExchange, currentCode: input.currentCode }
+  const ctx: Ctx = {
+    lastUser,
+    effectiveUser,
+    history,
+    entities,
+    memories,
+    send,
+    isFirstExchange,
+    currentCode: input.currentCode,
+    userId: input.userId ?? null,
+    profile: input.profile,
+    systemPrompt: input.systemPrompt,
+  }
 
   const nameMatch = memories.find((m) => /s'appelle/i.test(m))?.match(/s'appelle\s+([\p{L}-]+)/iu)
-  const userName = nameMatch?.[1]
+  // PERSONNALISATION : à défaut de souvenir, on utilise le prénom du compte.
+  const userName = nameMatch?.[1] ?? (ctx.profile?.displayName?.trim() || undefined)
 
   // ── Discussion ciblée (sélecteur du chat) : agent seul ou table ronde ──────
   // Les missions (« MISSION : … ») restent gérées par NEXUS : c'est son rôle.
@@ -1200,8 +1289,12 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   const isMissionMessage = /^mission\s*:/i.test(lastUser.trim())
   if (target.kind !== 'nexus' && !isMissionMessage) {
     try {
-      if (target.kind === 'agent') await handleSoloAgentTurn(target.agentId, ctx)
-      else await handleEnsembleTurn(target, ctx)
+      if (target.kind === 'agent') {
+        // BLUEPRINT : si l'agent possède un schéma activé, c'est LUI qui décide
+        // du parcours (règles, conditions, cerveau, outils, réponse finale).
+        const byBlueprint = await runAgentBlueprint(target.agentId, ctx, input)
+        if (!byBlueprint) await handleSoloAgentTurn(target.agentId, ctx)
+      } else await handleEnsembleTurn(target, ctx)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erreur inconnue'
       send({ type: 'error', message: `Un imprévu est survenu dans la discussion multi-agents : ${message}. Réessaie — les replis locaux prennent le relais automatiquement.` })
@@ -1270,7 +1363,9 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   } else if (['greeting', 'farewell', 'thanks', 'howareyou', 'identity', 'capabilities'].includes(classification.intent)) {
     send({ type: 'step', ...analysisStep, detail: `conversation simple → réponse immédiate (${classification.intent})`, status: 'done' })
     switch (classification.intent) {
-      case 'greeting': finalText = R.greeting(userName); break
+      case 'greeting':
+        finalText = ctx.profile?.greeting?.trim() ? ctx.profile.greeting.trim() : R.greeting(userName)
+        break
       case 'farewell': finalText = R.farewell(); break
       case 'thanks': finalText = R.thanks(); break
       case 'howareyou': finalText = R.howAreYou(); break
@@ -1285,16 +1380,16 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   } else if (classification.intent === 'knowledge_save' || classification.intent === 'about_user') {
     send({ type: 'step', ...analysisStep, detail: 'mémorisation → base de connaissances + mémoire', status: 'done' })
     const retention = extractExplicitRetention(lastUser)
-    if (retention) await saveMemoryItems([retention])
+    if (retention) await saveMemoryItems([retention], ctx.userId ?? null)
     const freshItems = extractMemories(lastUser)
     if (freshItems.length > 0) {
-      const added = await saveMemoryItems(freshItems)
+      const added = await saveMemoryItems(freshItems, ctx.userId ?? null)
       if (added > 0) send({ type: 'meta', memoryAdded: added })
     }
     if (classification.intent === 'knowledge_save') {
       finalText = await skillKnowledgeSave(ctx)
     } else {
-      const freshMemories = await loadMemories()
+      const freshMemories = await loadMemories(ctx.userId ?? null)
       finalText = freshItems.length > 0 ? R.memorySavedIntro(freshMemories, freshItems) : R.aboutUser(memories)
     }
     handled = true
@@ -1312,7 +1407,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
 
   // ── Étape 3 : moteur LLM (boucle agentique) + repli local ─────────────────
   if (!handled) {
-    const system = await buildSystemPrompt()
+    const system = await buildSystemPrompt(ctx)
     await runLlmPipeline(ctx, classification, system, analysisStep)
   } else {
     // Chemin déterministe : streamer la réponse locale
@@ -1594,7 +1689,7 @@ async function finishTurn(ctx: Ctx, isFirstExchange: boolean, send: Emit): Promi
     const retention = extractExplicitRetention(ctx.lastUser)
     const extracted = [...extractMemories(ctx.lastUser), ...(retention ? [retention] : [])]
     if (extracted.length > 0) {
-      memoryAdded = await saveMemoryItems(extracted)
+      memoryAdded = await saveMemoryItems(extracted, ctx?.userId ?? null)
     }
   }
   const meta: { type: 'meta'; title?: string; memoryAdded?: number } = { type: 'meta' }
@@ -1619,7 +1714,7 @@ function personaIdentity(agent: NexusAgent): string {
 
 /** Tour de discussion avec un agent seul : SA personnalité (prompt) pilote tout. */
 async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
-  const row = await db.agentProfile.findUnique({ where: { id: agentId } })
+  const row = await db.agentProfile.findUnique({ where: { id: agentId, ...(ownerFilter(ctx.userId) ?? {}) } })
   if (!row) {
     ctx.send({ type: 'token', content: '⚠️ Cet agent n\'existe plus (il a peut-être été supprimé). Choisis une autre cible dans le sélecteur au-dessus de la saisie.' })
     return
@@ -1694,7 +1789,7 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   if (connKind === 'email') {
     const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
     ctx.send({ type: 'step', ...s, status: 'running' })
-    const mails = await fetchRecentEmails(6)
+    const mails = await fetchRecentEmails(6, undefined, ctx.userId ?? null)
     if (mails.ok) {
       ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: `${mails.emails.length} mail(s) lus en direct`, status: 'done' })
       ctx.excludeTools = new Set(['check_email']) // déjà exécuté : ne pas ré-exécuter (double latence)
@@ -1706,7 +1801,7 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   } else if (connKind === 'github') {
     const s = makeStep('github_activity', 'GitHub', 'repos + notifications du compte connecté')
     ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: 'appel de l\'API officielle…', status: 'running' })
-    const gh = await fetchGithubActivity()
+    const gh = await fetchGithubActivity(ctx.userId ?? null)
     if (gh.ok) {
       ctx.send({ type: 'step', ...s, tool: 'github_activity', label: 'GitHub', detail: `${gh.repos.length} repos · ${gh.notifications.length} notifications`, status: 'done' })
       ctx.excludeTools = new Set(['github_activity']) // déjà exécuté
@@ -1718,7 +1813,7 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   } else if (connKind === 'tiktok') {
     const s = makeStep('tiktok_activity', 'TikTok', 'profil connecté + dernières vidéos')
     ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: 'lecture du profil public…', status: 'running' })
-    const tt = await fetchTikTokProfile()
+    const tt = await fetchTikTokProfile(undefined, ctx.userId ?? null)
     if (tt.ok) {
       ctx.send({ type: 'step', ...s, tool: 'tiktok_activity', label: 'TikTok', detail: `@${tt.handle} · ${tt.videos.length} vidéos récentes`, status: 'done' })
       ctx.excludeTools = new Set(['tiktok_activity']) // déjà exécuté
@@ -1759,17 +1854,17 @@ async function handleEnsembleTurn(target: ChatTarget, ctx: Ctx): Promise<void> {
 
   const groupId = target.kind === 'group' || (target.kind === 'bureau' && target.groupId) ? (target as { groupId?: string }).groupId : undefined
   if (groupId) {
-    const groupRow = await db.agentGroup.findUnique({ where: { id: groupId } })
+    const groupRow = await db.agentGroup.findUnique({ where: { id: groupId, ...(ownerFilter(ctx.userId) ?? {}) } })
     if (!groupRow) {
       ctx.send({ type: 'token', content: '⚠️ Ce groupe n\'existe plus — recrée-le dans le panneau **Équipe → Groupes**, puis redemande.' })
       return
     }
     const group = parseAgentGroupRow(groupRow)
     label = `le groupe ${group.emoji} ${group.name}`
-    const rows = await db.agentProfile.findMany()
+    const rows = await db.agentProfile.findMany({ where: ownerFilter(ctx.userId) })
     participants = rows.map(parseAgentRow).filter((a) => group.members.includes(a.id) && a.enabled)
   } else {
-    const rows = await db.agentProfile.findMany({ where: { enabled: true } })
+    const rows = await db.agentProfile.findMany({ where: { enabled: true, ...(ownerFilter(ctx.userId) ?? {}) } })
     participants = rows.map(parseAgentRow)
   }
 
@@ -1797,7 +1892,7 @@ async function handleEnsembleTurn(target: ChatTarget, ctx: Ctx): Promise<void> {
   }
 
   await runEnsemble(
-    { messages: ctx.history, lastUser: ctx.lastUser, contextHint, agents: participants, send: ctx.send },
+    { messages: ctx.history, lastUser: ctx.lastUser, contextHint, agents: participants, send: ctx.send, userId: ctx.userId ?? null, profile: ctx.profile },
     mode
   )
 }
