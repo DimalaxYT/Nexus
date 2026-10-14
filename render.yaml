@@ -15,8 +15,9 @@ services:
   - type: web
     name: nexus
     runtime: node
-    plan: starter            # le plan free (512 Mo) ne suffit pas au build
-    region: frankfurt        # région la plus proche de l'Europe de l'Ouest
+    plan: free              # gratuit possible au runtime (cerveau léger). Si le
+                            # build meurt en OOM (exit 137) → passer sur starter
+    region: frankfurt       # région la plus proche de l'Europe de l'Ouest
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /

@@ -45,7 +45,8 @@ En manuel, un Web Service Node a besoin de :
 | Runtime | **Node** |
 | Build Command | `npm ci && npm run build` |
 | Start Command | `npm start` |
-| Plan | **Starter minimum** — le build Next.js dépasse 800 Mo de RAM, le plan Free (512 Mo) le fait tuer (exit 137 / OOM) |
+| Health Check Path | `/api/health` |
+| Plan | Free possible au runtime (le cerveau est léger), **mais** le build Next.js monte à ~860 Mo de RAM : si le build échoue en OOM (exit 137), passer sur Starter |
 
 Variables d'environnement :
 
