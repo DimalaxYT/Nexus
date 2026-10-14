@@ -34,6 +34,32 @@ Au premier lancement, l'application vous propose de **créer le compte propriét
 Ce premier compte récupère automatiquement les données déjà présentes (agents, conversations,
 connaissances, mémoire) : rien n'est perdu.
 
+## Déploiement sur Render
+
+Le plus simple : **New + → Blueprint** sur Render, il lit `render.yaml` à la racine et configure tout.
+
+En manuel, un Web Service Node a besoin de :
+
+| Réglage | Valeur |
+|---|---|
+| Runtime | **Node** |
+| Build Command | `npm ci && npm run build` |
+| Start Command | `npm start` |
+| Plan | **Starter minimum** — le build Next.js dépasse 800 Mo de RAM, le plan Free (512 Mo) le fait tuer (exit 137 / OOM) |
+
+Variables d'environnement :
+
+| Variable | Valeur | Rôle |
+|---|---|---|
+| `NODE_VERSION` | `22.22.0` | **Obligatoire** : la base repose sur `node:sqlite` (Node ≥ 22.5) |
+| `DATABASE_URL` | `file:/var/data/custom.db` | Fichier SQLite, à placer sur un **Disk Render** monté sur `/var/data` (sinon les données sont réinitialisées à chaque déploiement) |
+| `NEXUS_SECRET_KEY` | une longue phrase secrète | Clé maîtresse du chiffrement AES-256-GCM des secrets (connexions Gmail/GitHub…) |
+| `NEXUS_DEV_PASSWORD` | votre mot de passe | Mot de passe du compte Dev (par défaut `dev2026`) |
+
+> **Important** : NEXUS utilise **uniquement une base SQLite locale** (fichier).
+> Les variables `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` ne servent à rien — le code ne lit jamais
+> Turso. Et le cerveau IA étant 100 % local, **aucune clé d'API IA** n'est nécessaire.
+
 ## Nouveautés de la v2.1
 
 ### 🔐 Comptes : connexion & création
