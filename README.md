@@ -62,14 +62,22 @@ Variables d'environnement :
 | `SMTP_PASS` | le mot de passe d'application | Mot de passe du compte d'envoi |
 | `MAIL_FROM` | `NEXUS <vous@domaine.fr>` | Expéditeur affiché |
 
-### 🔐 Connexion en deux étapes (2FA par e-mail)
+### 🛡️ Le Gardien (bot interne, anti-sommeil Render)
 
-La connexion demande un **code à 6 chiffres envoyé par e-mail** (valable 10 minutes,
-5 essais maximum). Sans configuration SMTP, NEXUS passe en « mode développement » :
-le code est affiché dans un encart de l'écran de connexion et journalisé côté
-serveur — l'accès reste possible, mais configurez SMTP dès la mise en production.
-Le lien « Mot de passe oublié ? » suit le même principe : code par e-mail, puis
-nouveau mot de passe (toutes les sessions du compte sont révoquées).
+Au démarrage en production, NEXUS arme **le Gardien** : un bot interne qui
+**ping `/api/health` toutes les 10 minutes** — sur le plan gratuit Render, un
+service sans trafic s'endort après 15 min, le ping le maintient éveillé (Render
+l'autorise). Il profite de chaque passage pour purger les sessions expirées et
+les vieux codes de la base. L'URL pingée est déduite de `RENDER_EXTERNAL_URL`
+(fourni automatiquement par Render) ou de `KEEP_ALIVE_URL`.
+
+### 🔑 Connexion & mot de passe oublié
+
+La connexion est **en une seule étape** (e-mail + mot de passe). Le lien
+« Mot de passe oublié ? » envoie un code à 6 chiffres par e-mail (valable
+10 minutes) puis permet de choisir un nouveau mot de passe : sans SMTP configuré,
+le code est affiché dans un encart (mode développement) et journalisé côté
+serveur — configurez SMTP pour l'envoi réel.
 
 > **Important** : NEXUS utilise **uniquement une base SQLite locale** (fichier).
 > Les variables `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` ne servent à rien — le code ne lit jamais

@@ -6,6 +6,7 @@
 // par le CTA « Ouvrir NEXUS » → /app (connexion ou création de compte).
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { useTheme } from 'next-themes'
 import { motion } from 'framer-motion'
 import {
@@ -90,13 +91,18 @@ const STEPS = [
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
+  // `resolvedTheme` est indéterminé avant le montage : sans cette garde, le
+  // clic tombait sur setTheme('dark') alors qu'on EST en dark → aucun effet.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted && resolvedTheme === 'dark'
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-      aria-label={resolvedTheme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
+      aria-label={dark ? 'Passer en thème clair' : 'Passer en thème sombre'}
     >
       <Sun className="h-4 w-4 dark:hidden" />
       <Moon className="hidden h-4 w-4 dark:block" />

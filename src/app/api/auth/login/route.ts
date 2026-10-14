@@ -1,14 +1,11 @@
-// Connexion à un compte NEXUS — étape 1 : e-mail + mot de passe.
-// Si les identifiants sont bons, un code à 6 chiffres est envoyé par e-mail
-// (2FA). La session n'est créée qu'après vérification du code (route
-// /api/auth/verify). Sans SMTP configuré, le code est renvoyé en `devCode`
-// (mode développement / preview).
+// Connexion à un compte NEXUS — e-mail + mot de passe, session directe.
+// (La double authentification par code e-mail a été retirée : la connexion est
+// de nouveau en une seule étape. Le lien « Mot de passe oublié ? » reste dispo.)
 
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { publicUserJson, verifyPassword } from '@/lib/auth'
+import { createSession, publicUserJson, verifyPassword } from '@/lib/auth'
 import { ensureDevBootstrap } from '@/lib/dev-seed'
-import { issueVerificationCode } from '@/lib/verification'
 import { checkRateLimit } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -39,20 +36,9 @@ export async function POST(req: NextRequest) {
     const ok = verifyPassword(password, String(user.salt ?? ''), String(user.passwordHash ?? ''))
     if (!ok) return Response.json({ error: 'Identifiants incorrects.' }, { status: 401 })
 
-    // Identifiants valides → envoi du code de vérification (pas encore de session).
-    const issued = await issueVerificationCode(email, 'login')
-    if (!issued.ok) {
-      return Response.json({ error: issued.error ?? 'Envoi du code impossible.' }, { status: 500 })
-    }
+    await createSession(String(user.id), req.headers.get('user-agent') ?? '')
 
-    return Response.json({
-      ok: true,
-      needsCode: true,
-      email,
-      previewName: publicUserJson(user).name,
-      devCode: issued.devCode,
-      smtp: issued.sent ? 'envoyé' : 'non configuré',
-    })
+    return Response.json({ ok: true, user: publicUserJson(user) })
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : 'Connexion impossible' },

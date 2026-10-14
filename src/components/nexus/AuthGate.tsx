@@ -8,7 +8,7 @@
 // Identité monochrome : noir #000 / gris foncé #1A1A1A / gris #6B6B6B / blanc.
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import {
@@ -33,7 +33,7 @@ import { useAuth } from '@/lib/auth-client'
 import { useSiteSettings } from '@/lib/site-settings-client'
 import { cn } from '@/lib/utils'
 
-type Screen = 'login' | 'register' | 'code' | 'forgot' | 'reset'
+type Screen = 'login' | 'register' | 'forgot' | 'reset'
 
 const MARKETING_POINTS = [
   { icon: Zap, text: 'Cerveau local — réflexions en moins de 50 ms, sans service externe.' },
@@ -43,13 +43,17 @@ const MARKETING_POINTS = [
 
 function ThemeToggleCorner() {
   const { resolvedTheme, setTheme } = useTheme()
+  // Garde d'hydratation : resolvedTheme est undefined avant le montage.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted && resolvedTheme === 'dark'
   return (
     <Button
       variant="ghost"
       size="icon"
       className="absolute right-5 top-5 z-10 h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-      aria-label={resolvedTheme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
+      aria-label={dark ? 'Passer en thème clair' : 'Passer en thème sombre'}
     >
       <Sun className="h-4 w-4 dark:hidden" />
       <Moon className="hidden h-4 w-4 dark:block" />
@@ -93,15 +97,10 @@ export function AuthGate() {
 
     setBusy(true)
     if (screen === 'login') {
+      // Connexion en une étape : la session est posée par la réponse du serveur.
       const res = await login(email, password)
       setBusy(false)
       if (!res.ok) return setError(res.error ?? 'Une erreur est survenue')
-      // Login OK → attente du code (2FA). login() ne connecte plus directement.
-      if (res.needsCode) {
-        setDevCode(res.devCode ?? null)
-        setInfo(`Un code à 6 chiffres a été envoyé à ${email}${res.devCode ? ' (SMTP non configuré : code affiché ci-dessous).' : '.'}`)
-        setScreen('code')
-      }
       return
     }
     if (screen === 'forgot') {
@@ -127,29 +126,6 @@ export function AuthGate() {
     const res = await register(name, email, password)
     setBusy(false)
     if (!res.ok) setError(res.error ?? 'Une erreur est survenue')
-  }
-
-  /** Étape 2 de la connexion : vérification du code 2FA. */
-  async function submitCode(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setBusy(true)
-    try {
-      const r = await fetch('/api/auth/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code }),
-      })
-      const d = (await r.json()) as { ok?: boolean; error?: string }
-      if (!r.ok || !d.ok) {
-        setBusy(false)
-        return setError(d.error ?? 'Code refusé.')
-      }
-      await refresh()
-    } catch {
-      setError('Réseau indisponible.')
-      setBusy(false)
-    }
   }
 
   /** Réinitialisation : vérif du code puis application du nouveau mot de passe. */
@@ -194,24 +170,19 @@ export function AuthGate() {
     }
   }
 
-  const isCode = screen === 'code'
   const isReset = screen === 'reset'
   const title =
     screen === 'login' || screen === 'register'
       ? settings.loginTitle
-      : isCode
-        ? 'Vérification en deux étapes'
-        : isReset
-          ? 'Nouveau mot de passe'
-          : 'Mot de passe oublié'
+      : isReset
+        ? 'Nouveau mot de passe'
+        : 'Mot de passe oublié'
   const subtitle =
     screen === 'login' || screen === 'register'
       ? settings.loginSubtitle
-      : isCode
-        ? `Saisissez le code à 6 chiffres envoyé à ${email}.`
-        : isReset
-          ? info || 'Saisissez le code reçu par e-mail puis votre nouveau mot de passe.'
-          : 'Nous vous enverrons un code de réinitialisation.'
+      : isReset
+        ? info || 'Saisissez le code reçu par e-mail puis votre nouveau mot de passe.'
+        : 'Nous vous enverrons un code de réinitialisation.'
 
   return (
     <div className="relative flex min-h-dvh bg-background text-foreground">
@@ -336,8 +307,8 @@ export function AuthGate() {
             </div>
           )}
 
-          {(screen === 'code' || isReset) && (
-            <form onSubmit={isReset ? submitReset : submitCode} className="space-y-4">
+          {isReset && (
+            <form onSubmit={submitReset} className="space-y-4">
               {isReset && !resetToken && (
                 <div className="space-y-1.5">
                   <Label htmlFor="auth-code">Code reçu par e-mail</Label>
@@ -397,12 +368,8 @@ export function AuthGate() {
                 disabled={busy}
                 className="h-11 w-full gap-2 rounded-xl bg-foreground font-semibold text-background transition-transform hover:scale-[1.01] hover:opacity-90"
               >
-                {busy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="h-4 w-4" />
-                )}
-                {isReset ? (resetToken ? 'Enregistrer le mot de passe' : 'Valider le code') : 'Confirmer la connexion'}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {resetToken ? 'Enregistrer le mot de passe' : 'Valider le code'}
               </Button>
               <button
                 type="button"
@@ -508,7 +475,7 @@ export function AuthGate() {
                 ) : (
                   <UserPlus className="h-4 w-4" />
                 )}
-                {screen === 'login' ? 'Continuer' : 'Créer mon compte'}
+                {screen === 'login' ? 'Se connecter' : 'Créer mon compte'}
               </Button>
             </form>
           )}

@@ -875,6 +875,7 @@ export function AgentChat() {
           })
 
           if (!res.ok || !res.body) {
+            if (res.status === 401) window.dispatchEvent(new Event('nexus:unauthorized'))
             throw new Error(`Erreur serveur (${res.status})`)
           }
 

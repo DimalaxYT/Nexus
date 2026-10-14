@@ -90,6 +90,7 @@ export function DevAgentPanel() {
           intent?: string
         }
         if (!res.ok || !data.ok) {
+          if (res.status === 401) window.dispatchEvent(new Event('nexus:unauthorized'))
           toast.error(data.error ?? 'Analyse impossible')
           setMessages((prev) => [
             ...prev,

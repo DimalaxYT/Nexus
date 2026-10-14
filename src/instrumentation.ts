@@ -12,6 +12,13 @@ export async function register() {
     const { startDevDaemon } = await import('@/lib/devdaemon')
     startDevDaemon()
 
+    // Le Gardien : auto-ping toutes les 10 min (anti-sommeil Render plan
+    // gratuit) + entretien de la base. Production uniquement.
+    if (process.env.NODE_ENV === 'production') {
+      const { startKeepAlive } = await import('@/lib/keep-alive')
+      startKeepAlive()
+    }
+
     // Préchauffage du cerveau : le gros module est chargé DÈS le boot au lieu
     // de la 1re requête de chat (sinon > 20 s d'attente au premier message
     // après chaque démarrage à froid — typique sur Render plan gratuit).

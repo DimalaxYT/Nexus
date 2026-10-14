@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
@@ -154,12 +155,17 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
+  // Garde d'hydratation : resolvedTheme est undefined avant le montage, le
+  // clic pouvait re-set le thème courant (aucun effet visible).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted && resolvedTheme === 'dark'
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-9 w-9 text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
       aria-label="Basculer le thème clair ou sombre"
     >
       <Sun className="h-4 w-4 dark:hidden" />
