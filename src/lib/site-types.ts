@@ -38,7 +38,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   loginSubtitle: 'Connectez-vous pour retrouver votre historique, vos agents et vos clés API.',
   welcomeTitle: 'Bonjour',
   welcomeSubtitle: 'Que veux-tu construire aujourd’hui ?',
-  footerText: 'IA 100 % locale — aucune donnée ne quitte cette machine.',
+  footerText: 'IA 100 % locale — cerveau embarqué, aucune API externe.',
   customCss: '',
   hiddenTiles: [],
 }

@@ -3,6 +3,7 @@
 export type ViewId =
   | 'hub'
   | 'agent'
+  | 'studios'
   | 'studio3d'
   | 'image'
   | 'video'

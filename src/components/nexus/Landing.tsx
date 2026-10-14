@@ -89,14 +89,14 @@ const STEPS = [
 ]
 
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { resolvedTheme, setTheme } = useTheme()
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-      aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      aria-label={resolvedTheme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
     >
       <Sun className="h-4 w-4 dark:hidden" />
       <Moon className="hidden h-4 w-4 dark:block" />
@@ -156,7 +156,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
             </span>
-            IA 100 % locale — zéro cloud, zéro API externe
+            Cerveau IA 100 % local — aucune API externe
           </motion.div>
 
           <motion.h1
@@ -177,8 +177,8 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             className="mt-6 max-w-2xl text-balance text-base leading-relaxed text-muted-foreground md:text-lg"
           >
             Recherche web, missions autonomes, studios d&apos;images, de vidéos, de 3D et de code —
-            NEXUS orchestre une équipe d&apos;agents pour vous. Le cerveau tient dans votre serveur :
-            aucune donnée n&apos;en sort jamais.
+            NEXUS orchestre une équipe d&apos;agents pour vous. Le cerveau tourne sur votre serveur :
+            vous gardez le contrôle de vos données.
           </motion.p>
 
           <motion.div
@@ -287,12 +287,12 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
               <div>
                 <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">— Confidentialité</p>
                 <h2 className="mt-2 font-display text-3xl font-bold tracking-tight md:text-4xl">
-                  Vos données ne quittent jamais ce serveur.
+                  Vos données restent sous votre contrôle.
                 </h2>
                 <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground md:text-base">
                   Le cerveau de NEXUS est codé à la main : réseau de neurones embarqué, moteurs de recherche,
-                  générateurs d&apos;images et de 3D — le tout tourne sur la machine. Aucun appel à OpenAI,
-                  aucun cloud, aucun entraînement sur vos conversations.
+                  générateurs d&apos;images et de 3D — le tout tourne sur la machine. Aucune clé OpenAI, aucune
+                  compétition avec vos conversations : vous restez maître de vos données.
                 </p>
                 <Button asChild className="mt-7 gap-2 rounded-xl bg-foreground px-6 font-semibold text-background hover:opacity-90">
                   <Link href="/app">
@@ -326,7 +326,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
       {/* ── Pied de page — bandeau monochrome ─────────────────────────────── */}
       <footer className="relative border-t border-white/10 bg-black text-white">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-5 px-5 py-9 md:h-24 md:flex-row md:gap-8 md:py-0">
-          <p className="font-display text-lg font-bold tracking-[0.35em]">NEXUS</p>
+          <p className="font-display text-2xl font-bold tracking-[0.45em] md:text-3xl">4UR</p>
           <div className="flex items-center gap-5">
             <span className="hidden h-px w-16 bg-white/50 sm:block" aria-hidden />
             <p className="font-mono text-[11px] uppercase tracking-[0.35em] text-white/90">
@@ -339,7 +339,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
         </div>
         <div className="border-t border-white/10">
           <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-5 py-4 text-[11px] text-white/45 sm:flex-row">
-            <p>© {new Date().getFullYear()} NEXUS — cerveau IA 100 % local, aucune donnée envoyée.</p>
+            <p>© {new Date().getFullYear()} 4UR — NEXUS, cerveau IA 100 % local.</p>
             <Link href="/app" className="flex items-center gap-1.5 font-medium text-white/70 transition-colors hover:text-white">
               Ouvrir l&apos;application
               <ArrowRight className="h-3.5 w-3.5" />

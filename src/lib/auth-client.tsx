@@ -38,7 +38,7 @@ interface AuthContextValue {
   /** Vrai dès qu'au moins un compte existe sur l'instance. */
   accountsExist: boolean
   accountCount: number
-  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string; needsCode?: boolean; devCode?: string }>
   register: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -89,21 +89,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refresh()
   }, [refresh])
 
+  // Détection d'une session devenue invalide ailleurs (purge serveur,
+  // révocation…) : l'AuthGate reprend la main automatiquement. Polling léger
+  // (45 s) + rafraîchissement au retour sur l'onglet.
+  useEffect(() => {
+    if (loading) return
+    const tick = () => void refresh()
+    const id = setInterval(tick, 45_000)
+    window.addEventListener('focus', tick)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', tick)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [loading, refresh])
+
   // Recharge les données du compte dès que l'utilisateur change
   useEffect(() => {
     if (loading) return
     void switchUserData(user?.id ?? null)
   }, [user?.id, loading, switchUserData])
 
+  // La connexion ne crée plus la session directement : le serveur envoie un
+  // code à 6 chiffres par e-mail (2FA) et la session est ouverte par
+  // /api/auth/verify (écran « code » de l'AuthGate).
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api<{ user: AuthUser }>('/api/auth/login', {
+    const res = await api<{ needsCode?: boolean; devCode?: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     })
     if (!res.ok) return { ok: false, error: res.error }
-    setUser(res.data.user ?? null)
     setAccountsExist(true)
-    return { ok: true }
+    return { ok: true, needsCode: res.data.needsCode ?? false, devCode: res.data.devCode }
   }, [])
 
   const register = useCallback(async (name: string, email: string, password: string) => {

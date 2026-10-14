@@ -126,6 +126,13 @@ const TABLES: Record<string, TableSpec> = {
   },
 
   // ── Espace développeur (compte Dev) ────────────────────────────────────────
+  /** Codes de vérification e-mail : 2FA à la connexion & mot de passe oublié. */
+  verificationCode: {
+    table: 'VerificationCode',
+    dateCols: ['createdAt', 'expiresAt'],
+    boolCols: ['consumed'],
+    defaults: { purpose: 'login', attempts: 0, consumed: false },
+  },
   /** Réglages du site modifiables depuis le web (une ligne par clé). */
   siteSetting: {
     table: 'SiteSetting',
@@ -625,6 +632,16 @@ function createSqliteClient() {
       "ok" BOOLEAN NOT NULL DEFAULT true,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS "VerificationCode" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "email" TEXT NOT NULL,
+      "codeHash" TEXT NOT NULL,
+      "purpose" TEXT NOT NULL DEFAULT 'login',
+      "attempts" INTEGER NOT NULL DEFAULT 0,
+      "consumed" BOOLEAN NOT NULL DEFAULT false,
+      "expiresAt" DATETIME NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS "SiteSetting" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "key" TEXT NOT NULL,
@@ -784,6 +801,7 @@ function createSqliteClient() {
     trainingItem: createModelDelegate(sqlite, TABLES.trainingItem),
     trainingRun: createModelDelegate(sqlite, TABLES.trainingRun),
     trainingLesson: createModelDelegate(sqlite, TABLES.trainingLesson),
+    verificationCode: createModelDelegate(sqlite, TABLES.verificationCode),
   }
 }
 

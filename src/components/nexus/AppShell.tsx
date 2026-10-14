@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
+  ArrowRight,
   Bot,
   Boxes,
   Brain,
@@ -11,6 +12,7 @@ import {
   Home,
   Image as ImageIcon,
   KeyRound,
+  Layers,
   Link2,
   LogOut,
   Menu,
@@ -80,12 +82,9 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[
   { id: 'hub', label: 'Accueil', icon: Home, hint: 'Centre de contrôle' },
   { id: 'agent', label: 'Agent IA', icon: Bot, hint: 'Agent autonome' },
   { id: 'cerveaux', label: 'Cerveau Jarvis', icon: Brain, hint: 'Le cerveau central en direct' },
+  { id: 'studios', label: 'Studios', icon: Layers, hint: '3D · Image · Vidéo · Code' },
   { id: 'blueprints', label: 'Blueprints', icon: Workflow, hint: 'Schémas d\u2019agents' },
   { id: 'cles', label: 'Clés API', icon: KeyRound, hint: 'Chatbots à vendre' },
-  { id: 'studio3d', label: 'Studio 3D', icon: Boxes, hint: 'Création et IA 3D' },
-  { id: 'image', label: 'Images', icon: ImageIcon, hint: 'Retouche et création' },
-  { id: 'video', label: 'Vidéo', icon: Clapperboard, hint: 'Montage express' },
-  { id: 'code', label: 'Code', icon: Code2, hint: 'Éditeur live + IA' },
   { id: 'connexions', label: 'Connexions', icon: Link2, hint: 'Gmail, GitHub, Discord' },
   { id: 'compte', label: 'Mon compte', icon: UserIcon, hint: 'Profil et sécurité' },
 ]
@@ -154,13 +153,13 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { resolvedTheme, setTheme } = useTheme()
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-9 w-9 text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
       aria-label="Basculer le thème clair ou sombre"
     >
       <Sun className="h-4 w-4 dark:hidden" />
@@ -230,11 +229,55 @@ function AccountMenu() {
   )
 }
 
+/** Regroupe les ateliers de création : l'IA s'en sert, l'humain choisit. */
+function StudiosHub() {
+  const setView = useNexusStore((s) => s.setView)
+  const items = [
+    { id: 'studio3d' as ViewId, icon: Boxes, title: 'Studio 3D', desc: 'Éditeur temps réel, PBR, animation, export GLB/OBJ — et scènes générées par l’IA.' },
+    { id: 'image' as ViewId, icon: ImageIcon, title: 'Studio Image', desc: 'Retouche photo locale, filtres, pinceau, texte et art génératif procédural.' },
+    { id: 'video' as ViewId, icon: Clapperboard, title: 'Studio Vidéo', desc: 'Montage navigateur : coupes, filtres cinéma, vitesse, export webm.' },
+    { id: 'code' as ViewId, icon: Code2, title: 'Studio Code', desc: '20 langages, aperçu instantané, console, versions et propositions des agents.' },
+  ]
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-4xl px-5 py-10 md:px-8">
+        <header className="mb-8">
+          <h1 className="font-display text-3xl font-bold tracking-tight">Studios</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Quatre ateliers de création — vos agents y travaillent aussi, sur simple demande dans le chat.
+          </p>
+        </header>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {items.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.id}
+                onClick={() => setView(item.id)}
+                className="group glass edge-glow rounded-2xl p-6 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/25"
+              >
+                <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h2 className="font-display text-lg font-semibold">{item.title}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  Ouvrir <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function NexusApp() {
   const { view, sidebarOpen, setSidebarOpen } = useNexusStore()
   const { user, loading, accountsExist } = useAuth()
   const { settings } = useSiteSettings()
-  const footer = settings.footerText || 'IA 100 % locale — aucune donnée ne quitte cette machine.'
+  const footer = settings.footerText || 'IA 100 % locale — cerveau embarqué, aucune API externe.'
 
   if (loading) {
     return (
@@ -295,11 +338,12 @@ function NexusApp() {
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
-          <div className="w-10" />
+          <ThemeToggle />
         </header>
 
         <main className="min-h-0 flex-1">
           {view === 'hub' && <Hub />}
+          {view === 'studios' && <StudiosHub />}
           {view === 'agent' && <AgentChat />}
           {view === 'cerveaux' && <BrainRoomPage />}
           {view === 'blueprints' && <BlueprintsPanel />}

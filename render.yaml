@@ -31,6 +31,16 @@ services:
         generateValue: true  # clé maîtresse AES-256 générée par Render
       - key: NEXUS_DEV_PASSWORD
         sync: false          # mot de passe du compte Dev (à définir dans le dashboard)
+      - key: SMTP_HOST
+        sync: false          # ex. smtp.gmail.com — codes de connexion (2FA) par e-mail
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        sync: false          # adresse d'envoi (mot de passe d'application Gmail)
+      - key: SMTP_PASS
+        sync: false          # mot de passe d'application — JAMAIS en clair dans ce fichier
+      - key: MAIL_FROM
+        sync: false          # ex. NEXUS <vous@domaine.fr>
     disk:
       name: nexus-data
       mountPath: /var/data

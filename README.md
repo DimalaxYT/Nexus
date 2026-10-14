@@ -55,7 +55,21 @@ Variables d'environnement :
 | `NODE_VERSION` | `22.22.0` | **Obligatoire** : la base repose sur `node:sqlite` (Node ≥ 22.5) |
 | `DATABASE_URL` | `file:/var/data/custom.db` | Fichier SQLite, à placer sur un **Disk Render** monté sur `/var/data` (sinon les données sont réinitialisées à chaque déploiement) |
 | `NEXUS_SECRET_KEY` | une longue phrase secrète | Clé maîtresse du chiffrement AES-256-GCM des secrets (connexions Gmail/GitHub…) |
-| `NEXUS_DEV_PASSWORD` | votre mot de passe | Mot de passe du compte Dev (par défaut `dev2026`) |
+| `NEXUS_DEV_PASSWORD` | votre mot de passe | Mot de passe du compte Dev (par défaut `dev2026`) — à définir AVANT le premier démarrage |
+| `SMTP_HOST` | `smtp.gmail.com` | **Recommandé** : serveur SMTP pour les codes de connexion (2FA) et la réinitialisation de mot de passe |
+| `SMTP_PORT` | `465` | Port SMTP (465 = TLS, 587 = STARTTLS) |
+| `SMTP_USER` | votre adresse d'envoi | Compte d'envoi (utilisez un **mot de passe d'application** Gmail) |
+| `SMTP_PASS` | le mot de passe d'application | Mot de passe du compte d'envoi |
+| `MAIL_FROM` | `NEXUS <vous@domaine.fr>` | Expéditeur affiché |
+
+### 🔐 Connexion en deux étapes (2FA par e-mail)
+
+La connexion demande un **code à 6 chiffres envoyé par e-mail** (valable 10 minutes,
+5 essais maximum). Sans configuration SMTP, NEXUS passe en « mode développement » :
+le code est affiché dans un encart de l'écran de connexion et journalisé côté
+serveur — l'accès reste possible, mais configurez SMTP dès la mise en production.
+Le lien « Mot de passe oublié ? » suit le même principe : code par e-mail, puis
+nouveau mot de passe (toutes les sessions du compte sont révoquées).
 
 > **Important** : NEXUS utilise **uniquement une base SQLite locale** (fichier).
 > Les variables `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` ne servent à rien — le code ne lit jamais

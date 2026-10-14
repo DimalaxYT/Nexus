@@ -11,7 +11,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 export const metadata: Metadata = {
   title: "NEXUS — L'agent IA qui vit chez vous",
   description:
-    "NEXUS est un agent IA autonome 100 % local : recherche web, génération d'images, scènes 3D, retouche photo et vidéo, atelier de code. Vos données ne quittent jamais votre machine.",
+    "NEXUS est un agent IA autonome 100 % local : recherche web, génération d'images, scènes 3D, retouche photo et vidéo, atelier de code. Votre agent IA, vos données, votre contrôle.",
   keywords: ["NEXUS", "Agent IA", "IA locale", "IA autonome", "3D", "génération d'images", "atelier code"],
 };
 
