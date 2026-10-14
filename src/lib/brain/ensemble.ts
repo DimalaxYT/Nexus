@@ -42,7 +42,7 @@ export interface EnsembleInput {
   profile?: UserProfile
 }
 
-export const NEXUS_SPEAKER = { id: 'nexus', name: 'NEXUS', emoji: '🟣', color: '#a78bfa' }
+export const NEXUS_SPEAKER = { id: 'nexus', name: 'NEXUS', emoji: '🟣', color: '#ffffff' }
 
 /**
  * Purge les méta-commentaires de suivi (« [Suivi : …] », « [Ta dernière réponse …] »)

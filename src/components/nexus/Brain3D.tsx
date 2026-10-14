@@ -280,7 +280,7 @@ function AgentBrain({
     }
   })
 
-  const color = new THREE.Color(item.color || '#a78bfa')
+  const color = new THREE.Color(item.color || '#ffffff')
   const pink = new THREE.Color('#dfa0a8')
   const pinkDark = new THREE.Color('#c98f9a')
 
@@ -436,7 +436,7 @@ export function BrainCanvas({ className }: { className?: string }) {
         id: 'nexus',
         name: 'NEXUS',
         emoji: '🟣',
-        color: '#a78bfa',
+        color: '#ffffff',
         role: 'Coordinateur',
         status: 'idle',
         thought: '',
@@ -535,7 +535,7 @@ export function BrainCanvas({ className }: { className?: string }) {
                     'ml-auto inline-block h-1.5 w-1.5 shrink-0 rounded-full',
                     b.status === 'speaking' ? 'animate-pulse' : b.status === 'thinking' ? 'animate-ping' : 'opacity-40'
                   )}
-                  style={{ backgroundColor: b.color || '#a78bfa' }}
+                  style={{ backgroundColor: b.color || '#ffffff' }}
                 />
               </p>
               {b.role && <p className="mt-0.5 text-[9px] uppercase tracking-wider text-white/50">{b.role}</p>}
@@ -561,13 +561,13 @@ export function BrainCanvas({ className }: { className?: string }) {
       {/* Légende */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-gradient-to-t from-background/85 to-transparent px-4 pb-3 pt-8 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-violet-400" /> veille (respiration lente)
+          <span className="inline-block h-2 w-2 rounded-full bg-neutral-400" /> veille (respiration lente)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-amber-400" /> réflexion (impulsions rapides)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" /> prise de parole (halo intense)
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-neutral-400" /> prise de parole (halo intense)
         </span>
         {hiddenCount > 0 && <span className="italic">+ {hiddenCount} autre(s) cerveau(x) hors champ</span>}
         <span className="hidden sm:inline">— glisse pour tourner, molette pour zoomer</span>

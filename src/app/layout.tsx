@@ -1,20 +1,22 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+// Polices variables bundled localement (@fontsource) : identité visuelle forte
+// SANS aucune requête réseau au build ni au runtime (NEXUS reste 100 % local).
+import "@fontsource-variable/inter";
+import "@fontsource-variable/space-grotesk";
+import "@fontsource-variable/jetbrains-mono";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 
-// Polices 100 % LOCALES (pile système) : NEXUS se construit et se lance sans
-// aucun accès à Internet. Aucun téléchargement depuis Google Fonts au build.
-
 export const metadata: Metadata = {
-  title: "NEXUS — Votre Agent IA tout-en-un",
+  title: "NEXUS — L'agent IA qui vit chez vous",
   description:
-    "NEXUS est un agent IA autonome : recherche web, génération d'images, scènes 3D, retouche photo et vidéo, et atelier de code. Tout-en-un, dans tous les domaines.",
-  keywords: ["NEXUS", "Agent IA", "IA autonome", "3D", "génération d'images", "retouche vidéo", "atelier code"],
+    "NEXUS est un agent IA autonome 100 % local : recherche web, génération d'images, scènes 3D, retouche photo et vidéo, atelier de code. Votre agent IA, vos données, votre contrôle.",
+  keywords: ["NEXUS", "Agent IA", "IA locale", "IA autonome", "3D", "génération d'images", "atelier code"],
 };
 
 export const viewport: Viewport = {
-  themeColor: "#09090b",
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({

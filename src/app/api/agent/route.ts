@@ -138,13 +138,13 @@ export async function POST(req: NextRequest) {
 
       try {
         if (devAgentId && guard.userId) {
-          send({ type: 'speaker', id: devAgentId, name: 'Dev', emoji: '🛠️', color: '#22d3ee' })
+          send({ type: 'speaker', id: devAgentId, name: 'Dev', emoji: '🛠️', color: '#ffffff' })
           for (const thought of ['Lecture du code…', 'Analyse…']) {
-            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#22d3ee', text: thought })
+            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#ffffff', text: thought })
           }
           const result = await runDevTurn(history[history.length - 1]?.content ?? '', history.slice(0, -1), guard.userId)
           for (const t of result.thoughts) {
-            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#22d3ee', text: t })
+            send({ type: 'agent_thought', name: 'Dev', emoji: '🛠️', color: '#ffffff', text: t })
           }
           if (result.files.length) {
             send({

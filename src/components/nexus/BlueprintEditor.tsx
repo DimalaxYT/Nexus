@@ -307,7 +307,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
         <Separator orientation="vertical" className="h-6" />
         <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-56" placeholder="Nom du schéma" />
         {agentName && (
-          <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-200">
+          <span className="rounded-full border border-neutral-500/30 bg-neutral-500/10 px-2.5 py-1 text-[11px] text-neutral-300">
             Agent : {agentName}
           </span>
         )}
@@ -321,7 +321,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
           <Button variant="outline" size="sm" onClick={autoLayout} className="gap-1.5">
             <Wand2 className="h-3.5 w-3.5" /> Réorganiser
           </Button>
-          <Button size="sm" onClick={save} disabled={saving} className="gap-1.5 bg-violet-600 hover:bg-violet-500">
+          <Button size="sm" onClick={save} disabled={saving} className="gap-1.5 bg-neutral-500 hover:bg-neutral-500">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             Enregistrer
           </Button>
@@ -412,7 +412,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                 return (
                   <path
                     d={`M ${x1} ${y1} L ${pointer.x} ${pointer.y}`}
-                    stroke="#a78bfa"
+                    stroke="#ffffff"
                     strokeWidth={2}
                     strokeDasharray="6 5"
                     fill="none"
@@ -430,7 +430,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                   key={node.id}
                   className={cn(
                     'absolute select-none rounded-xl border bg-card shadow-lg transition-shadow',
-                    isSel ? 'border-violet-400 ring-2 ring-violet-500/40' : 'border-border/80'
+                    isSel ? 'border-neutral-400 ring-2 ring-neutral-500/40' : 'border-border/80'
                   )}
                   style={{ left: node.x, top: node.y, width: NODE_W }}
                   onPointerDown={() => {
@@ -487,7 +487,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                           setLinking({ nodeId: node.id, port: port.id })
                           setPointer(toCanvas(e.clientX, e.clientY))
                         }}
-                        className="h-3.5 w-3.5 rounded-full border-2 border-violet-400 bg-background hover:scale-125"
+                        className="h-3.5 w-3.5 rounded-full border-2 border-neutral-400 bg-background hover:scale-125"
                         title={`Relier : ${port.label}`}
                       />
                     </div>
@@ -580,7 +580,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                 className="min-h-[70px] text-xs"
                 placeholder="Message du visiteur…"
               />
-              <Button size="sm" onClick={runTest} disabled={testing} className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-500">
+              <Button size="sm" onClick={runTest} disabled={testing} className="w-full gap-1.5 bg-neutral-600 hover:bg-neutral-500">
                 {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                 Tester le schéma
               </Button>
@@ -593,7 +593,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                         <span
                           className={cn(
                             'mt-1 h-1.5 w-1.5 shrink-0 rounded-full',
-                            s.status === 'error' ? 'bg-rose-400' : s.status === 'running' ? 'bg-amber-400' : 'bg-emerald-400'
+                            s.status === 'error' ? 'bg-rose-400' : s.status === 'running' ? 'bg-amber-400' : 'bg-neutral-400'
                           )}
                         />
                         <span className="text-foreground/90">
@@ -603,7 +603,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                     ))}
                   </ol>
                   {testResult.matchedRule && (
-                    <p className="rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
+                    <p className="rounded-lg bg-neutral-300/10 px-2 py-1 text-[10px] text-amber-200">
                       Règle déclenchée : « {testResult.matchedRule} »
                     </p>
                   )}
@@ -622,7 +622,7 @@ export function BlueprintEditor({ blueprint, agentId, agentName, onClose, onSave
                 />
               </div>
               <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-violet-400" />
+                <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-neutral-400" />
                 Astuce : un nœud <strong>Règle</strong> sans lien de sortie répond directement — c&apos;est le
                 « quand tu lis X, réponds Y ».
               </p>

@@ -213,7 +213,7 @@ function OverviewTab() {
                 <span className="w-24 shrink-0 truncate font-mono text-[11px] text-muted-foreground">{f.folder}</span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/50">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                    className="h-full rounded-full bg-gradient-to-r from-neutral-500 to-blue-500"
                     style={{ width: `${Math.max(3, Math.round((f.lines / (data?.code.lines || 1)) * 100))}%` }}
                   />
                 </div>
@@ -245,7 +245,7 @@ function OverviewTab() {
         ) : (
           <div className="space-y-3">
             {data.weakSpots.map((w, i) => (
-              <div key={i} className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+              <div key={i} className="rounded-lg border border-neutral-300/25 bg-neutral-300/5 p-3">
                 <p className="text-[11px] font-semibold text-amber-300">
                   {w.count} messages différents → la même réponse
                 </p>
@@ -391,8 +391,8 @@ function SiteTab() {
 
         <Card title="CSS personnalisé" icon={Code2}>
           <p className="mb-2 text-[11px] text-muted-foreground">
-            Injecté tel quel dans la page. Les variables <code className="text-cyan-300">--dev-accent</code> et{' '}
-            <code className="text-cyan-300">--dev-accent-2</code> reprennent vos couleurs. Les scripts et les imports
+            Injecté tel quel dans la page. Les variables <code className="text-neutral-300">--dev-accent</code> et{' '}
+            <code className="text-neutral-300">--dev-accent-2</code> reprennent vos couleurs. Les scripts et les imports
             distants sont retirés automatiquement.
           </p>
           <Textarea
@@ -406,7 +406,7 @@ function SiteTab() {
         </Card>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void submit()} disabled={saving || !dirty} className="bg-cyan-600 hover:bg-cyan-500">
+          <Button onClick={() => void submit()} disabled={saving || !dirty} className="bg-neutral-500 hover:bg-neutral-500">
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
             Enregistrer
           </Button>
@@ -423,7 +423,7 @@ function SiteTab() {
             <RotateCcw className="mr-2 h-4 w-4" />
             Réglages d’origine
           </Button>
-          {dirty ? <Badge variant="outline" className="border-amber-500/40 text-amber-300">Modifications non enregistrées</Badge> : null}
+          {dirty ? <Badge variant="outline" className="border-neutral-300/40 text-amber-300">Modifications non enregistrées</Badge> : null}
         </div>
       </div>
 
@@ -559,7 +559,7 @@ function CodeTab() {
                     onClick={() => void open(h.path, h.line)}
                     className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-accent/50"
                   >
-                    <p className="truncate font-mono text-[10px] text-cyan-300">
+                    <p className="truncate font-mono text-[10px] text-neutral-300">
                       {h.path}:{h.line}
                     </p>
                     <p className="truncate text-[10px] text-muted-foreground">{h.text.slice(0, 90)}</p>
@@ -582,7 +582,7 @@ function CodeTab() {
                       onClick={() => void open(e.path)}
                       className={cn(
                         'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-[11px] hover:bg-accent/50',
-                        file?.path === e.path ? 'bg-cyan-500/15 text-cyan-200' : 'text-foreground/80'
+                        file?.path === e.path ? 'bg-neutral-500/15 text-neutral-300' : 'text-foreground/80'
                       )}
                     >
                       <ChevronRight className="h-3 w-3 shrink-0 opacity-50" />
@@ -601,7 +601,7 @@ function CodeTab() {
           <>
             <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-2">
               <div className="min-w-0">
-                <p className="truncate font-mono text-xs text-cyan-300">{file.path}</p>
+                <p className="truncate font-mono text-xs text-neutral-300">{file.path}</p>
                 <p className="text-[10px] text-muted-foreground">
                   {file.totalLines} lignes · {file.language}
                   {file.truncated ? ` · affichage ${file.from}–${file.to}` : ''}
@@ -726,8 +726,8 @@ function PatchesTab() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h4 className="text-sm font-semibold text-foreground">{p.title}</h4>
                   <Badge variant="outline" className={cn(
-                    p.status === 'applique' && 'border-emerald-500/40 text-emerald-300',
-                    p.status === 'propose' && 'border-amber-500/40 text-amber-300',
+                    p.status === 'applique' && 'border-neutral-500/40 text-neutral-300',
+                    p.status === 'propose' && 'border-neutral-300/40 text-amber-300',
                     p.status === 'refuse' && 'border-border text-muted-foreground'
                   )}>
                     {p.status === 'applique' ? 'appliqué' : p.status === 'refuse' ? 'refusé' : 'à valider'}
@@ -739,7 +739,7 @@ function PatchesTab() {
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 {p.status === 'propose' ? (
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500" onClick={() => void apply(p.id)} disabled={busy === p.id}>
+                  <Button size="sm" className="bg-neutral-600 hover:bg-neutral-500" onClick={() => void apply(p.id)} disabled={busy === p.id}>
                     {busy === p.id ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
                     Appliquer
                   </Button>
@@ -773,10 +773,10 @@ function PatchesTab() {
                   </pre>
                 </div>
                 <div>
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">Après</p>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-neutral-300">Après</p>
                   <pre className="max-h-64 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[10px] leading-relaxed">
                     <span className="text-muted-foreground">{diff.prefix}</span>
-                    <span className="bg-emerald-500/20 text-emerald-200">{diff.added || '(vide)'}</span>
+                    <span className="bg-neutral-500/20 text-neutral-200">{diff.added || '(vide)'}</span>
                     <span className="text-muted-foreground">{diff.suffix}</span>
                   </pre>
                 </div>
@@ -863,7 +863,7 @@ function TasksTab() {
         <div className="space-y-2">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre de l’amélioration" />
           <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} rows={2} placeholder="Détail (optionnel)" />
-          <Button onClick={() => void add()} disabled={!title.trim()} className="bg-cyan-600 hover:bg-cyan-500">
+          <Button onClick={() => void add()} disabled={!title.trim()} className="bg-neutral-500 hover:bg-neutral-500">
             Ajouter
           </Button>
         </div>
@@ -876,8 +876,8 @@ function TasksTab() {
               onClick={() => void cycle(t)}
               className={cn(
                 'mt-0.5 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors',
-                t.status === 'fait' && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
-                t.status === 'en_cours' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+                t.status === 'fait' && 'border-neutral-500/40 bg-neutral-500/10 text-neutral-300',
+                t.status === 'en_cours' && 'border-neutral-300/40 bg-neutral-300/10 text-amber-300',
                 t.status === 'a_faire' && 'border-border text-muted-foreground',
                 t.status === 'refuse' && 'border-border text-muted-foreground line-through'
               )}
@@ -960,7 +960,7 @@ function JournalTab() {
             <div key={i} className="rounded-lg border border-border/60 bg-background/40 p-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate text-[11px] text-foreground">« {c.message} »</p>
-                <span className={cn('shrink-0 text-[10px]', c.ok ? 'text-emerald-300' : 'text-rose-300')}>
+                <span className={cn('shrink-0 text-[10px]', c.ok ? 'text-neutral-300' : 'text-rose-300')}>
                   {c.ms} ms
                 </span>
               </div>
@@ -980,7 +980,7 @@ function JournalTab() {
               <span className="truncate text-foreground/90">{k.name}</span>
               <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
                 <span>{k.totalCalls} appel(s)</span>
-                <Badge variant="outline" className={cn('text-[9px]', k.enabled ? 'text-emerald-300' : 'text-muted-foreground')}>
+                <Badge variant="outline" className={cn('text-[9px]', k.enabled ? 'text-neutral-300' : 'text-muted-foreground')}>
                   {k.enabled ? 'active' : 'désactivée'}
                 </Badge>
               </span>
@@ -996,7 +996,7 @@ function JournalTab() {
             <li key={s.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 px-2 py-1.5">
               <div className="min-w-0">
                 <p className="truncate text-[11px] text-foreground">
-                  {s.user} {s.current ? <span className="text-cyan-300">(courante)</span> : null}
+                  {s.user} {s.current ? <span className="text-neutral-300">(courante)</span> : null}
                 </p>
                 <p className="truncate text-[10px] text-muted-foreground">{s.userAgent || 'appareil inconnu'}</p>
               </div>
@@ -1022,7 +1022,7 @@ export function DevDashboard() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b border-border/70 px-4 py-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-500 to-indigo-600 shadow-lg shadow-cyan-500/25">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-500 via-blue-500 to-indigo-600 shadow-lg shadow-neutral-500/25">
           <Terminal className="h-4.5 w-4.5 text-white" />
         </span>
         <div className="leading-tight">
@@ -1051,7 +1051,7 @@ export function DevDashboard() {
                 <TabsTrigger
                   key={t.value}
                   value={t.value}
-                  className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-cyan-500/15 data-[state=active]:text-cyan-200"
+                  className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-neutral-500/15 data-[state=active]:text-neutral-300"
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {t.label}

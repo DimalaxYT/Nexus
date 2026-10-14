@@ -90,6 +90,7 @@ export function DevAgentPanel() {
           intent?: string
         }
         if (!res.ok || !data.ok) {
+          if (res.status === 401) window.dispatchEvent(new Event('nexus:unauthorized'))
           toast.error(data.error ?? 'Analyse impossible')
           setMessages((prev) => [
             ...prev,
@@ -131,7 +132,7 @@ export function DevAgentPanel() {
       {/* En-tête */}
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-500 to-neutral-600 text-white shadow-lg shadow-neutral-500/25">
             <Terminal className="h-4.5 w-4.5" />
           </span>
           <div className="leading-tight">
@@ -148,7 +149,7 @@ export function DevAgentPanel() {
         {messages.map((m, i) => (
           <div key={i} className={cn('flex gap-3', m.role === 'user' ? 'justify-end' : 'justify-start')}>
             {m.role === 'assistant' && (
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 text-white">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-neutral-500 to-neutral-600 text-white">
                 <Bot className="h-4 w-4" />
               </span>
             )}
@@ -156,7 +157,7 @@ export function DevAgentPanel() {
               className={cn(
                 'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
                 m.role === 'user'
-                  ? 'bg-cyan-500/15 text-foreground'
+                  ? 'bg-neutral-500/15 text-foreground'
                   : 'border border-border/70 bg-card/70 text-foreground'
               )}
             >
@@ -165,7 +166,7 @@ export function DevAgentPanel() {
                   {m.thoughts.map((t, j) => (
                     <span
                       key={j}
-                      className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300"
+                      className="inline-flex items-center gap-1 rounded-full border border-neutral-500/30 bg-neutral-500/10 px-2 py-0.5 text-[10px] text-neutral-300"
                     >
                       <Lightbulb className="h-2.5 w-2.5" />
                       {t}
@@ -188,21 +189,21 @@ export function DevAgentPanel() {
                     >
                       <FileCode2 className="h-2.5 w-2.5" />
                       {f.path}
-                      {f.note ? <span className="text-cyan-400/80">· {f.note}</span> : null}
+                      {f.note ? <span className="text-neutral-400/80">· {f.note}</span> : null}
                     </span>
                   ))}
                 </div>
               )}
 
               {m.patch && (
-                <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+                <div className="mt-3 rounded-lg border border-neutral-500/30 bg-neutral-500/10 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
                     Correctif à valider
                   </p>
                   <p className="mt-1 text-sm font-medium text-foreground">{m.patch.title}</p>
                   <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{m.patch.filePath}</p>
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    Ouvre l’onglet <span className="text-emerald-300">Correctifs</span> pour le relire et l’appliquer.
+                    Ouvre l’onglet <span className="text-neutral-300">Correctifs</span> pour le relire et l’appliquer.
                   </p>
                 </div>
               )}
@@ -240,7 +241,7 @@ export function DevAgentPanel() {
               <button
                 key={s.label}
                 onClick={() => void send(s.text)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-cyan-500/40 hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-neutral-500/40 hover:text-foreground"
               >
                 <Icon className="h-3 w-3" />
                 {s.label}
@@ -270,7 +271,7 @@ export function DevAgentPanel() {
             onClick={() => void send(input)}
             disabled={busy || !input.trim()}
             size="icon"
-            className="h-[52px] w-[52px] shrink-0 bg-cyan-600 hover:bg-cyan-500"
+            className="h-[52px] w-[52px] shrink-0 bg-neutral-500 hover:bg-neutral-500"
             aria-label="Envoyer"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}

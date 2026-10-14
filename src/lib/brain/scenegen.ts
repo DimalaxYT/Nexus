@@ -228,7 +228,7 @@ const THEMES: ThemeSpec[] = [
       const out: SceneObject[] = [
         obj('Route', 'box', [0, 0.05, 0], [20, 0.1, 20], '#17171c', { roughness: 0.85 }),
       ]
-      const neons = ['#ec4899', '#22d3ee', '#a855f7', '#f59e0b']
+      const neons = ['#ec4899', '#ffffff', '#a855f7', '#f59e0b']
       for (let i = 0; i < 14; i++) {
         const x = between(rng, -9, 9)
         const z = between(rng, -9, 9)
@@ -239,10 +239,10 @@ const THEMES: ThemeSpec[] = [
       out.push(obj('Tour centrale', 'box', [0, 5, 0], [2.6, 10, 2.6], '#1e1b4b', { emissive: '#7c3aed', emissiveIntensity: 0.5, metalness: 0.6 }))
       out.push(obj('Antenne', 'cylinder', [0, 10.7, 0], [0.07, 1.4, 0.07], '#ec4899', { emissive: '#ec4899', emissiveIntensity: 2 }))
       // Anneau holographique en rotation continue
-      const ring = obj('Anneau holo', 'torus', [0, 6.5, 0], [3.2, 3.2, 3.2], '#22d3ee', { rotation: [1.5708, 0, 0], emissive: '#22d3ee', emissiveIntensity: 1.2, opacity: 0.7 })
+      const ring = obj('Anneau holo', 'torus', [0, 6.5, 0], [3.2, 3.2, 3.2], '#ffffff', { rotation: [1.5708, 0, 0], emissive: '#ffffff', emissiveIntensity: 1.2, opacity: 0.7 })
       out.push(withKeys(ring, spinKeys(ring, 2, 1, 10)))
       // Lampadaires
-      out.push(...lampe(rng, -3, 3, '#22d3ee'))
+      out.push(...lampe(rng, -3, 3, '#ffffff'))
       out.push(...lampe(rng, 3, -3, '#ec4899'))
       // Voiture volante (flotte doucement)
       const veh = obj('Véhicule volant', 'capsule', [between(rng, -6, 6), 2.4, between(rng, -6, 6)], [0.5, 0.9, 0.5], '#f43f5e', { rotation: [0, between(rng, 0, 3), 0], emissive: '#f43f5e', emissiveIntensity: 0.8 })
@@ -267,7 +267,7 @@ const THEMES: ThemeSpec[] = [
       out.push(...arbre(rng, 0, 0, 1.8))
       const champ1 = obj('Champignon', 'capsule', [1.4, 0.35, 1.8], [0.3, 0.5, 0.3], '#ec4899', { emissive: '#ec4899', emissiveIntensity: 0.7 })
       out.push(withKeys(champ1, pulseKeys(champ1, 1.25, 3)))
-      const champ2 = obj('Champignon 2', 'capsule', [1.9, 0.28, 1.4], [0.22, 0.4, 0.22], '#f472b6', { emissive: '#f472b6', emissiveIntensity: 0.7 })
+      const champ2 = obj('Champignon 2', 'capsule', [1.9, 0.28, 1.4], [0.22, 0.4, 0.22], '#a3a3a3', { emissive: '#a3a3a3', emissiveIntensity: 0.7 })
       out.push(withKeys(champ2, pulseKeys(champ2, 1.3, 2)))
       out.push(rocher(rng, -2.4, 2, 0.8))
       out.push(rocher(rng, 2.8, -2.2, 0.6))
@@ -537,7 +537,7 @@ const THEMES: ThemeSpec[] = [
         obj('Roche 2', 'dodecahedron', [4, 0.4, 3], [0.8, 0.6, 0.8], '#3a6b7d', { roughness: 0.9 }),
       ]
       // Coraux lumineux
-      const coralColors = ['#ff6b9d', '#ff8c42', '#c084fc', '#22d3ee']
+      const coralColors = ['#ff6b9d', '#ff8c42', '#c084fc', '#ffffff']
       for (let i = 0; i < 7; i++) {
         const x = between(rng, -8, 8)
         const z = between(rng, -8, 8)
@@ -725,7 +725,7 @@ function detectTheme(brief: string): ThemeSpec {
         const radius = between(rng, 3.5, 7.5)
         out.push(...arbre(rng, Math.cos(angle) * radius, Math.sin(angle) * radius, between(rng, 0.8, 1.4)))
       }
-      out.push(obj('Monument', 'dodecahedron', [0, 1.4, 0], [1.4, 1.6, 1.4], '#8b7d9b', { metalness: 0.4, emissive: '#a78bfa', emissiveIntensity: 0.2 }))
+      out.push(obj('Monument', 'dodecahedron', [0, 1.4, 0], [1.4, 1.6, 1.4], '#8b7d9b', { metalness: 0.4, emissive: '#ffffff', emissiveIntensity: 0.2 }))
       for (let i = 0; i < 3; i++) out.push(rocher(rng, between(rng, -8, 8), between(rng, -8, 8), between(rng, 0.4, 0.8)))
       out.push(nuage(rng, 7))
       return out

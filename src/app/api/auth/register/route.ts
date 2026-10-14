@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
           language: 'fr',
           theme: 'dark',
           assistantName: 'NEXUS',
-          avatarColor: '#a78bfa',
+          avatarColor: '#ffffff',
         } satisfies UserProfile),
       },
     })

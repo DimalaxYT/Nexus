@@ -1,8 +1,10 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
+  ArrowRight,
   Bot,
   Boxes,
   Brain,
@@ -11,7 +13,9 @@ import {
   Home,
   Image as ImageIcon,
   KeyRound,
+  Layers,
   Link2,
+  LogOut,
   Menu,
   Moon,
   Sun,
@@ -60,8 +64,8 @@ function StudioLoading({ label }: { label: string }) {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-        <p className="text-sm text-muted-foreground">{label}</p>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
     </div>
   )
@@ -79,12 +83,9 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[
   { id: 'hub', label: 'Accueil', icon: Home, hint: 'Centre de contrôle' },
   { id: 'agent', label: 'Agent IA', icon: Bot, hint: 'Agent autonome' },
   { id: 'cerveaux', label: 'Cerveau Jarvis', icon: Brain, hint: 'Le cerveau central en direct' },
+  { id: 'studios', label: 'Studios', icon: Layers, hint: '3D · Image · Vidéo · Code' },
   { id: 'blueprints', label: 'Blueprints', icon: Workflow, hint: 'Schémas d\u2019agents' },
   { id: 'cles', label: 'Clés API', icon: KeyRound, hint: 'Chatbots à vendre' },
-  { id: 'studio3d', label: 'Studio 3D', icon: Boxes, hint: 'Création et IA 3D' },
-  { id: 'image', label: 'Images', icon: ImageIcon, hint: 'Retouche et création' },
-  { id: 'video', label: 'Vidéo', icon: Clapperboard, hint: 'Montage express' },
-  { id: 'code', label: 'Code', icon: Code2, hint: 'Éditeur live + IA' },
   { id: 'connexions', label: 'Connexions', icon: Link2, hint: 'Gmail, GitHub, Discord' },
   { id: 'compte', label: 'Mon compte', icon: UserIcon, hint: 'Profil et sécurité' },
 ]
@@ -132,15 +133,19 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               onNavigate?.()
             }}
             aria-current={active ? 'page' : undefined}
-            style={active ? { background: 'var(--dev-accent-soft)', color: 'var(--dev-accent)' } : undefined}
             className={cn(
-              'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all',
-              !active && 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+              'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all',
+              active
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
             )}
           >
-            <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? '' : 'text-muted-foreground group-hover:text-foreground/80')} />
+            {active && (
+              <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground/70" aria-hidden />
+            )}
+            <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground/80')} />
             <span className="flex-1">{item.label}</span>
-            <span className="hidden text-[10px] text-muted-foreground/70 group-hover:block lg:block">{item.hint}</span>
+            <span className={cn('hidden font-mono text-[9px] uppercase tracking-wider lg:block', active ? 'text-primary/70' : 'text-muted-foreground/50 group-hover:text-muted-foreground')}>{item.hint}</span>
           </button>
         )
       })}
@@ -149,13 +154,18 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { resolvedTheme, setTheme } = useTheme()
+  // Garde d'hydratation : resolvedTheme est undefined avant le montage, le
+  // clic pouvait re-set le thème courant (aucun effet visible).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted && resolvedTheme === 'dark'
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-9 w-9 text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
       aria-label="Basculer le thème clair ou sombre"
     >
       <Sun className="h-4 w-4 dark:hidden" />
@@ -172,7 +182,7 @@ function AccountMenu() {
 
   const profile = user.profile ?? {}
   const label = profile.displayName || user.name || user.email.split('@')[0]
-  const color = profile.avatarColor ?? '#a78bfa'
+  const color = profile.avatarColor ?? '#ffffff'
   const initial = label.trim().charAt(0).toUpperCase()
 
   return (
@@ -211,11 +221,61 @@ function AccountMenu() {
           <Workflow className="h-4 w-4" /> Mes blueprints
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void logout()} className="gap-2 text-rose-300">
-          <X className="h-4 w-4" /> Se déconnecter
+        <DropdownMenuItem asChild className="gap-2">
+          <a href="/">
+            <Home className="h-4 w-4" /> Voir la vitrine publique
+          </a>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => void logout()} className="gap-2 text-rose-400">
+          <LogOut className="h-4 w-4" /> Se déconnecter
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** Regroupe les ateliers de création : l'IA s'en sert, l'humain choisit. */
+function StudiosHub() {
+  const setView = useNexusStore((s) => s.setView)
+  const items = [
+    { id: 'studio3d' as ViewId, icon: Boxes, title: 'Studio 3D', desc: 'Éditeur temps réel, PBR, animation, export GLB/OBJ — et scènes générées par l’IA.' },
+    { id: 'image' as ViewId, icon: ImageIcon, title: 'Studio Image', desc: 'Retouche photo locale, filtres, pinceau, texte et art génératif procédural.' },
+    { id: 'video' as ViewId, icon: Clapperboard, title: 'Studio Vidéo', desc: 'Montage navigateur : coupes, filtres cinéma, vitesse, export webm.' },
+    { id: 'code' as ViewId, icon: Code2, title: 'Studio Code', desc: '20 langages, aperçu instantané, console, versions et propositions des agents.' },
+  ]
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-4xl px-5 py-10 md:px-8">
+        <header className="mb-8">
+          <h1 className="font-display text-3xl font-bold tracking-tight">Studios</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Quatre ateliers de création — vos agents y travaillent aussi, sur simple demande dans le chat.
+          </p>
+        </header>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {items.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.id}
+                onClick={() => setView(item.id)}
+                className="group glass edge-glow rounded-2xl p-6 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/25"
+              >
+                <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h2 className="font-display text-lg font-semibold">{item.title}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  Ouvrir <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -223,13 +283,13 @@ function NexusApp() {
   const { view, sidebarOpen, setSidebarOpen } = useNexusStore()
   const { user, loading, accountsExist } = useAuth()
   const { settings } = useSiteSettings()
-  const footer = settings.footerText || 'IA 100 % locale — aucune donnée ne quitte cette machine.'
+  const footer = settings.footerText || 'IA 100 % locale — cerveau embarqué, aucune API externe.'
 
   if (loading) {
     return (
       <div className="flex h-dvh items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent" />
           <p className="text-xs text-muted-foreground">Ouverture de votre espace…</p>
         </div>
       </div>
@@ -241,9 +301,11 @@ function NexusApp() {
   if (accountsExist && !user) return <AuthGate />
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
+      {/* Décor aurore discret derrière toute l'app */}
+      <div className="pointer-events-none absolute inset-0 bg-aurora opacity-60" aria-hidden />
       {/* Sidebar desktop */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border/70 bg-card/70 md:flex">
+      <aside className="relative hidden w-60 shrink-0 flex-col border-r border-border/60 bg-card/50 backdrop-blur-xl md:flex">
         <div className="flex items-center justify-between p-4">
           <Logo />
           <ThemeToggle />
@@ -275,18 +337,19 @@ function NexusApp() {
       )}
 
       {/* Zone principale */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {/* Barre supérieure mobile */}
-        <header className="flex items-center justify-between border-b border-border/70 bg-card/70 px-4 py-2.5 md:hidden">
+        <header className="flex items-center justify-between border-b border-border/60 bg-card/50 px-4 py-2.5 backdrop-blur-xl md:hidden">
           <button onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu" className="rounded-lg p-2 text-foreground/80 hover:bg-accent">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
-          <div className="w-10" />
+          <ThemeToggle />
         </header>
 
         <main className="min-h-0 flex-1">
           {view === 'hub' && <Hub />}
+          {view === 'studios' && <StudiosHub />}
           {view === 'agent' && <AgentChat />}
           {view === 'cerveaux' && <BrainRoomPage />}
           {view === 'blueprints' && <BlueprintsPanel />}

@@ -1,0 +1,47 @@
+# ─── NEXUS — Blueprint de déploiement Render ─────────────────────────────────
+# Déploiement automatique : sur Render → New + → Blueprint → choisir ce repo.
+# https://render.com/docs/blueprint-spec
+#
+# ⚠️ Points clés :
+#   • NEXUS tourne avec node:sqlite → Node >= 22.5 obligatoire (NODE_VERSION).
+#   • Le build Next.js (Turbopack) dépasse 800 Mo de RAM : le plan Free (512 Mo)
+#     tue le build (exit 137 / OOM). Le plan Starter (2 Go) passe sans problème.
+#   • La base est un fichier SQLite LOCAL : aucune dépendance Turso/Postgres.
+#     Pour ne PAS perdre les données à chaque redéploiement, il faut un Disk
+#     Render et DATABASE_URL pointant dessus (ex: file:/var/data/custom.db).
+#   • Le cerveau IA est 100 % local (aucune clé OpenAI/Ollama requise).
+
+services:
+  - type: web
+    name: nexus
+    runtime: node
+    plan: free              # gratuit possible au runtime (cerveau léger). Si le
+                            # build meurt en OOM (exit 137) → passer sur starter
+    region: frankfurt       # région la plus proche de l'Europe de l'Ouest
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0       # node:sqlite exige Node >= 22.5
+      - key: DATABASE_URL
+        value: file:/var/data/custom.db   # fichier SQLite sur le disque persistant
+      - key: NEXUS_SECRET_KEY
+        generateValue: true  # clé maîtresse AES-256 générée par Render
+      - key: NEXUS_DEV_PASSWORD
+        sync: false          # mot de passe du compte Dev (à définir dans le dashboard)
+      - key: SMTP_HOST
+        sync: false          # ex. smtp.gmail.com — codes de connexion (2FA) par e-mail
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        sync: false          # adresse d'envoi (mot de passe d'application Gmail)
+      - key: SMTP_PASS
+        sync: false          # mot de passe d'application — JAMAIS en clair dans ce fichier
+      - key: MAIL_FROM
+        sync: false          # ex. NEXUS <vous@domaine.fr>
+    disk:
+      name: nexus-data
+      mountPath: /var/data
+      sizeGB: 1

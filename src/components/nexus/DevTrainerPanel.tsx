@@ -87,7 +87,7 @@ function Stat({ label, value, hint, tone }: { label: string; value: string | num
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={cn(
         'mt-1 text-xl font-bold',
-        tone === 'ok' && 'text-emerald-300',
+        tone === 'ok' && 'text-neutral-300',
         tone === 'warn' && 'text-amber-300',
         tone === 'bad' && 'text-rose-300',
         !tone && 'text-foreground'
@@ -105,8 +105,8 @@ function when(v: unknown): string {
 }
 
 const STEP_TONE: Record<string, string> = {
-  ok: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200',
-  warn: 'border-amber-500/30 bg-amber-500/5 text-amber-200',
+  ok: 'border-neutral-500/30 bg-neutral-500/5 text-neutral-200',
+  warn: 'border-neutral-300/30 bg-neutral-300/5 text-amber-200',
   error: 'border-rose-500/30 bg-rose-500/5 text-rose-200',
 }
 
@@ -250,7 +250,7 @@ export function DevTrainerPanel() {
           </label>
           <Button
             size="sm"
-            className="bg-cyan-600 hover:bg-cyan-500"
+            className="bg-neutral-500 hover:bg-neutral-500"
             onClick={() => void act({ action: 'run' }, 'run')}
             disabled={busy === 'run' || daemon.running}
           >
@@ -397,7 +397,7 @@ export function DevTrainerPanel() {
           ].map((t) => {
             const Icon = t.i
             return (
-              <TabsTrigger key={t.v} value={t.v} className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-cyan-500/15 data-[state=active]:text-cyan-200">
+              <TabsTrigger key={t.v} value={t.v} className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-neutral-500/15 data-[state=active]:text-neutral-300">
                 <Icon className="h-3.5 w-3.5" />
                 {t.l}
               </TabsTrigger>
@@ -446,7 +446,7 @@ export function DevTrainerPanel() {
                     </p>
                   </div>
                   <Badge variant="outline" className={cn('shrink-0 text-[9px]',
-                    r.status === 'ok' && 'border-emerald-500/40 text-emerald-300',
+                    r.status === 'ok' && 'border-neutral-500/40 text-neutral-300',
                     r.status === 'echec' && 'border-rose-500/40 text-rose-300'
                   )}>
                     {r.status}
@@ -469,7 +469,7 @@ export function DevTrainerPanel() {
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-emerald-300">Aucune lacune : NEXUS couvre tout le banc d’épreuve.</p>
+              <p className="text-xs text-neutral-300">Aucune lacune : NEXUS couvre tout le banc d’épreuve.</p>
             )}
           </Card>
         </TabsContent>
@@ -486,7 +486,7 @@ export function DevTrainerPanel() {
               />
               <Button
                 size="sm"
-                className="shrink-0 bg-cyan-600 hover:bg-cyan-500"
+                className="shrink-0 bg-neutral-500 hover:bg-neutral-500"
                 disabled={!newObjective.trim() || busy === 'obj'}
                 onClick={async () => {
                   const label = newObjective.trim()
@@ -518,11 +518,11 @@ export function DevTrainerPanel() {
                     <p className="truncate text-[10px] text-muted-foreground">{o.query}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {o.lastScore ? <span className="text-[10px] text-cyan-300">{o.lastScore.toFixed(2)}</span> : null}
+                    {o.lastScore ? <span className="text-[10px] text-neutral-300">{o.lastScore.toFixed(2)}</span> : null}
                     <Badge variant="outline" className="text-[9px]">{o.category}</Badge>
                     <Badge variant="outline" className={cn('text-[9px]',
-                      o.status === 'fait' && 'border-emerald-500/40 text-emerald-300',
-                      o.origin === 'manuel' && 'border-cyan-500/40 text-cyan-300'
+                      o.status === 'fait' && 'border-neutral-500/40 text-neutral-300',
+                      o.origin === 'manuel' && 'border-neutral-500/40 text-neutral-300'
                     )}>
                       {o.status === 'fait' ? 'traité' : `${o.attempts} essai(s)`}
                     </Badge>
@@ -572,11 +572,11 @@ export function DevTrainerPanel() {
                     <p className="text-xs font-semibold text-foreground">{it.question}</p>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Badge variant="outline" className={cn('text-[9px]',
-                        it.status === 'valide' && 'border-emerald-500/40 text-emerald-300',
+                        it.status === 'valide' && 'border-neutral-500/40 text-neutral-300',
                         it.status === 'rejete' && 'border-rose-500/40 text-rose-300',
-                        it.status === 'candidat' && 'border-amber-500/40 text-amber-300'
+                        it.status === 'candidat' && 'border-neutral-300/40 text-amber-300'
                       )}>{it.status}</Badge>
-                      <span className="text-[10px] text-cyan-300">{it.score.toFixed(2)}</span>
+                      <span className="text-[10px] text-neutral-300">{it.score.toFixed(2)}</span>
                     </div>
                   </div>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[11px] text-muted-foreground">{it.answer}</p>
@@ -588,7 +588,7 @@ export function DevTrainerPanel() {
                     <span className="text-[9px] text-muted-foreground">{when(it.createdAt)}</span>
                     <div className="ml-auto flex gap-1">
                       {it.status !== 'valide' ? (
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-emerald-300"
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-neutral-300"
                           onClick={async () => {
                             await json('/api/dev/training/items', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id, status: 'valide' }) })
                             await load()
@@ -625,7 +625,7 @@ export function DevTrainerPanel() {
                 placeholder="https://…"
                 className="text-xs"
               />
-              <Button size="sm" className="shrink-0 bg-cyan-600 hover:bg-cyan-500" onClick={() => void browse()} disabled={busy === 'browse' || !url.trim()}>
+              <Button size="sm" className="shrink-0 bg-neutral-500 hover:bg-neutral-500" onClick={() => void browse()} disabled={busy === 'browse' || !url.trim()}>
                 {busy === 'browse' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="mr-1.5 h-3 w-3" />}
                 Visiter
               </Button>
@@ -681,7 +681,7 @@ export function DevTrainerPanel() {
                   <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{l.key}</span>
                   <div className="h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-muted/50">
                     <div
-                      className={cn('h-full rounded-full', l.value >= 0.6 ? 'bg-emerald-500' : l.value >= 0.35 ? 'bg-amber-500' : 'bg-rose-500')}
+                      className={cn('h-full rounded-full', l.value >= 0.6 ? 'bg-neutral-500' : l.value >= 0.35 ? 'bg-neutral-300' : 'bg-rose-500')}
                       style={{ width: `${Math.max(3, Math.round(l.value * 100))}%` }}
                     />
                   </div>

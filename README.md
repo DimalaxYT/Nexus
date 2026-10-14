@@ -34,6 +34,55 @@ Au premier lancement, l'application vous propose de **créer le compte propriét
 Ce premier compte récupère automatiquement les données déjà présentes (agents, conversations,
 connaissances, mémoire) : rien n'est perdu.
 
+## Déploiement sur Render
+
+Le plus simple : **New + → Blueprint** sur Render, il lit `render.yaml` à la racine et configure tout.
+
+En manuel, un Web Service Node a besoin de :
+
+| Réglage | Valeur |
+|---|---|
+| Runtime | **Node** |
+| Build Command | `npm ci && npm run build` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` |
+| Plan | Free possible au runtime (le cerveau est léger), **mais** le build Next.js monte à ~860 Mo de RAM : si le build échoue en OOM (exit 137), passer sur Starter |
+
+Variables d'environnement :
+
+| Variable | Valeur | Rôle |
+|---|---|---|
+| `NODE_VERSION` | `22.22.0` | **Obligatoire** : la base repose sur `node:sqlite` (Node ≥ 22.5) |
+| `DATABASE_URL` | `file:/var/data/custom.db` | Fichier SQLite, à placer sur un **Disk Render** monté sur `/var/data` (sinon les données sont réinitialisées à chaque déploiement) |
+| `NEXUS_SECRET_KEY` | une longue phrase secrète | Clé maîtresse du chiffrement AES-256-GCM des secrets (connexions Gmail/GitHub…) |
+| `NEXUS_DEV_PASSWORD` | votre mot de passe | Mot de passe du compte Dev (par défaut `dev2026`) — à définir AVANT le premier démarrage |
+| `SMTP_HOST` | `smtp.gmail.com` | **Recommandé** : serveur SMTP pour les codes de connexion (2FA) et la réinitialisation de mot de passe |
+| `SMTP_PORT` | `465` | Port SMTP (465 = TLS, 587 = STARTTLS) |
+| `SMTP_USER` | votre adresse d'envoi | Compte d'envoi (utilisez un **mot de passe d'application** Gmail) |
+| `SMTP_PASS` | le mot de passe d'application | Mot de passe du compte d'envoi |
+| `MAIL_FROM` | `NEXUS <vous@domaine.fr>` | Expéditeur affiché |
+
+### 🛡️ Le Gardien (bot interne, anti-sommeil Render)
+
+Au démarrage en production, NEXUS arme **le Gardien** : un bot interne qui
+**ping `/api/health` toutes les 10 minutes** — sur le plan gratuit Render, un
+service sans trafic s'endort après 15 min, le ping le maintient éveillé (Render
+l'autorise). Il profite de chaque passage pour purger les sessions expirées et
+les vieux codes de la base. L'URL pingée est déduite de `RENDER_EXTERNAL_URL`
+(fourni automatiquement par Render) ou de `KEEP_ALIVE_URL`.
+
+### 🔑 Connexion & mot de passe oublié
+
+La connexion est **en une seule étape** (e-mail + mot de passe). Le lien
+« Mot de passe oublié ? » envoie un code à 6 chiffres par e-mail (valable
+10 minutes) puis permet de choisir un nouveau mot de passe : sans SMTP configuré,
+le code est affiché dans un encart (mode développement) et journalisé côté
+serveur — configurez SMTP pour l'envoi réel.
+
+> **Important** : NEXUS utilise **uniquement une base SQLite locale** (fichier).
+> Les variables `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` ne servent à rien — le code ne lit jamais
+> Turso. Et le cerveau IA étant 100 % local, **aucune clé d'API IA** n'est nécessaire.
+
 ## Nouveautés de la v2.1
 
 ### 🔐 Comptes : connexion & création

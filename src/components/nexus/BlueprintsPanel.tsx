@@ -143,8 +143,8 @@ export function BlueprintsPanel() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20">
-            <Workflow className="h-5 w-5 text-violet-300" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-500/20 to-neutral-500/20">
+            <Workflow className="h-5 w-5 text-neutral-300" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">Blueprints</h1>
@@ -159,7 +159,7 @@ export function BlueprintsPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Plus className="h-4 w-4 text-violet-400" /> Nouveau schéma
+              <Plus className="h-4 w-4 text-neutral-400" /> Nouveau schéma
             </CardTitle>
             <CardDescription className="text-xs">
               Le schéma démarre avec un exemple concret (une règle SAV + le cerveau NEXUS en repli).
@@ -189,7 +189,7 @@ export function BlueprintsPanel() {
                 ))}
               </select>
             </div>
-            <Button onClick={create} disabled={creating} className="gap-2 bg-violet-600 hover:bg-violet-500">
+            <Button onClick={create} disabled={creating} className="gap-2 bg-neutral-500 hover:bg-neutral-500">
               {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
               Créer et ouvrir
             </Button>
@@ -224,7 +224,7 @@ export function BlueprintsPanel() {
                       <span
                         className={cn(
                           'rounded-full px-2 py-0.5 text-[10px] font-medium',
-                          bp.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'
+                          bp.enabled ? 'bg-neutral-500/15 text-neutral-300' : 'bg-muted text-muted-foreground'
                         )}
                       >
                         {bp.enabled ? 'Actif' : 'Inactif'}
@@ -250,7 +250,7 @@ export function BlueprintsPanel() {
                     </div>
 
                     {agent && (
-                      <p className="flex items-center gap-1.5 text-[11px] text-violet-200">
+                      <p className="flex items-center gap-1.5 text-[11px] text-neutral-300">
                         <Bot className="h-3 w-3" /> Branché sur {agent.emoji} {agent.name}
                       </p>
                     )}

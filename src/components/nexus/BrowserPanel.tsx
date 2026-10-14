@@ -100,7 +100,7 @@ export function BrowserPanel({
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
         <SheetHeader className="border-b border-border/70 px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-4 w-4 text-sky-400" />
+            <Globe className="h-4 w-4 text-neutral-400" />
             Navigateur
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -128,7 +128,7 @@ export function BrowserPanel({
             role="tab"
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
-              tab === 'agent' ? 'bg-accent text-violet-300' : 'text-muted-foreground hover:bg-accent/60'
+              tab === 'agent' ? 'bg-accent text-neutral-300' : 'text-muted-foreground hover:bg-accent/60'
             )}
           >
             <Bot className="h-3.5 w-3.5" />
@@ -182,7 +182,7 @@ export function BrowserPanel({
                   Entrez une adresse pour naviguer. Vos connexions et identifiants restent
                   dans <strong>votre navigateur</strong> — NEXUS n&apos;y a jamais accès.
                 </p>
-                <p className="flex max-w-xs items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-left text-[11px] leading-relaxed text-amber-200/90">
+                <p className="flex max-w-xs items-start gap-1.5 rounded-lg border border-neutral-300/30 bg-neutral-300/10 p-2.5 text-left text-[11px] leading-relaxed text-amber-200/90">
                   <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   Certains sites (Google, YouTube…) refusent l&apos;affichage intégré :
                   utilisez alors le bouton « Onglet » pour les ouvrir normalement.
@@ -192,8 +192,8 @@ export function BrowserPanel({
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-            <div className="flex items-start gap-2 border-b border-border/70 bg-violet-500/5 p-3">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
+            <div className="flex items-start gap-2 border-b border-border/70 bg-neutral-500/5 p-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Captures d&apos;écran réelles prises par le navigateur serveur de NEXUS
                 (chromium headless, sans vos cookies ni vos sessions). Cliquez sur une
@@ -212,7 +212,7 @@ export function BrowserPanel({
                     <button
                       key={s.url}
                       onClick={() => readWithAgent(s.url)}
-                      className="max-w-full truncate rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-violet-500/50 hover:text-violet-300"
+                      className="max-w-full truncate rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-neutral-500/50 hover:text-neutral-300"
                     >
                       {s.domain}
                     </button>
@@ -227,7 +227,7 @@ export function BrowserPanel({
                 <p className="mb-2 truncate text-xs font-semibold text-foreground">{readingTitle}</p>
                 {reading ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Camera className="h-3.5 w-3.5 animate-pulse text-violet-400" />
+                    <Camera className="h-3.5 w-3.5 animate-pulse text-neutral-400" />
                     NEXUS visite la page (capture d&apos;écran en cours)…
                   </div>
                 ) : (
@@ -250,7 +250,7 @@ export function BrowserPanel({
                     )}
                     {readingText && (
                       <details>
-                        <summary className="cursor-pointer text-[11px] font-semibold text-violet-300">
+                        <summary className="cursor-pointer text-[11px] font-semibold text-neutral-300">
                           Texte extrait par NEXUS
                         </summary>
                         <pre className="mt-1.5 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-foreground/80" style={{ scrollbarWidth: 'thin' }}>
@@ -302,14 +302,14 @@ export function BrowserPanel({
                           <p className="truncate text-xs font-medium text-foreground">{p.title}</p>
                           <button
                             onClick={() => readWithAgent(p.url)}
-                            className="shrink-0 text-[10px] font-semibold text-violet-300 hover:text-violet-200"
+                            className="shrink-0 text-[10px] font-semibold text-neutral-300 hover:text-neutral-300"
                           >
                             Revisiter
                           </button>
                         </div>
                         <p className="truncate text-[10px] text-muted-foreground/70">{p.url}</p>
                         <details className="mt-1">
-                          <summary className="cursor-pointer text-[10px] font-semibold text-muted-foreground hover:text-violet-300">
+                          <summary className="cursor-pointer text-[10px] font-semibold text-muted-foreground hover:text-neutral-300">
                             Texte vu par NEXUS
                           </summary>
                           <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-[10px] leading-snug text-muted-foreground" style={{ scrollbarWidth: 'thin' }}>

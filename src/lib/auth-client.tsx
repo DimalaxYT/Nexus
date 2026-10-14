@@ -89,6 +89,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refresh()
   }, [refresh])
 
+  // Détection d'une session devenue invalide ailleurs (purge serveur,
+  // révocation…) : l'AuthGate reprend la main automatiquement. Polling léger
+  // (45 s), retour sur l'onglet, et événement `nexus:unauthorized` émis par
+  // les panneaux quand une API répond 401 — fini l'utilisateur « fantôme »
+  // dont l'interface croit qu'il est connecté alors que la session est morte.
+  useEffect(() => {
+    const tick = () => void refresh()
+    const onUnauthorized = () => void refresh()
+    window.addEventListener('focus', tick)
+    document.addEventListener('visibilitychange', tick)
+    window.addEventListener('nexus:unauthorized', onUnauthorized)
+    return () => {
+      window.removeEventListener('focus', tick)
+      document.removeEventListener('visibilitychange', tick)
+      window.removeEventListener('nexus:unauthorized', onUnauthorized)
+    }
+  }, [refresh])
+
   // Recharge les données du compte dès que l'utilisateur change
   useEffect(() => {
     if (loading) return

@@ -3,6 +3,7 @@
 export type ViewId =
   | 'hub'
   | 'agent'
+  | 'studios'
   | 'studio3d'
   | 'image'
   | 'video'
@@ -447,7 +448,7 @@ export function parseAgentRow(row: {
     description: row.description,
     prompt: row.prompt ?? '',
     specialties,
-    color: row.color || '#a78bfa',
+    color: row.color || '#ffffff',
     enabled: row.enabled,
     writer: row.writer ?? false,
     blueprintId: String(row.blueprintId ?? ''),
@@ -729,7 +730,7 @@ export const BLUEPRINT_NODE_SPECS: BlueprintNodeSpec[] = [
     ],
   },
   {
-    type: 'brain', label: 'Cerveau IA', emoji: '🧠', color: '#a78bfa',
+    type: 'brain', label: 'Cerveau IA', emoji: '🧠', color: '#ffffff',
     hint: 'Fait réfléchir le cerveau local de NEXUS avec votre consigne.',
     ports: [{ id: 'out', label: 'Suite' }],
     fields: [
@@ -739,7 +740,7 @@ export const BLUEPRINT_NODE_SPECS: BlueprintNodeSpec[] = [
     ],
   },
   {
-    type: 'knowledge', label: 'Connaissance', emoji: '📚', color: '#34d399',
+    type: 'knowledge', label: 'Connaissance', emoji: '📚', color: '#a3a3a3',
     hint: 'Cherche dans la base de connaissances du compte.',
     ports: [{ id: 'out', label: 'Suite' }],
     fields: [
@@ -749,7 +750,7 @@ export const BLUEPRINT_NODE_SPECS: BlueprintNodeSpec[] = [
     ],
   },
   {
-    type: 'tool', label: 'Outil', emoji: '🛠️', color: '#f472b6',
+    type: 'tool', label: 'Outil', emoji: '🛠️', color: '#a3a3a3',
     hint: 'Recherche web, lecture de page, calcul, mails, GitHub…',
     ports: [{ id: 'out', label: 'Suite' }, { id: 'error', label: 'Échec' }],
     fields: [

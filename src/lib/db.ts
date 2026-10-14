@@ -55,7 +55,7 @@ const TABLES: Record<string, TableSpec> = {
       description: '',
       prompt: '',
       specialties: '[]',
-      color: '#a78bfa',
+      color: '#ffffff',
       enabled: true,
       writer: false,
     },
@@ -126,6 +126,13 @@ const TABLES: Record<string, TableSpec> = {
   },
 
   // ── Espace développeur (compte Dev) ────────────────────────────────────────
+  /** Codes de vérification e-mail : 2FA à la connexion & mot de passe oublié. */
+  verificationCode: {
+    table: 'VerificationCode',
+    dateCols: ['createdAt', 'expiresAt'],
+    boolCols: ['consumed'],
+    defaults: { purpose: 'login', attempts: 0, consumed: false },
+  },
   /** Réglages du site modifiables depuis le web (une ligne par clé). */
   siteSetting: {
     table: 'SiteSetting',
@@ -269,7 +276,20 @@ function cuid(): string {
 function resolveDbPath(): string {
   const defaultPath = path.join(process.cwd(), 'db', 'custom.db')
   const raw = process.env.DATABASE_URL?.trim()
-  if (!raw || raw.includes('/home/z/my-project')) return defaultPath
+  if (!raw || raw.includes('/home/z/my-project')) {
+    // En standalone Next (.next/standalone), le dossier courant est recréé à
+    // chaque build → la base serait effacée à chaque déploiement. On préfère
+    // alors la base persistante du projet racine (<repo>/db/custom.db).
+    if (process.cwd().includes(`${path.sep}.next${path.sep}standalone`)) {
+      const rootDb = path.resolve(process.cwd(), '..', '..', 'db', 'custom.db')
+      try {
+        if (fs.existsSync(rootDb)) return rootDb
+      } catch {
+        /* FS indisponible : on retombe sur le dossier courant. */
+      }
+    }
+    return defaultPath
+  }
   if (raw.startsWith('file:')) {
     const rel = raw.slice(5)
     // Chemin absolu (ex. `file:/data/custom.db` sur un disque persistant) :
@@ -529,7 +549,7 @@ function createSqliteClient() {
       "description" TEXT NOT NULL DEFAULT '',
       "prompt" TEXT NOT NULL DEFAULT '',
       "specialties" TEXT NOT NULL DEFAULT '[]',
-      "color" TEXT NOT NULL DEFAULT '#a78bfa',
+      "color" TEXT NOT NULL DEFAULT '#ffffff',
       "enabled" BOOLEAN NOT NULL DEFAULT true,
       "writer" BOOLEAN NOT NULL DEFAULT false,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -610,6 +630,16 @@ function createSqliteClient() {
       "reply" TEXT NOT NULL DEFAULT '',
       "ms" INTEGER NOT NULL DEFAULT 0,
       "ok" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "VerificationCode" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "email" TEXT NOT NULL,
+      "codeHash" TEXT NOT NULL,
+      "purpose" TEXT NOT NULL DEFAULT 'login',
+      "attempts" INTEGER NOT NULL DEFAULT 0,
+      "consumed" BOOLEAN NOT NULL DEFAULT false,
+      "expiresAt" DATETIME NOT NULL,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS "SiteSetting" (
@@ -771,6 +801,7 @@ function createSqliteClient() {
     trainingItem: createModelDelegate(sqlite, TABLES.trainingItem),
     trainingRun: createModelDelegate(sqlite, TABLES.trainingRun),
     trainingLesson: createModelDelegate(sqlite, TABLES.trainingLesson),
+    verificationCode: createModelDelegate(sqlite, TABLES.verificationCode),
   }
 }
 

@@ -422,7 +422,7 @@ export function ImageStudio() {
             disabled={!baseSrc}
             className={cn(
               'h-9 gap-1.5 px-3 text-xs',
-              mode === m.id ? 'bg-violet-500 text-white hover:bg-violet-600' : 'border-border hover:bg-accent'
+              mode === m.id ? 'bg-neutral-500 text-white hover:bg-neutral-500' : 'border-border hover:bg-accent'
             )}
             onClick={() => setMode(m.id)}
           >
@@ -443,7 +443,7 @@ export function ImageStudio() {
           <Button size="sm" variant="outline" className="h-9 gap-1.5 border-border text-xs hover:bg-accent" onClick={undo} disabled={undoRef.current.length === 0}>
             <Undo2 className="h-3.5 w-3.5" /> Annuler
           </Button>
-          <Button size="sm" className="h-9 gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-xs text-white hover:opacity-90" onClick={flattenAndDownload} disabled={!baseSrc}>
+          <Button size="sm" className="h-9 gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 text-xs text-white hover:opacity-90" onClick={flattenAndDownload} disabled={!baseSrc}>
             <Download className="h-3.5 w-3.5" /> Exporter PNG
           </Button>
         </div>
@@ -454,7 +454,7 @@ export function ImageStudio() {
         <div
           className={cn(
             'relative flex min-h-[300px] flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(#111113_0%_25%,#18181b_0%_50%)] bg-[length:24px_24px] p-4',
-            dragOver && 'ring-2 ring-inset ring-violet-500'
+            dragOver && 'ring-2 ring-inset ring-neutral-500'
           )}
           onDragOver={(e) => {
             e.preventDefault()
@@ -469,7 +469,7 @@ export function ImageStudio() {
         >
           {!baseSrc ? (
             <div className="flex flex-col items-center gap-3 text-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/25">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-neutral-500 to-neutral-500 shadow-lg shadow-neutral-500/25">
                 <ImageIcon className="h-7 w-7 text-white" />
               </span>
               <p className="text-sm font-semibold text-foreground">Studio Image</p>
@@ -478,7 +478,7 @@ export function ImageStudio() {
               </p>
               <label>
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-                <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600">
+                <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-neutral-500 px-4 text-sm font-semibold text-white hover:bg-neutral-600">
                   <Upload className="h-4 w-4" /> Importer une image
                 </span>
               </label>
@@ -529,14 +529,14 @@ export function ImageStudio() {
                   <Slider value={[textSize]} min={12} max={160} step={2} onValueChange={([v]) => setTextSize(v)} aria-label="Taille du texte" />
                 </div>
               </div>
-              <Button size="sm" className="h-9 bg-violet-500 text-xs text-white hover:bg-violet-600" onClick={addText}>
+              <Button size="sm" className="h-9 bg-neutral-500 text-xs text-white hover:bg-neutral-500" onClick={addText}>
                 Ajouter le texte
               </Button>
             </div>
           )}
           {mode === 'crop' && cropRect && cropRect.w > 10 && (
             <div className="border-b border-border/70 p-4">
-              <Button size="sm" className="h-9 w-full gap-1.5 bg-violet-500 text-xs text-white hover:bg-violet-600" onClick={applyCrop}>
+              <Button size="sm" className="h-9 w-full gap-1.5 bg-neutral-500 text-xs text-white hover:bg-neutral-500" onClick={applyCrop}>
                 <Crop className="h-3.5 w-3.5" /> Appliquer le recadrage
               </Button>
             </div>
@@ -574,7 +574,7 @@ export function ImageStudio() {
           {/* IA */}
           <div className="p-4">
             <div className="mb-3 flex items-center gap-1.5">
-              <Sparkles className="h-4 w-4 text-violet-400" />
+              <Sparkles className="h-4 w-4 text-neutral-400" />
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Intelligence artificielle</p>
             </div>
             <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1">
@@ -589,7 +589,7 @@ export function ImageStudio() {
                   onClick={() => setAiTab(t.id)}
                   className={cn(
                     'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                    aiTab === t.id ? 'bg-violet-500 text-white' : 'text-muted-foreground hover:text-foreground'
+                    aiTab === t.id ? 'bg-neutral-500 text-white' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
                   {t.label}
@@ -617,11 +617,11 @@ export function ImageStudio() {
               onChange={(e) => setAiPrompt(e.target.value)}
               rows={3}
               placeholder={aiTab === 'generate' ? 'Décrivez l’image à créer… (ex : un renard dans une forêt enchantée, style aquarelle)' : 'Décrivez la retouche… (ex : transforme le fond en plage tropicale au sunset)'}
-              className="mb-3 w-full resize-none rounded-lg border border-border bg-muted/50 p-3 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
+              className="mb-3 w-full resize-none rounded-lg border border-border bg-muted/50 p-3 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500/50"
             />
             <Button
               size="sm"
-              className="h-9 w-full gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-xs text-white hover:opacity-90"
+              className="h-9 w-full gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 text-xs text-white hover:opacity-90"
               onClick={() => runAI(0)}
               disabled={aiLoading || aiPrompt.trim().length === 0}
             >
@@ -646,10 +646,10 @@ export function ImageStudio() {
               </p>
             )}
             {aiResult && (
-              <div className="mt-4 flex flex-col gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="mt-4 flex flex-col gap-2.5 rounded-xl border border-neutral-500/30 bg-neutral-500/10 p-3">
                 <img src={aiResult} alt="Résultat IA" className="w-full rounded-lg" />
                 <div className="flex gap-2">
-                  <Button size="sm" className="h-8 flex-1 gap-1.5 bg-emerald-500 text-xs text-white hover:bg-emerald-600" onClick={useAiResult}>
+                  <Button size="sm" className="h-8 flex-1 gap-1.5 bg-neutral-500 text-xs text-white hover:bg-neutral-600" onClick={useAiResult}>
                     <ImageIcon className="h-3.5 w-3.5" /> Utiliser
                   </Button>
                   <a

@@ -300,7 +300,7 @@ export function VideoStudio() {
               </Button>
               <Button
                 size="sm"
-                className="h-9 gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-xs text-white hover:opacity-90"
+                className="h-9 gap-1.5 bg-gradient-to-r from-neutral-300 to-neutral-500 text-xs text-white hover:opacity-90"
                 onClick={exportVideo}
                 disabled={exporting}
               >
@@ -318,11 +318,11 @@ export function VideoStudio() {
           {!videoUrl ? (
             <label
               className={cn(
-                'flex w-full max-w-md cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border p-10 text-center transition-colors hover:border-amber-500/50'
+                'flex w-full max-w-md cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border p-10 text-center transition-colors hover:border-neutral-300/50'
               )}
             >
               <input type="file" accept="video/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/25">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-neutral-300 to-neutral-500 shadow-lg shadow-neutral-300/25">
                 <Clapperboard className="h-7 w-7 text-white" />
               </span>
               <p className="text-sm font-semibold text-foreground">Studio Vidéo</p>
@@ -348,9 +348,9 @@ export function VideoStudio() {
         {/* Panneau */}
         <div className="w-full shrink-0 overflow-y-auto border-t border-border/70 bg-card/50 lg:w-72 lg:border-l lg:border-t-0" style={{ scrollbarWidth: 'thin' }}>
           {/* Génération par IA — toujours accessible */}
-          <div className="border-b border-border/70 bg-gradient-to-br from-fuchsia-500/10 to-violet-500/10 p-4">
+          <div className="border-b border-border/70 bg-gradient-to-br from-neutral-500/10 to-neutral-500/10 p-4">
             <div className="mb-2 flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-fuchsia-400" />
+              <Sparkles className="h-3.5 w-3.5 text-neutral-400" />
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Générer par IA (moteur local)</p>
             </div>
             <Input
@@ -384,7 +384,7 @@ export function VideoStudio() {
             <div className="mt-2 flex items-center gap-2">
               <Button
                 size="sm"
-                className="h-8 flex-1 gap-1.5 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs text-white hover:opacity-90"
+                className="h-8 flex-1 gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 px-3 text-xs text-white hover:opacity-90"
                 onClick={() => generateAI(0)}
                 disabled={aiGenerating || aiPrompt.trim().length === 0}
               >
@@ -404,7 +404,7 @@ export function VideoStudio() {
               )}
             </div>
             {aiStatus && (
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-fuchsia-300">
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-300">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 {aiStatus}
               </p>
@@ -510,26 +510,26 @@ export function VideoStudio() {
 
               {/* Export */}
               {exporting && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="rounded-xl border border-neutral-300/30 bg-neutral-300/10 p-3">
                   <div className="mb-2 flex items-center gap-2 text-xs text-amber-300">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Export en cours… ne quittez pas l’onglet
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-accent">
-                    <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all" style={{ width: `${progress}%` }} />
+                    <div className="h-full rounded-full bg-gradient-to-r from-neutral-300 to-neutral-500 transition-all" style={{ width: `${progress}%` }} />
                   </div>
                   <p className="mt-1.5 text-right font-mono text-[10px] text-amber-200">{progress}%</p>
                 </div>
               )}
 
               {exportedUrl && !exporting && (
-                <div className="flex flex-col gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                  <p className="text-xs font-semibold text-emerald-300">Vidéo exportée</p>
+                <div className="flex flex-col gap-2.5 rounded-xl border border-neutral-500/30 bg-neutral-500/10 p-3">
+                  <p className="text-xs font-semibold text-neutral-300">Vidéo exportée</p>
                   <video src={exportedUrl} controls className="w-full rounded-lg" />
                   <a
                     href={exportedUrl}
                     download={`${fileName}-nexus.webm`}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-emerald-500 px-3 text-xs font-semibold text-white hover:bg-emerald-600"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-neutral-500 px-3 text-xs font-semibold text-white hover:bg-neutral-600"
                   >
                     <Download className="h-3.5 w-3.5" /> Télécharger le webm
                   </a>

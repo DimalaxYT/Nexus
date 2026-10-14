@@ -52,7 +52,7 @@ const CODER_ARMY = [
   {
     name: 'Script',
     emoji: '📜',
-    color: '#34d399',
+    color: '#a3a3a3',
     prompt:
       "Tu es Script, expert Python et automatisation. Tu écris des scripts clairs et robustes : gestion d'erreurs, commentaires en français, exemples d'utilisation. Tu proposes toujours une version simple et une version améliorée.",
   },
@@ -72,7 +72,7 @@ const CODER_ARMY = [
   },
 ]
 
-const COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb7185', '#f472b6', '#4ade80', '#f97316']
+const COLORS = ['#38bdf8', '#ffffff', '#a3a3a3', '#fbbf24', '#fb7185', '#a3a3a3', '#4ade80', '#f97316']
 
 const EMOJIS = ['🤖', '🔎', '🧠', '✍️', '🦾', '🧭', '📡', '🧪', '🎯', '🦉', '🐙', '⚡', '🌟', '🛠️']
 const GROUP_EMOJIS = ['👥', '🚀', '🧩', '🎯', '🌍', '🔬', '💡', '🛰️', '🎬', '🎮', '📊', '⚔️']
@@ -117,7 +117,7 @@ export function TeamPanel({
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl" style={{ scrollbarWidth: 'thin' }}>
         <SheetHeader className="border-b border-border/70 px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <Users className="h-4 w-4 text-violet-400" />
+            <Users className="h-4 w-4 text-neutral-400" />
             Équipe multi-agents
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -132,7 +132,7 @@ export function TeamPanel({
               onClick={() => setTab('agents')}
               className={cn(
                 'rounded-md px-2 py-1.5 text-xs font-semibold transition-colors',
-                tab === 'agents' ? 'bg-violet-500/15 text-violet-300' : 'text-muted-foreground hover:text-foreground'
+                tab === 'agents' ? 'bg-neutral-500/15 text-neutral-300' : 'text-muted-foreground hover:text-foreground'
               )}
             >
               🤖 Agents ({agents.length})
@@ -142,7 +142,7 @@ export function TeamPanel({
               onClick={() => setTab('groupes')}
               className={cn(
                 'rounded-md px-2 py-1.5 text-xs font-semibold transition-colors',
-                tab === 'groupes' ? 'bg-sky-500/15 text-sky-300' : 'text-muted-foreground hover:text-foreground'
+                tab === 'groupes' ? 'bg-neutral-500/15 text-sky-300' : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <UsersRound className="mr-1 inline h-3.5 w-3.5" />
@@ -210,7 +210,7 @@ const AgentCard = memo(function AgentCard({
               </span>
             )}
             {agent.writer && (
-              <span className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+              <span className="rounded-full border border-neutral-500/50 bg-neutral-500/10 px-2 py-0.5 text-[10px] font-semibold text-neutral-300">
                 ✍️ Rédacteur du Bureau
               </span>
             )}
@@ -229,12 +229,12 @@ const AgentCard = memo(function AgentCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:bg-violet-500/10 hover:text-violet-300"
+              className="h-7 w-7 text-muted-foreground hover:bg-neutral-500/10 hover:text-neutral-300"
               onClick={() => onBlueprint(agent)}
               aria-label={`Schéma de ${agent.name}`}
               title={agent.blueprintId ? 'Schéma branché — ouvrir' : 'Construire son schéma (blueprint)'}
             >
-              <Workflow className={cn('h-3.5 w-3.5', agent.blueprintId && 'text-violet-400')} />
+              <Workflow className={cn('h-3.5 w-3.5', agent.blueprintId && 'text-neutral-400')} />
             </Button>
           )}
           <Button
@@ -253,11 +253,11 @@ const AgentCard = memo(function AgentCard({
             onClick={() => onToggle(agent)}
             aria-label={agent.enabled ? `Mettre ${agent.name} en pause` : `Réactiver ${agent.name}`}
           >
-            <Power className={cn('h-3.5 w-3.5', agent.enabled && 'text-emerald-400')} />
+            <Power className={cn('h-3.5 w-3.5', agent.enabled && 'text-neutral-400')} />
           </Button>
           {agent.systemKey ? (
             <span
-              className="flex h-7 items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-[10px] font-semibold text-cyan-300"
+              className="flex h-7 items-center gap-1 rounded-md border border-neutral-500/30 bg-neutral-500/10 px-2 text-[10px] font-semibold text-neutral-300"
               title="Agent système : fait partie de NEXUS, il ne peut pas être supprimé"
             >
               <ShieldCheck className="h-3 w-3" />
@@ -471,11 +471,11 @@ function AgentsTab({
       <div className="mt-auto border-t border-border/70 bg-muted/30 p-4">
         {!creating ? (
           <div className="flex flex-col gap-2">
-            <Button className="h-9 w-full gap-1.5 bg-violet-500 text-white hover:bg-violet-600" onClick={startCreate}>
+            <Button className="h-9 w-full gap-1.5 bg-neutral-500 text-white hover:bg-neutral-500" onClick={startCreate}>
               <Plus className="h-4 w-4" />
               Créer un agent
             </Button>
-            <Button variant="outline" className="h-9 w-full gap-1.5 border-sky-500/40 text-sky-300 hover:bg-sky-500/10" onClick={createCoderArmy} disabled={busy}>
+            <Button variant="outline" className="h-9 w-full gap-1.5 border-neutral-500/40 text-sky-300 hover:bg-neutral-500/10" onClick={createCoderArmy} disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>⚔️</span>}
               Recruter une armée de codeurs (4 agents + groupe)
             </Button>
@@ -524,7 +524,7 @@ function AgentsTab({
                     className={cn(
                       'rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
                       role === r.value
-                        ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                        ? 'border-neutral-500/50 bg-neutral-500/10 text-neutral-300'
                         : 'border-border bg-muted/50 text-muted-foreground hover:bg-accent'
                     )}
                   >
@@ -536,7 +536,7 @@ function AgentsTab({
             </div>
 
             <div>
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-violet-300">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-neutral-300">
                 ⚡ Prompt personnel <span className="font-normal normal-case text-muted-foreground">(sa personnalité)</span>
               </label>
               <Textarea
@@ -570,19 +570,19 @@ function AgentsTab({
               aria-pressed={writer}
               className={cn(
                 'flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
-                writer ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-border bg-muted/50 hover:bg-accent'
+                writer ? 'border-neutral-500/50 bg-neutral-500/10' : 'border-border bg-muted/50 hover:bg-accent'
               )}
             >
               <span
                 className={cn(
                   'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                  writer ? 'border-emerald-400 bg-emerald-500 text-white' : 'border-border'
+                  writer ? 'border-neutral-400 bg-neutral-500 text-white' : 'border-border'
                 )}
               >
                 {writer && <Check className="h-3 w-3" />}
               </span>
               <span className="min-w-0">
-                <span className={cn('block text-xs font-semibold', writer ? 'text-emerald-300' : 'text-foreground/80')}>
+                <span className={cn('block text-xs font-semibold', writer ? 'text-neutral-300' : 'text-foreground/80')}>
                   ✍️ Rédacteur du Bureau
                 </span>
                 <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
@@ -615,7 +615,7 @@ function AgentsTab({
 
             <div className="flex gap-2">
               <Button
-                className="h-9 flex-1 gap-1.5 bg-violet-500 text-white hover:bg-violet-600"
+                className="h-9 flex-1 gap-1.5 bg-neutral-500 text-white hover:bg-neutral-500"
                 onClick={submit}
                 disabled={busy || !name.trim()}
               >
@@ -803,7 +803,7 @@ function GroupsTab({
       {/* Formulaire de création / édition de groupe */}
       <div className="mt-auto border-t border-border/70 bg-muted/30 p-4">
         {!creating ? (
-          <Button className="h-9 w-full gap-1.5 bg-sky-500 text-white hover:bg-sky-600" onClick={startCreate}>
+          <Button className="h-9 w-full gap-1.5 bg-neutral-500 text-white hover:bg-sky-600" onClick={startCreate}>
             <Plus className="h-4 w-4" />
             Créer un groupe
           </Button>
@@ -856,13 +856,13 @@ function GroupsTab({
                         onClick={() => toggleMember(a.id)}
                         className={cn(
                           'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                          selected ? 'bg-sky-500/10 text-foreground' : 'text-muted-foreground hover:bg-accent'
+                          selected ? 'bg-neutral-500/10 text-foreground' : 'text-muted-foreground hover:bg-accent'
                         )}
                       >
                         <span
                           className={cn(
                             'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                            selected ? 'border-sky-400 bg-sky-500 text-white' : 'border-border'
+                            selected ? 'border-neutral-400 bg-neutral-500 text-white' : 'border-border'
                           )}
                         >
                           {selected && <Check className="h-3 w-3" />}
@@ -901,7 +901,7 @@ function GroupsTab({
 
             <div className="flex gap-2">
               <Button
-                className="h-9 flex-1 gap-1.5 bg-sky-500 text-white hover:bg-sky-600"
+                className="h-9 flex-1 gap-1.5 bg-neutral-500 text-white hover:bg-sky-600"
                 onClick={submit}
                 disabled={busy || !name.trim()}
               >
