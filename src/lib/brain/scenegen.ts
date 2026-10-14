@@ -267,7 +267,7 @@ const THEMES: ThemeSpec[] = [
       out.push(...arbre(rng, 0, 0, 1.8))
       const champ1 = obj('Champignon', 'capsule', [1.4, 0.35, 1.8], [0.3, 0.5, 0.3], '#ec4899', { emissive: '#ec4899', emissiveIntensity: 0.7 })
       out.push(withKeys(champ1, pulseKeys(champ1, 1.25, 3)))
-      const champ2 = obj('Champignon 2', 'capsule', [1.9, 0.28, 1.4], [0.22, 0.4, 0.22], '#f472b6', { emissive: '#f472b6', emissiveIntensity: 0.7 })
+      const champ2 = obj('Champignon 2', 'capsule', [1.9, 0.28, 1.4], [0.22, 0.4, 0.22], '#34d399', { emissive: '#34d399', emissiveIntensity: 0.7 })
       out.push(withKeys(champ2, pulseKeys(champ2, 1.3, 2)))
       out.push(rocher(rng, -2.4, 2, 0.8))
       out.push(rocher(rng, 2.8, -2.2, 0.6))
@@ -725,7 +725,7 @@ function detectTheme(brief: string): ThemeSpec {
         const radius = between(rng, 3.5, 7.5)
         out.push(...arbre(rng, Math.cos(angle) * radius, Math.sin(angle) * radius, between(rng, 0.8, 1.4)))
       }
-      out.push(obj('Monument', 'dodecahedron', [0, 1.4, 0], [1.4, 1.6, 1.4], '#8b7d9b', { metalness: 0.4, emissive: '#a78bfa', emissiveIntensity: 0.2 }))
+      out.push(obj('Monument', 'dodecahedron', [0, 1.4, 0], [1.4, 1.6, 1.4], '#8b7d9b', { metalness: 0.4, emissive: '#22d3ee', emissiveIntensity: 0.2 }))
       for (let i = 0; i < 3; i++) out.push(rocher(rng, between(rng, -8, 8), between(rng, -8, 8), between(rng, 0.4, 0.8)))
       out.push(nuage(rng, 7))
       return out

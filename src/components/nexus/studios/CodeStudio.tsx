@@ -453,7 +453,7 @@ ${files.js}
               onClick={() => setTab(t.id)}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
-                tab === t.id ? 'bg-accent text-violet-300' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground/80'
+                tab === t.id ? 'bg-accent text-cyan-300' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground/80'
               )}
             >
               <t.icon className="h-3.5 w-3.5" />
@@ -478,14 +478,14 @@ ${files.js}
                   <span>{l.emoji}</span>
                   <span className="flex-1">{l.label}</span>
                   <span className="text-[10px] text-muted-foreground/60">.{l.ext}</span>
-                  {files.language === l.id && <Check className="h-3 w-3 text-violet-400" />}
+                  {files.language === l.id && <Check className="h-3 w-3 text-cyan-400" />}
                 </DropdownMenuItem>
               ))}
               {!isScript && (
                 <DropdownMenuItem onClick={backToWeb} className="gap-2 text-xs">
                   <span>🌐</span>
                   <span className="flex-1">Page web (HTML/CSS/JS)</span>
-                  <Check className="h-3 w-3 text-violet-400" />
+                  <Check className="h-3 w-3 text-cyan-400" />
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -498,7 +498,7 @@ ${files.js}
             className={cn(
               'relative h-8 gap-1.5 border-border text-xs hover:bg-accent',
               pendingProposal && 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300',
-              proposalOpen && 'z-50 bg-accent text-violet-300'
+              proposalOpen && 'z-50 bg-accent text-cyan-300'
             )}
             onClick={() => setProposalOpen((v) => !v)}
             aria-expanded={proposalOpen}
@@ -522,7 +522,7 @@ ${files.js}
               variant="outline"
               className={cn(
                 'relative h-8 gap-1.5 border-border text-xs hover:bg-accent',
-                versionsOpen && 'z-50 bg-accent text-violet-300'
+                versionsOpen && 'z-50 bg-accent text-cyan-300'
               )}
               onClick={() => setVersionsOpen((v) => !v)}
               aria-expanded={versionsOpen}
@@ -531,7 +531,7 @@ ${files.js}
               <History className="h-3 w-3" />
               <span className="hidden sm:inline">Versions</span>
               {versions.length > 0 && (
-                <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-300">
+                <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
                   {versions.length}
                 </span>
               )}
@@ -574,7 +574,7 @@ ${files.js}
                             className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             onClick={() => restoreVersion(v)}
                           >
-                            <RotateCcw className="h-3 w-3 shrink-0 text-violet-400" />
+                            <RotateCcw className="h-3 w-3 shrink-0 text-cyan-400" />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[11px] font-medium text-foreground/90">
                                 #{versions.length - i} · {new Date(v.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -602,7 +602,7 @@ ${files.js}
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 border-border text-xs text-violet-300 hover:bg-violet-500/10"
+            className="h-8 gap-1.5 border-border text-xs text-cyan-300 hover:bg-cyan-500/10"
             onClick={() => setAiOpen((v) => !v)}
           >
             <Sparkles className="h-3 w-3" /> IA
@@ -615,8 +615,8 @@ ${files.js}
 
       {/* Barre IA */}
       {aiOpen && (
-        <div className="flex items-center gap-2 border-b border-border/70 bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 px-3 py-2">
-          <Wand2 className="h-4 w-4 shrink-0 text-violet-400" />
+        <div className="flex items-center gap-2 border-b border-border/70 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 px-3 py-2">
+          <Wand2 className="h-4 w-4 shrink-0 text-cyan-400" />
           <Input
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
@@ -627,7 +627,7 @@ ${files.js}
           />
           <Button
             size="sm"
-            className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 text-white hover:opacity-90"
+            className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 text-white hover:opacity-90"
             onClick={generateAI}
             disabled={aiLoading || aiPrompt.trim().length === 0}
           >
@@ -779,7 +779,7 @@ ${files.js}
                   )}
                 </div>
                 <div className="flex items-center gap-2 border-t border-border/70 px-3 py-2">
-                  <Terminal className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                  <Terminal className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
                   <input
                     value={replInput}
                     onChange={(e) => setReplInput(e.target.value)}

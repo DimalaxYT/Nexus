@@ -72,7 +72,7 @@ const CODER_ARMY = [
   },
 ]
 
-const COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb7185', '#f472b6', '#4ade80', '#f97316']
+const COLORS = ['#38bdf8', '#22d3ee', '#34d399', '#fbbf24', '#fb7185', '#34d399', '#4ade80', '#f97316']
 
 const EMOJIS = ['🤖', '🔎', '🧠', '✍️', '🦾', '🧭', '📡', '🧪', '🎯', '🦉', '🐙', '⚡', '🌟', '🛠️']
 const GROUP_EMOJIS = ['👥', '🚀', '🧩', '🎯', '🌍', '🔬', '💡', '🛰️', '🎬', '🎮', '📊', '⚔️']
@@ -117,7 +117,7 @@ export function TeamPanel({
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl" style={{ scrollbarWidth: 'thin' }}>
         <SheetHeader className="border-b border-border/70 px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <Users className="h-4 w-4 text-violet-400" />
+            <Users className="h-4 w-4 text-cyan-400" />
             Équipe multi-agents
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -132,7 +132,7 @@ export function TeamPanel({
               onClick={() => setTab('agents')}
               className={cn(
                 'rounded-md px-2 py-1.5 text-xs font-semibold transition-colors',
-                tab === 'agents' ? 'bg-violet-500/15 text-violet-300' : 'text-muted-foreground hover:text-foreground'
+                tab === 'agents' ? 'bg-cyan-500/15 text-cyan-300' : 'text-muted-foreground hover:text-foreground'
               )}
             >
               🤖 Agents ({agents.length})
@@ -229,12 +229,12 @@ const AgentCard = memo(function AgentCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:bg-violet-500/10 hover:text-violet-300"
+              className="h-7 w-7 text-muted-foreground hover:bg-cyan-500/10 hover:text-cyan-300"
               onClick={() => onBlueprint(agent)}
               aria-label={`Schéma de ${agent.name}`}
               title={agent.blueprintId ? 'Schéma branché — ouvrir' : 'Construire son schéma (blueprint)'}
             >
-              <Workflow className={cn('h-3.5 w-3.5', agent.blueprintId && 'text-violet-400')} />
+              <Workflow className={cn('h-3.5 w-3.5', agent.blueprintId && 'text-cyan-400')} />
             </Button>
           )}
           <Button
@@ -471,7 +471,7 @@ function AgentsTab({
       <div className="mt-auto border-t border-border/70 bg-muted/30 p-4">
         {!creating ? (
           <div className="flex flex-col gap-2">
-            <Button className="h-9 w-full gap-1.5 bg-violet-500 text-white hover:bg-violet-600" onClick={startCreate}>
+            <Button className="h-9 w-full gap-1.5 bg-cyan-500 text-white hover:bg-cyan-600" onClick={startCreate}>
               <Plus className="h-4 w-4" />
               Créer un agent
             </Button>
@@ -524,7 +524,7 @@ function AgentsTab({
                     className={cn(
                       'rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
                       role === r.value
-                        ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                        ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300'
                         : 'border-border bg-muted/50 text-muted-foreground hover:bg-accent'
                     )}
                   >
@@ -536,7 +536,7 @@ function AgentsTab({
             </div>
 
             <div>
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-violet-300">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
                 ⚡ Prompt personnel <span className="font-normal normal-case text-muted-foreground">(sa personnalité)</span>
               </label>
               <Textarea
@@ -615,7 +615,7 @@ function AgentsTab({
 
             <div className="flex gap-2">
               <Button
-                className="h-9 flex-1 gap-1.5 bg-violet-500 text-white hover:bg-violet-600"
+                className="h-9 flex-1 gap-1.5 bg-cyan-500 text-white hover:bg-cyan-600"
                 onClick={submit}
                 disabled={busy || !name.trim()}
               >

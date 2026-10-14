@@ -812,7 +812,7 @@ export function Studio3D() {
               variant={gizmoMode === m ? 'default' : 'outline'}
               className={cn(
                 'h-9 px-3 text-xs capitalize',
-                gizmoMode === m ? 'bg-violet-500 text-white hover:bg-violet-600' : 'border-border hover:bg-accent'
+                gizmoMode === m ? 'bg-cyan-500 text-white hover:bg-cyan-600' : 'border-border hover:bg-accent'
               )}
               onClick={() => setGizmoMode(m)}
             >
@@ -936,8 +936,8 @@ export function Studio3D() {
       </div>
 
       {/* Barre IA + export */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 px-3 py-2">
-        <Sparkles className="h-4 w-4 shrink-0 text-violet-400" />
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 px-3 py-2">
+        <Sparkles className="h-4 w-4 shrink-0 text-cyan-400" />
         <Input
           value={aiPrompt}
           onChange={(e) => setAiPrompt(e.target.value)}
@@ -948,7 +948,7 @@ export function Studio3D() {
         />
         <Button
           size="sm"
-          className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 text-white hover:opacity-90"
+          className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 text-white hover:opacity-90"
           onClick={generateAI}
           disabled={aiLoading || aiPrompt.trim().length === 0}
         >
@@ -998,7 +998,7 @@ export function Studio3D() {
                   key={type}
                   onClick={() => addObject(type)}
                   title={`Ajouter : ${PRIMITIVE_LABELS[type]}`}
-                  className="flex flex-col items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-1 py-2 text-muted-foreground transition-all hover:border-violet-500/50 hover:text-violet-300"
+                  className="flex flex-col items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-1 py-2 text-muted-foreground transition-all hover:border-cyan-500/50 hover:text-cyan-300"
                 >
                   <Icon className="h-4 w-4" />
                   <span className="w-full truncate text-center text-[9px] leading-tight">{PRIMITIVE_LABELS[type]}</span>
@@ -1023,7 +1023,7 @@ export function Studio3D() {
                     className={cn(
                       'group flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs transition-colors',
                       o.id === selectedId
-                        ? 'bg-violet-500/15 text-violet-200 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.35)]'
+                        ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.35)]'
                         : 'text-muted-foreground hover:bg-accent/60'
                     )}
                   >
@@ -1197,7 +1197,7 @@ export function Studio3D() {
                       className={cn(
                         'h-8 text-[11px]',
                         (scene.lighting ?? 'studio') === p
-                          ? 'bg-violet-500 text-white hover:bg-violet-600'
+                          ? 'bg-cyan-500 text-white hover:bg-cyan-600'
                           : 'border-border hover:bg-accent'
                       )}
                       onClick={() => applyLighting(p)}
@@ -1343,9 +1343,9 @@ export function Studio3D() {
                       .sort((a, b) => a.t - b.t)
                       .map((k) => (
                         <li key={k.t} className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
-                          <Film className="h-3 w-3 shrink-0 text-violet-400" />
+                          <Film className="h-3 w-3 shrink-0 text-cyan-400" />
                           <button
-                            className="flex-1 text-left font-mono text-violet-300 hover:text-violet-200"
+                            className="flex-1 text-left font-mono text-cyan-300 hover:text-cyan-200"
                             onClick={() => scrubTo(k.t)}
                             title="Aller à cette clé"
                           >
@@ -1403,7 +1403,7 @@ export function Studio3D() {
           <div className="flex items-center gap-1.5">
             <Button
               size="icon"
-              className="h-8 w-8 rounded-lg bg-violet-500 text-white hover:bg-violet-600"
+              className="h-8 w-8 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600"
               onClick={playing ? pauseAnim : playAnim}
               aria-label={playing ? 'Mettre en pause' : 'Lire l\u2019animation'}
             >
@@ -1456,7 +1456,7 @@ export function Studio3D() {
           onClick={() => setAnimOpen(true)}
           className="flex items-center gap-1.5 border-t border-border/70 bg-card/60 px-4 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          <Film className="h-3.5 w-3.5 text-violet-400" />
+          <Film className="h-3.5 w-3.5 text-cyan-400" />
           Animation clé par clé — ouvrir la timeline
         </button>
       )}

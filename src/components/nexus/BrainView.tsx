@@ -34,7 +34,7 @@ export function BrainView({ compact = false }: { compact?: boolean }) {
             aria-pressed={mode === 'multi'}
             className={cn(
               'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors',
-              mode === 'multi' ? 'bg-violet-500/30 text-violet-200' : 'text-white/55 hover:text-white/85'
+              mode === 'multi' ? 'bg-cyan-500/30 text-cyan-200' : 'text-white/55 hover:text-white/85'
             )}
           >
             <Network className="h-3 w-3" /> Éclaté

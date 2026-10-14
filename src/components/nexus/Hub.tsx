@@ -39,8 +39,8 @@ const TOOLS: {
     title: 'Agent IA',
     desc: 'Un agent IA hybride : moteur de raisonnement LLM + compétences locales instantanées. Il cherche sur le web, apprend des compétences lors de missions autonomes (Google, YouTube, TikTok), génère images, scènes 3D, pages web et scripts.',
     icon: Bot,
-    gradient: 'from-violet-500 to-fuchsia-500',
-    shadow: 'group-hover:shadow-violet-500/30',
+    gradient: 'from-cyan-500 to-emerald-500',
+    shadow: 'group-hover:shadow-cyan-500/30',
     tag: 'Cœur du système',
   },
   {
@@ -48,8 +48,8 @@ const TOOLS: {
     title: 'Cerveau Jarvis 3D',
     desc: 'Un cerveau central unique et animé, relié à chaque agent par des liens d’énergie : impulsions en direct pendant la réflexion, anneaux gyroscopiques et hologramme façon J.A.R.V.I.S. — ou vue « Éclaté » avec un cerveau par agent.',
     icon: Brain,
-    gradient: 'from-fuchsia-500 to-purple-500',
-    shadow: 'group-hover:shadow-fuchsia-500/30',
+    gradient: 'from-teal-500 to-cyan-500',
+    shadow: 'group-hover:shadow-teal-500/30',
     tag: 'L’équipe qui pense',
   },
   {
@@ -57,8 +57,8 @@ const TOOLS: {
     title: 'Studio 3D',
     desc: 'Éditeur 3D temps réel : calques, undo/redo, mesure, PBR, environnements, animation clé par clé, templates et export GLB/OBJ. L’IA construit des scènes sur demande.',
     icon: Boxes,
-    gradient: 'from-fuchsia-500 to-rose-500',
-    shadow: 'group-hover:shadow-rose-500/30',
+    gradient: 'from-sky-500 to-cyan-400',
+    shadow: 'group-hover:shadow-sky-500/30',
     tag: 'Moteur temps réel',
   },
   {
@@ -66,7 +66,7 @@ const TOOLS: {
     title: 'Studio Image',
     desc: 'Retouche photo 100 % locale : filtres, recadrage, pinceau, texte, plus génération d’images procédurales (art génératif par graine) en un clic.',
     icon: ImageIcon,
-    gradient: 'from-emerald-500 to-teal-500',
+    gradient: 'from-lime-500 to-emerald-400',
     shadow: 'group-hover:shadow-emerald-500/30',
     tag: 'Création visuelle',
   },
@@ -93,8 +93,8 @@ const TOOLS: {
     title: 'Connexions',
     desc: 'Relie tes comptes personnels — Gmail, GitHub, Discord. Tokens vérifiés réellement auprès du service et stockés localement, jamais affichés en clair.',
     icon: Link2,
-    gradient: 'from-violet-500 to-indigo-400',
-    shadow: 'group-hover:shadow-indigo-500/30',
+    gradient: 'from-sky-500 to-blue-400',
+    shadow: 'group-hover:shadow-blue-500/30',
     tag: 'Tes comptes',
   },
   {
@@ -102,7 +102,7 @@ const TOOLS: {
     title: 'Blueprints',
     desc: 'Construis toi-même le schéma d’utilisation de tes agents : règles « quand tu lis X, réponds Y », conditions, cerveau local, connaissances, outils et réponses — sur un canvas à glisser-déposer, avec testeur en direct.',
     icon: Workflow,
-    gradient: 'from-violet-500 to-sky-500',
+    gradient: 'from-cyan-500 to-sky-500',
     shadow: 'group-hover:shadow-sky-500/30',
     tag: 'Schémas d’agents',
   },
@@ -160,7 +160,7 @@ export function Hub() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-1.5 text-xs font-medium text-violet-300"
+            className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-cyan-300"
           >
             <Sparkles className="h-3.5 w-3.5" />
             Agent autonome — rapide, intelligent, et il travaille pour toi même quand tu es absent
@@ -169,8 +169,8 @@ export function Hub() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.08 }}
-            className="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-rose-400 bg-clip-text text-4xl font-extrabold tracking-tight text-transparent md:text-6xl"
-            style={{ backgroundImage: `linear-gradient(to right, ${settings.accent}, ${settings.accent2})` }}
+            className="font-display text-5xl font-bold tracking-tight md:text-6xl"
+            style={{ backgroundImage: `linear-gradient(105deg, ${settings.accent}, ${settings.accent2})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}
           >
             {settings.appName}
           </motion.h1>
@@ -191,7 +191,7 @@ export function Hub() {
             <Button
               size="lg"
               onClick={() => setView('agent')}
-              className="h-12 gap-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 px-7 text-base font-semibold text-white shadow-lg shadow-violet-500/30 transition-transform hover:scale-[1.03]"
+              className="h-12 gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-400 px-7 text-base font-semibold text-[#071016] shadow-glow transition-transform hover:scale-[1.03]"
             >
               Parler à l’agent
               <ArrowRight className="h-4.5 w-4.5" />
@@ -242,7 +242,7 @@ export function Hub() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.3 + i * 0.07 }}
                 onClick={() => setView(tool.id)}
-                className={`group relative overflow-hidden rounded-2xl border border-border bg-muted/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-violet-500/50 hover:shadow-xl ${tool.shadow}`}
+                className={`group relative overflow-hidden rounded-2xl border border-border bg-muted/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-cyan-500/50 hover:shadow-xl ${tool.shadow}`}
               >
                 <div className={`absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br ${tool.gradient} opacity-10 blur-2xl transition-opacity group-hover:opacity-25`} />
                 <div className="mb-4 flex items-center justify-between">
@@ -255,7 +255,7 @@ export function Hub() {
                 </div>
                 <h2 className="mb-1.5 text-lg font-bold text-foreground">{tool.title}</h2>
                 <p className="text-sm leading-relaxed text-muted-foreground">{tool.desc}</p>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-violet-300 opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-cyan-300 opacity-0 transition-opacity group-hover:opacity-100">
                   Ouvrir <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </motion.button>
@@ -275,8 +275,8 @@ export function Hub() {
                 const Icon = cap.icon
                 return (
                   <li key={cap.label} className="flex items-center gap-2.5 text-sm text-foreground/80">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/15">
-                      <Icon className="h-3.5 w-3.5 text-violet-400" />
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15">
+                      <Icon className="h-3.5 w-3.5 text-cyan-400" />
                     </span>
                     {cap.label}
                   </li>

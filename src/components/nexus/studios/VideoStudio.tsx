@@ -348,9 +348,9 @@ export function VideoStudio() {
         {/* Panneau */}
         <div className="w-full shrink-0 overflow-y-auto border-t border-border/70 bg-card/50 lg:w-72 lg:border-l lg:border-t-0" style={{ scrollbarWidth: 'thin' }}>
           {/* Génération par IA — toujours accessible */}
-          <div className="border-b border-border/70 bg-gradient-to-br from-fuchsia-500/10 to-violet-500/10 p-4">
+          <div className="border-b border-border/70 bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 p-4">
             <div className="mb-2 flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-fuchsia-400" />
+              <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Générer par IA (moteur local)</p>
             </div>
             <Input
@@ -384,7 +384,7 @@ export function VideoStudio() {
             <div className="mt-2 flex items-center gap-2">
               <Button
                 size="sm"
-                className="h-8 flex-1 gap-1.5 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs text-white hover:opacity-90"
+                className="h-8 flex-1 gap-1.5 bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 text-xs text-white hover:opacity-90"
                 onClick={() => generateAI(0)}
                 disabled={aiGenerating || aiPrompt.trim().length === 0}
               >
@@ -404,7 +404,7 @@ export function VideoStudio() {
               )}
             </div>
             {aiStatus && (
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-fuchsia-300">
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-300">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 {aiStatus}
               </p>

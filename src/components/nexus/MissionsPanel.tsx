@@ -283,7 +283,7 @@ export function MissionsPanel({
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs transition-colors',
                         active
-                          ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                          ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300'
                           : 'border-border bg-muted/50 text-muted-foreground hover:bg-accent'
                       )}
                     >

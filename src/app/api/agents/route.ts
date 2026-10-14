@@ -21,7 +21,7 @@ const DEFAULT_TEAM = [
     role: 'analyste',
     description: "Lit les sources, comprend et retient les informations essentielles en mémoire.",
     specialties: JSON.stringify(['analyse', 'comprehension', 'memoire']),
-    color: '#a78bfa',
+    color: '#22d3ee',
   },
   {
     name: 'Rédacteur',
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const role = ['chercheur', 'analyste', 'redacteur', 'specialiste', 'codeur'].includes(roleRaw) ? roleRaw : 'specialiste'
   const description = String(body?.description ?? '').trim().slice(0, 400)
   const prompt = String(body?.prompt ?? '').trim().slice(0, 4000)
-  const color = /^#[0-9a-fA-F]{6}$/.test(String(body?.color ?? '')) ? String(body.color) : '#a78bfa'
+  const color = /^#[0-9a-fA-F]{6}$/.test(String(body?.color ?? '')) ? String(body.color) : '#22d3ee'
   const blueprintId = String(body?.blueprintId ?? '').trim().slice(0, 60)
   const specialties = Array.isArray(body?.specialties)
     ? body.specialties.map((s: unknown) => String(s).trim().toLowerCase().slice(0, 40)).filter(Boolean).slice(0, 8)

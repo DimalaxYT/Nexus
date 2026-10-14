@@ -553,7 +553,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                   <Button variant="ghost" onClick={() => removeKey(selected.id)} className="gap-1.5 text-rose-300">
                     <Trash2 className="h-4 w-4" /> Supprimer la clé
                   </Button>
-                  <Button onClick={saveKey} disabled={saving} className="gap-2 bg-violet-600 hover:bg-violet-500">
+                  <Button onClick={saveKey} disabled={saving} className="gap-2 bg-cyan-600 hover:bg-cyan-500">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Enregistrer
                   </Button>
@@ -585,7 +585,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                     {testOut && (
                       <div className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-3">
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                          <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-violet-200">
+                          <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-cyan-200">
                             source : {testOut.source}
                           </span>
                           <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{testOut.ms} ms</span>

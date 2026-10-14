@@ -111,7 +111,7 @@ function StepsTimeline({ steps }: { steps: AgentStep[] }) {
           )}
         >
           {step.status === 'running' ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-violet-400" />
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-cyan-400" />
           ) : step.status === 'error' ? (
             <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
           ) : (
@@ -119,7 +119,7 @@ function StepsTimeline({ steps }: { steps: AgentStep[] }) {
               <Check className="h-3 w-3 text-emerald-400" />
             </span>
           )}
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-violet-400">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-cyan-400">
             <StepIcon tool={step.tool} />
           </span>
           <span className="font-medium text-foreground">{step.label}</span>
@@ -145,21 +145,21 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
         <button
           onClick={toggle}
           aria-expanded={open}
-          className="flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 transition-colors hover:bg-violet-500/20"
+          className="flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/20"
         >
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-300" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
           NEXUS réfléchit…
           {message.steps.length > 0 && (
-            <span className="rounded-full bg-violet-500/25 px-1.5 text-[10px] font-semibold text-violet-200">
+            <span className="rounded-full bg-cyan-500/25 px-1.5 text-[10px] font-semibold text-cyan-200">
               {message.steps.length}
             </span>
           )}
-          <ChevronDown className={cn('h-3.5 w-3.5 text-violet-300/80 transition-transform', open && 'rotate-180')} />
+          <ChevronDown className={cn('h-3.5 w-3.5 text-cyan-300/80 transition-transform', open && 'rotate-180')} />
         </button>
         {open && (
           <div className="mt-2 rounded-xl border border-border bg-muted/40 p-3">
             {message.thought && (
-              <p className="mb-2 border-l-2 border-violet-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
+              <p className="mb-2 border-l-2 border-cyan-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
                 « {message.thought} »
               </p>
             )}
@@ -181,10 +181,10 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
         aria-expanded={open}
         className="flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
-        <Brain className="h-3.5 w-3.5 text-violet-400/80" />
+        <Brain className="h-3.5 w-3.5 text-cyan-400/80" />
         Réflexion de {speakerName}
         {message.steps.length > 0 && (
-          <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-300">
+          <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
             {message.steps.length}
           </span>
         )}
@@ -193,7 +193,7 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
       {open && (
         <div className="mt-2 rounded-xl border border-border bg-muted/30 p-3">
           {message.thought && (
-            <p className="mb-2 border-l-2 border-violet-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
+            <p className="mb-2 border-l-2 border-cyan-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
               « {message.thought} »
             </p>
           )}
@@ -218,9 +218,9 @@ function SourceList({ sources }: { sources: SourceItem[] }) {
               href={s.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-baseline gap-1.5 text-xs text-muted-foreground hover:text-violet-300"
+              className="group flex items-baseline gap-1.5 text-xs text-muted-foreground hover:text-cyan-300"
             >
-              <span className="font-medium text-foreground/80 group-hover:text-violet-300">{s.title}</span>
+              <span className="font-medium text-foreground/80 group-hover:text-cyan-300">{s.title}</span>
               <span className="truncate text-muted-foreground/70">{s.domain}</span>
               <ExternalLink className="h-3 w-3 shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100" />
             </a>
@@ -286,8 +286,8 @@ function ArtifactImages({
 
 function SceneCard({ scene, onOpen }: { scene: SceneSpec; onOpen: () => void }) {
   return (
-    <div className="mt-3 flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3.5">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-500">
+    <div className="mt-3 flex items-center gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3.5">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-rose-500">
         <Boxes className="h-5 w-5 text-white" />
       </span>
       <div className="min-w-0 flex-1">
@@ -296,7 +296,7 @@ function SceneCard({ scene, onOpen }: { scene: SceneSpec; onOpen: () => void }) 
           Scène 3D prête — {scene.objects.length} objets {scene.ground ? '· sol inclus' : ''}
         </p>
       </div>
-      <Button size="sm" className="h-8 gap-1.5 bg-violet-500 text-white hover:bg-violet-600" onClick={onOpen}>
+      <Button size="sm" className="h-8 gap-1.5 bg-cyan-500 text-white hover:bg-cyan-600" onClick={onOpen}>
         <ExternalLink className="h-3.5 w-3.5" />
         Studio 3D
       </Button>
@@ -333,10 +333,10 @@ function VideoCard({ video, onOpen }: { video: VideoArtifact; onOpen: (url: stri
     ? `${video.url}${video.url.includes('?') ? '&' : '?'}download=1`
     : `/api/tools/video/download?url=${encodeURIComponent(video.url)}`
   return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10">
+    <div className="mt-3 overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/10">
       <video src={video.url} controls preload="metadata" className="max-h-80 w-full bg-black" />
       <div className="flex items-center gap-3 p-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-500">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-rose-500">
           <Film className="h-4.5 w-4.5 text-white" />
         </span>
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{video.prompt}</p>
@@ -352,7 +352,7 @@ function VideoCard({ video, onOpen }: { video: VideoArtifact; onOpen: (url: stri
         </a>
         <Button
           size="sm"
-          className="h-8 shrink-0 gap-1.5 bg-fuchsia-500 text-white hover:bg-fuchsia-600"
+          className="h-8 shrink-0 gap-1.5 bg-emerald-500 text-white hover:bg-emerald-600"
           onClick={() => onOpen(video.url)}
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -386,7 +386,7 @@ function MessageBubbleInner({
             </span>
           )}
           <div className="flex items-start gap-2.5">
-            <div className="rounded-2xl rounded-tr-md bg-gradient-to-br from-violet-500 to-fuchsia-500 px-4 py-2.5 text-sm leading-relaxed text-white shadow-md shadow-violet-500/20">
+            <div className="rounded-2xl rounded-tr-md bg-gradient-to-br from-cyan-500 to-emerald-500 px-4 py-2.5 text-sm leading-relaxed text-white shadow-md shadow-cyan-500/20">
               {message.content}
             </div>
             <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -426,7 +426,7 @@ function MessageBubbleInner({
           {speaker ? (
             <span className="text-sm leading-none">{speaker.emoji}</span>
           ) : (
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500">
               <Boxes className="h-3.5 w-3.5 text-white" />
             </span>
           )}
@@ -1214,7 +1214,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
         >
           <History className="h-4 w-4" />
           <span className="hidden sm:inline">Historique</span>
-          <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-300">
+          <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
             {conversations.length}
           </span>
         </Button>
@@ -1238,7 +1238,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           onClick={() => setBrainsOpen(true)}
           aria-label="Ouvrir la salle des cerveaux 3D"
         >
-          <Brain className="h-4 w-4 text-fuchsia-400" />
+          <Brain className="h-4 w-4 text-emerald-400" />
           <span className="hidden sm:inline">Cerveaux</span>
         </Button>
         <Button
@@ -1269,10 +1269,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           }}
           aria-label="Ouvrir l'équipe multi-agents"
         >
-          <Users className="h-4 w-4 text-violet-400" />
+          <Users className="h-4 w-4 text-cyan-400" />
           <span className="hidden sm:inline">Équipe</span>
           {agents.filter((a) => a.enabled).length > 0 && (
-            <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-300">
+            <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
               {agents.filter((a) => a.enabled).length}
             </span>
           )}
@@ -1302,10 +1302,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           }}
           aria-label="Ouvrir la mémoire de l'agent"
         >
-          <Brain className="h-4 w-4 text-violet-400" />
+          <Brain className="h-4 w-4 text-cyan-400" />
           <span className="hidden sm:inline">Mémoire</span>
           {memories.length > 0 && (
-            <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-300">
+            <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
               {memories.length}
             </span>
           )}
@@ -1352,7 +1352,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center pt-10 text-center">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-rose-500 shadow-xl shadow-violet-500/30">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 via-emerald-500 to-rose-500 shadow-xl shadow-cyan-500/30">
                 <Boxes className="h-8 w-8 text-white" />
               </div>
               <h2 className="text-xl font-bold text-foreground">Bonjour, je suis NEXUS</h2>
@@ -1362,7 +1362,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                 travaille <strong>seul en arrière-plan</strong> sur les missions que tu me confies,
                 même quand tu n'es pas là.
               </p>
-              <p className="mt-3 max-w-md rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-xs leading-relaxed text-violet-200">
+              <p className="mt-3 max-w-md rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 py-2 text-xs leading-relaxed text-cyan-200">
                 💬 <strong>Avec qui veux-tu parler ?</strong> Choisis juste au-dessus de la barre de
                 saisie : <strong>NEXUS</strong> (globale), le <strong>Bureau</strong> (tous les agents
                 réfléchissent ensemble, une seule réponse consolidée), la <strong>table ronde</strong>{' '}
@@ -1374,9 +1374,9 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                   <button
                     key={s.label}
                     onClick={() => send(s.text)}
-                    className="rounded-xl border border-border bg-muted/40 p-3 text-left transition-all hover:border-violet-500/50 hover:bg-accent/60"
+                    className="rounded-xl border border-border bg-muted/40 p-3 text-left transition-all hover:border-cyan-500/50 hover:bg-accent/60"
                   >
-                    <p className="text-xs font-semibold text-violet-300">{s.label}</p>
+                    <p className="text-xs font-semibold text-cyan-300">{s.label}</p>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{s.text}</p>
                   </button>
                 ))}
@@ -1426,7 +1426,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                   <span className="block text-sm font-medium">NEXUS</span>
                   <span className="block text-[10px] text-muted-foreground">Globale — l'agent principal, sans agents</span>
                 </span>
-                {target.kind === 'nexus' && <Check className="h-3.5 w-3.5 text-violet-400" />}
+                {target.kind === 'nexus' && <Check className="h-3.5 w-3.5 text-cyan-400" />}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -1440,7 +1440,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     Délibération parallèle · UNE réponse consolidée
                   </span>
                 </span>
-                {target.kind === 'bureau' && !target.groupId && <Check className="h-3.5 w-3.5 text-violet-400" />}
+                {target.kind === 'bureau' && !target.groupId && <Check className="h-3.5 w-3.5 text-cyan-400" />}
               </DropdownMenuItem>
               {groups.map((g) => (
                 <DropdownMenuItem
@@ -1454,7 +1454,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">Groupe · délibération · réponse unique</span>
                   </span>
                   {target.kind === 'bureau' && target.groupId === g.id && (
-                    <Check className="h-3.5 w-3.5 text-violet-400" />
+                    <Check className="h-3.5 w-3.5 text-cyan-400" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1470,7 +1470,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     Toute l'équipe active ({agents.filter((a) => a.enabled).length})
                   </span>
                 </span>
-                {target.kind === 'all' && <Check className="h-3.5 w-3.5 text-violet-400" />}
+                {target.kind === 'all' && <Check className="h-3.5 w-3.5 text-cyan-400" />}
               </DropdownMenuItem>
               {groups.map((g) => (
                 <DropdownMenuItem
@@ -1484,7 +1484,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">Groupe · {g.members.length} membre{g.members.length > 1 ? 's' : ''}</span>
                   </span>
                   {target.kind === 'group' && target.groupId === g.id && (
-                    <Check className="h-3.5 w-3.5 text-violet-400" />
+                    <Check className="h-3.5 w-3.5 text-cyan-400" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1509,7 +1509,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">{ROLE_LABELS[a.role]}{a.prompt ? ' · prompt personnalisé' : ''}</span>
                   </span>
                   {target.kind === 'agent' && target.agentId === a.id && (
-                    <Check className="h-3.5 w-3.5 text-violet-400" />
+                    <Check className="h-3.5 w-3.5 text-cyan-400" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1536,7 +1536,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     : `Message pour ${targetInfo.label}… (Entrée pour envoyer)`
               }
               aria-label="Message pour l’agent"
-              className="max-h-36 w-full resize-none rounded-xl border border-border bg-muted/60 py-3 pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
+              className="max-h-36 w-full resize-none rounded-xl border border-border bg-muted/60 py-3 pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
               style={{ minHeight: '2.75rem' }}
             />
           </div>
@@ -1552,7 +1552,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           ) : (
             <Button
               size="icon"
-              className="h-11 w-11 shrink-0 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-500/25 hover:opacity-90"
+              className="h-11 w-11 shrink-0 rounded-xl bg-gradient-to-br from-cyan-500 to-emerald-500 text-white shadow-lg shadow-cyan-500/25 hover:opacity-90"
               onClick={() => send(input)}
               disabled={input.trim().length === 0}
               aria-label="Envoyer le message"

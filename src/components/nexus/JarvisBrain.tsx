@@ -558,7 +558,7 @@ export function JarvisCanvas({ className }: { className?: string }) {
         id: 'nexus',
         name: 'NEXUS',
         emoji: '🟣',
-        color: '#a78bfa',
+        color: '#22d3ee',
         role: 'Cerveau central',
         status: 'idle',
         thought: '',
@@ -654,7 +654,7 @@ export function JarvisCanvas({ className }: { className?: string }) {
                     'ml-auto inline-block h-1.5 w-1.5 shrink-0 rounded-full',
                     b.status === 'speaking' ? 'animate-pulse' : b.status === 'thinking' ? 'animate-ping' : 'opacity-40'
                   )}
-                  style={{ backgroundColor: b.id === 'nexus' ? CYAN : b.color || '#a78bfa' }}
+                  style={{ backgroundColor: b.id === 'nexus' ? CYAN : b.color || '#22d3ee' }}
                 />
               </p>
               <p className={cn('mt-0.5 text-[9px] uppercase tracking-wider', b.id === 'nexus' ? 'text-cyan-300/70' : 'text-white/50')}>
@@ -702,7 +702,7 @@ export function JarvisCanvas({ className }: { className?: string }) {
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-amber-300" /> impulsions = pensées qui voyagent
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-violet-400" /> nœuds = tes agents en orbite
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-400" /> nœuds = tes agents en orbite
         </span>
         <span className="hidden sm:inline">— glisse pour tourner, molette pour zoomer</span>
       </div>

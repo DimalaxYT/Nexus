@@ -31,7 +31,7 @@ const TONES = [
   { id: 'pedagogue', label: 'Pédagogue', hint: 'explique pas à pas' },
 ] as const
 
-const COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#f472b6', '#fbbf24', '#f87171', '#60a5fa', '#c084fc']
+const COLORS = ['#22d3ee', '#38bdf8', '#34d399', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#c084fc']
 
 interface Stats {
   conversations: number
@@ -61,7 +61,7 @@ export function AccountPanel() {
   const [greeting, setGreeting] = useState(profile.greeting ?? '')
   const [company, setCompany] = useState(profile.company ?? '')
   const [website, setWebsite] = useState(profile.website ?? '')
-  const [color, setColor] = useState(profile.avatarColor ?? '#a78bfa')
+  const [color, setColor] = useState(profile.avatarColor ?? '#22d3ee')
 
   const [saving, setSaving] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -154,7 +154,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <UserIcon className="h-4 w-4 text-violet-400" /> Identité
+              <UserIcon className="h-4 w-4 text-cyan-400" /> Identité
             </CardTitle>
             <CardDescription className="text-xs">Nom affiché et adresse e-mail de connexion.</CardDescription>
           </CardHeader>
@@ -174,7 +174,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-violet-400" /> Personnalisation de NEXUS
+              <Sparkles className="h-4 w-4 text-cyan-400" /> Personnalisation de NEXUS
             </CardTitle>
             <CardDescription className="text-xs">
               Ces réglages sont propres à <strong>ce compte</strong> : NEXUS adopte votre ton, votre prénom et vos
@@ -215,7 +215,7 @@ export function AccountPanel() {
                     className={
                       'rounded-full border px-3 py-1.5 text-xs transition-all ' +
                       (tone === t.id
-                        ? 'border-violet-500/50 bg-violet-500/15 text-violet-200'
+                        ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200'
                         : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground')
                     }
                   >
@@ -279,7 +279,7 @@ export function AccountPanel() {
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={save} disabled={saving} className="gap-2 bg-violet-600 hover:bg-violet-500">
+              <Button onClick={save} disabled={saving} className="gap-2 bg-cyan-600 hover:bg-cyan-500">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Enregistrer
               </Button>

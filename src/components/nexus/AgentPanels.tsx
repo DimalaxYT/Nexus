@@ -124,7 +124,7 @@ export function HistoryPanel({
           </div>
           <Button
             size="icon"
-            className="h-9 w-9 shrink-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+            className="h-9 w-9 shrink-0 bg-gradient-to-br from-cyan-500 to-emerald-500 text-white hover:opacity-90"
             onClick={() => {
               createConversation()
               onOpenChange(false)
@@ -152,7 +152,7 @@ export function HistoryPanel({
                     <div
                       className={cn(
                         'group flex items-center gap-1 rounded-lg px-2.5 py-2 transition-colors',
-                        active ? 'bg-violet-500/15' : 'hover:bg-accent/60'
+                        active ? 'bg-cyan-500/15' : 'hover:bg-accent/60'
                       )}
                     >
                       {editingId === c.id ? (
@@ -190,7 +190,7 @@ export function HistoryPanel({
                             <MessageSquare
                               className={cn(
                                 'h-4 w-4 shrink-0',
-                                active ? 'text-violet-400' : 'text-muted-foreground/60'
+                                active ? 'text-cyan-400' : 'text-muted-foreground/60'
                               )}
                             />
                             <span className="min-w-0 flex-1">
@@ -244,7 +244,7 @@ export function HistoryPanel({
 
 const KIND_META: Record<MemoryItem['kind'], { label: string; className: string }> = {
   fact: { label: 'Fait', className: 'bg-sky-500/15 text-sky-300' },
-  preference: { label: 'Préférence', className: 'bg-violet-500/15 text-violet-300' },
+  preference: { label: 'Préférence', className: 'bg-cyan-500/15 text-cyan-300' },
   project: { label: 'Projet', className: 'bg-amber-500/15 text-amber-300' },
   person: { label: 'Personne', className: 'bg-rose-500/15 text-rose-300' },
   other: { label: 'Autre', className: 'bg-zinc-500/15 text-zinc-300' },
@@ -314,9 +314,9 @@ export function MemoryPanel({
       <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-border px-5 pb-3 pt-5">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <Brain className="h-4.5 w-4.5 text-violet-400" />
+            <Brain className="h-4.5 w-4.5 text-cyan-400" />
             Mémoire de NEXUS
-            <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-semibold text-violet-300">
+            <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-300">
               {memories.length}
             </span>
           </DialogTitle>
@@ -340,7 +340,7 @@ export function MemoryPanel({
           />
           <Button
             size="sm"
-            className="h-9 shrink-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+            className="h-9 shrink-0 bg-gradient-to-br from-cyan-500 to-emerald-500 text-white hover:opacity-90"
             disabled={!draft.trim() || adding}
             onClick={addMemory}
           >
