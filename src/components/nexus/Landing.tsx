@@ -6,6 +6,7 @@
 // par le CTA « Ouvrir NEXUS » → /app (connexion ou création de compte).
 
 import Link from 'next/link'
+import { useTheme } from 'next-themes'
 import { motion } from 'framer-motion'
 import {
   ArrowRight,
@@ -18,6 +19,8 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
+  Sun,
+  Moon,
   UserRound,
   Workflow,
   Zap,
@@ -85,6 +88,22 @@ const STEPS = [
   },
 ]
 
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+    >
+      <Sun className="h-4 w-4 dark:hidden" />
+      <Moon className="hidden h-4 w-4 dark:block" />
+    </Button>
+  )
+}
+
 const fadeUp = {
   initial: { opacity: 0, y: 22 },
   whileInView: { opacity: 1, y: 0 },
@@ -102,7 +121,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
           <a href="#" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-emerald-400 font-display text-sm font-bold text-[#071016] shadow-glow">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground font-display text-sm font-bold text-background">
               N
             </span>
             <span className="font-display text-base font-bold tracking-[0.22em]">NEXUS</span>
@@ -112,12 +131,15 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             <a href="#how" className="transition-colors hover:text-foreground">Fonctionnement</a>
             <a href="#privacy" className="transition-colors hover:text-foreground">Confidentialité</a>
           </nav>
-          <Button asChild className="h-9 gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-emerald-400 px-4 text-sm font-semibold text-[#071016] shadow-glow transition-transform hover:scale-[1.03]">
-            <Link href="/app">
-              Ouvrir NEXUS
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button asChild className="h-9 gap-2 rounded-lg bg-foreground px-4 text-sm font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90">
+              <Link href="/app">
+                Ouvrir NEXUS
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -128,11 +150,11 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-300"
+            className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
             </span>
             IA 100 % locale — zéro cloud, zéro API externe
           </motion.div>
@@ -165,7 +187,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.55, delay: 0.24 }}
             className="mt-9 flex flex-wrap items-center justify-center gap-3"
           >
-            <Button asChild size="lg" className="h-12 gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-400 px-7 text-base font-semibold text-[#071016] shadow-glow transition-transform hover:scale-[1.03]">
+            <Button asChild size="lg" className="h-12 gap-2 rounded-xl bg-foreground px-7 text-base font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90">
               <Link href="/app">
                 {hasAccounts ? 'Accéder à mon espace' : 'Créer mon espace'}
                 <ArrowRight className="h-4.5 w-4.5" />
@@ -202,7 +224,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
         {/* ── Fonctionnalités ─────────────────────────────────────────────── */}
         <section id="features" className="relative mx-auto w-full max-w-6xl scroll-mt-24 px-5 py-16">
           <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mb-10 max-w-2xl">
-            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-300">— Tout-en-un</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">— Tout-en-un</p>
             <h2 className="mt-2 font-display text-3xl font-bold tracking-tight md:text-4xl">
               Une équipe d&apos;agents, huit studios, un seul onglet.
             </h2>
@@ -215,9 +237,9 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                   key={f.title}
                   {...fadeUp}
                   transition={{ duration: 0.45, delay: (i % 4) * 0.07 }}
-                  className="group glass rounded-2xl p-5 transition-all hover:-translate-y-1 hover:border-cyan-400/35 hover:shadow-glow"
+                  className="group glass rounded-2xl p-5 transition-all hover:-translate-y-1 hover:border-foreground/25 hover:shadow-glow"
                 >
-                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/25 bg-cyan-400/10 text-cyan-300 transition-colors group-hover:bg-cyan-400/15">
+                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-muted/50 text-foreground transition-colors group-hover:bg-muted">
                     <Icon className="h-5 w-5" />
                   </span>
                   <h3 className="mb-1.5 font-display text-base font-semibold">{f.title}</h3>
@@ -231,7 +253,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
         {/* ── Fonctionnement ──────────────────────────────────────────────── */}
         <section id="how" className="relative mx-auto w-full max-w-6xl scroll-mt-24 px-5 py-16">
           <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mb-10 max-w-2xl">
-            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-300">— Trois étapes</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">— Trois étapes</p>
             <h2 className="mt-2 font-display text-3xl font-bold tracking-tight md:text-4xl">Opérationnel en deux minutes.</h2>
           </motion.div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -245,7 +267,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                 <span className="pointer-events-none absolute -right-3 -top-6 font-display text-8xl font-bold text-foreground/[0.045]">
                   {s.n}
                 </span>
-                <p className="font-mono text-xs text-cyan-300">{s.n}</p>
+                <p className="font-mono text-xs text-neutral-300">{s.n}</p>
                 <h3 className="mt-3 font-display text-lg font-semibold">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.desc}</p>
               </motion.div>
@@ -260,10 +282,10 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.5 }}
             className="glass edge-glow relative overflow-hidden rounded-3xl px-6 py-10 md:px-12 md:py-14"
           >
-            <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden />
+            <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-neutral-400/10 blur-3xl" aria-hidden />
             <div className="relative grid items-center gap-8 md:grid-cols-[1.2fr_1fr]">
               <div>
-                <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-emerald-300">— Confidentialité</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">— Confidentialité</p>
                 <h2 className="mt-2 font-display text-3xl font-bold tracking-tight md:text-4xl">
                   Vos données ne quittent jamais ce serveur.
                 </h2>
@@ -272,7 +294,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                   générateurs d&apos;images et de 3D — le tout tourne sur la machine. Aucun appel à OpenAI,
                   aucun cloud, aucun entraînement sur vos conversations.
                 </p>
-                <Button asChild className="mt-7 gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-400 px-6 font-semibold text-[#071016] shadow-glow">
+                <Button asChild className="mt-7 gap-2 rounded-xl bg-foreground px-6 font-semibold text-background hover:opacity-90">
                   <Link href="/app">
                     Commencer maintenant
                     <ArrowRight className="h-4 w-4" />
@@ -288,7 +310,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                   const Icon = item.icon
                   return (
                     <li key={item.text} className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/50 p-4 text-sm text-foreground/85">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 text-emerald-300">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50 text-foreground">
                         <Icon className="h-4 w-4" />
                       </span>
                       {item.text}
@@ -301,24 +323,28 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
         </section>
       </main>
 
-      {/* ── Pied de page ──────────────────────────────────────────────────── */}
-      <footer className="relative border-t border-border/60">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-4 px-5 py-8 text-xs text-muted-foreground md:flex-row">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-cyan-400 to-emerald-400 font-display text-[10px] font-bold text-[#071016]">
-              N
-            </span>
-            <span className="font-display font-bold tracking-[0.2em] text-foreground/80">NEXUS</span>
-            <span className="font-mono text-[10px]">v2.1 — cerveau local</span>
+      {/* ── Pied de page — bandeau monochrome ─────────────────────────────── */}
+      <footer className="relative border-t border-white/10 bg-black text-white">
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-5 px-5 py-9 md:h-24 md:flex-row md:gap-8 md:py-0">
+          <p className="font-display text-lg font-bold tracking-[0.35em]">NEXUS</p>
+          <div className="flex items-center gap-5">
+            <span className="hidden h-px w-16 bg-white/50 sm:block" aria-hidden />
+            <p className="font-mono text-[11px] uppercase tracking-[0.35em] text-white/90">
+              For your digital world.
+            </p>
           </div>
-          <p className="flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
-            Réseau de neurones embarqué — aucune API externe, aucune donnée envoyée.
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/60">
+            IA <span className="mx-1.5 text-white/30">·</span> Agents <span className="mx-1.5 text-white/30">·</span> Studios
           </p>
-          <Link href="/app" className="flex items-center gap-1.5 font-medium text-cyan-300 transition-colors hover:text-cyan-200">
-            Ouvrir l&apos;application
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+        </div>
+        <div className="border-t border-white/10">
+          <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-5 py-4 text-[11px] text-white/45 sm:flex-row">
+            <p>© {new Date().getFullYear()} NEXUS — cerveau IA 100 % local, aucune donnée envoyée.</p>
+            <Link href="/app" className="flex items-center gap-1.5 font-medium text-white/70 transition-colors hover:text-white">
+              Ouvrir l&apos;application
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

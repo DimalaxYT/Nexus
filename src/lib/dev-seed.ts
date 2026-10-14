@@ -14,7 +14,7 @@ export const DEV_AGENT_SPEC = {
   name: 'Dev',
   emoji: '🛠️',
   role: 'specialiste',
-  color: '#22d3ee',
+  color: '#ffffff',
   description:
     'Agent développeur de NEXUS : il lit le code source, diagnostique, et propose des correctifs pour améliorer l’intelligence et les performances du système.',
   prompt: [
@@ -94,7 +94,7 @@ async function doBootstrap(): Promise<DevBootstrapResult> {
             language: 'fr',
             theme: 'dark',
             assistantName: 'NEXUS',
-            avatarColor: '#22d3ee',
+            avatarColor: '#ffffff',
             bio: 'Compte technique : dashboard, personnalisation du site et agent Dev.',
           }),
         },

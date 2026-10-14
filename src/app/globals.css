@@ -49,80 +49,80 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   NEXUS — Thème « Obsidien »
-   Noir bleuté profond, accents cyan → émeraude, surfaces de verre.
-   Fini le violet générique : une vibe froide, précise, holographique.
+   NEXUS — Thème « Monochrome »
+   Palette stricte : Noir profond #000000 · Gris foncé #1A1A1A · Gris #6B6B6B ·
+   Blanc #FFFFFF. Contraste par la lumière, pas par la couleur.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .dark {
   --radius: 0.75rem;
-  --background: oklch(0.135 0.014 235);
-  --foreground: oklch(0.955 0.006 220);
-  --card: oklch(0.17 0.016 235);
-  --card-foreground: oklch(0.955 0.006 220);
-  --popover: oklch(0.155 0.016 235);
-  --popover-foreground: oklch(0.955 0.006 220);
-  --primary: oklch(0.84 0.125 195);
-  --primary-foreground: oklch(0.14 0.02 230);
-  --secondary: oklch(0.215 0.018 235);
-  --secondary-foreground: oklch(0.955 0.006 220);
-  --muted: oklch(0.2 0.016 235);
-  --muted-foreground: oklch(0.64 0.02 225);
-  --accent: oklch(0.235 0.02 225);
-  --accent-foreground: oklch(0.955 0.006 220);
-  --destructive: oklch(0.66 0.19 22);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 11%);
-  --ring: oklch(0.8 0.115 195);
-  --chart-1: oklch(0.8 0.125 195);
-  --chart-2: oklch(0.78 0.14 165);
-  --chart-3: oklch(0.75 0.12 230);
-  --chart-4: oklch(0.8 0.14 85);
-  --chart-5: oklch(0.7 0.15 25);
-  --sidebar: oklch(0.15 0.015 235);
-  --sidebar-foreground: oklch(0.955 0.006 220);
-  --sidebar-primary: oklch(0.84 0.125 195);
-  --sidebar-primary-foreground: oklch(0.14 0.02 230);
-  --sidebar-accent: oklch(0.22 0.018 230);
-  --sidebar-accent-foreground: oklch(0.955 0.006 220);
-  --sidebar-border: oklch(1 0 0 / 7%);
-  --sidebar-ring: oklch(0.8 0.115 195);
+  --background: oklch(0.13 0 0);          /* ≈ #0d0d0d, base noir profond */
+  --foreground: oklch(0.985 0 0);         /* blanc */
+  --card: oklch(0.205 0 0);               /* #1A1A1A — gris foncé */
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.185 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);            /* blanc : action principale */
+  --primary-foreground: oklch(0.13 0 0);
+  --secondary: oklch(0.24 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.53 0 0);    /* #6B6B6B — gris */
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.62 0.19 25);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.75 0 0);
+  --chart-1: oklch(0.985 0 0);
+  --chart-2: oklch(0.72 0 0);
+  --chart-3: oklch(0.53 0 0);
+  --chart-4: oklch(0.36 0 0);
+  --chart-5: oklch(0.24 0 0);
+  --sidebar: oklch(0.16 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.13 0 0);
+  --sidebar-accent: oklch(0.24 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.75 0 0);
 }
 
 :root {
   --radius: 0.75rem;
-  /* Thème clair « Papier glacier » : blanc froid, encre ardoise, cyan profond. */
-  --background: oklch(0.972 0.005 220);
-  --foreground: oklch(0.21 0.022 240);
+  /* Thème clair « Papier » : blanc pur, encre noire, gris pour les secondaires. */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.155 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.022 240);
+  --card-foreground: oklch(0.155 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.022 240);
-  --primary: oklch(0.6 0.115 210);
-  --primary-foreground: oklch(0.985 0.005 220);
-  --secondary: oklch(0.945 0.008 220);
-  --secondary-foreground: oklch(0.25 0.02 240);
-  --muted: oklch(0.945 0.008 220);
-  --muted-foreground: oklch(0.5 0.025 235);
-  --accent: oklch(0.93 0.015 215);
-  --accent-foreground: oklch(0.25 0.02 240);
-  --destructive: oklch(0.58 0.21 25);
-  --border: oklch(0.21 0.022 240 / 12%);
-  --input: oklch(0.21 0.022 240 / 16%);
-  --ring: oklch(0.6 0.115 210);
-  --chart-1: oklch(0.6 0.115 210);
-  --chart-2: oklch(0.6 0.13 165);
-  --chart-3: oklch(0.55 0.11 240);
-  --chart-4: oklch(0.68 0.14 80);
-  --chart-5: oklch(0.6 0.16 25);
-  --sidebar: oklch(0.955 0.007 220);
-  --sidebar-foreground: oklch(0.21 0.022 240);
-  --sidebar-primary: oklch(0.6 0.115 210);
-  --sidebar-primary-foreground: oklch(0.985 0.005 220);
-  --sidebar-accent: oklch(0.92 0.012 215);
-  --sidebar-accent-foreground: oklch(0.25 0.02 240);
-  --sidebar-border: oklch(0.21 0.022 240 / 10%);
-  --sidebar-ring: oklch(0.6 0.115 210);
+  --popover-foreground: oklch(0.155 0 0);
+  --primary: oklch(0.155 0 0);            /* noir : action principale */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.955 0 0);
+  --secondary-foreground: oklch(0.155 0 0);
+  --muted: oklch(0.955 0 0);
+  --muted-foreground: oklch(0.53 0 0);    /* #6B6B6B — gris */
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.155 0 0);
+  --destructive: oklch(0.55 0.21 25);
+  --border: oklch(0 0 0 / 12%);
+  --input: oklch(0 0 0 / 16%);
+  --ring: oklch(0.5 0 0);
+  --chart-1: oklch(0.155 0 0);
+  --chart-2: oklch(0.36 0 0);
+  --chart-3: oklch(0.53 0 0);
+  --chart-4: oklch(0.72 0 0);
+  --chart-5: oklch(0.88 0 0);
+  --sidebar: oklch(0.972 0 0);
+  --sidebar-foreground: oklch(0.155 0 0);
+  --sidebar-primary: oklch(0.155 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.93 0 0);
+  --sidebar-accent-foreground: oklch(0.155 0 0);
+  --sidebar-border: oklch(0 0 0 / 10%);
+  --sidebar-ring: oklch(0.5 0 0);
 }
 
 @layer base {
@@ -139,7 +139,7 @@
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: oklch(0.84 0.125 195 / 30%);
+    background: oklch(0.985 0 0 / 25%);
   }
   /* Scrollbars discrètes, alignées sur la nouvelle identité. */
   ::-webkit-scrollbar {
@@ -169,26 +169,29 @@
     letter-spacing: -0.02em;
   }
 
-  /* Dégradé de marque cyan → émeraude (texte). */
+  /* Dégradé de marque monochrome (texte) : blanc → gris. */
   .text-gradient {
-    background-image: linear-gradient(105deg, oklch(0.85 0.125 195), oklch(0.82 0.135 165));
+    background-image: linear-gradient(105deg, oklch(0.98 0 0), oklch(0.62 0 0));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
+  :not(.dark) .text-gradient {
+    background-image: linear-gradient(105deg, oklch(0.15 0 0), oklch(0.5 0 0));
+  }
 
-  /* Fond « aurore » : nappes cyan/émeraude diffuses sur noir. */
+  /* Fond « brume » : nappes neutres diffuses (monochrome). */
   .bg-aurora {
     background:
-      radial-gradient(52rem 30rem at 12% -8%, oklch(0.7 0.13 200 / 16%), transparent 60%),
-      radial-gradient(44rem 28rem at 88% 4%, oklch(0.72 0.13 165 / 11%), transparent 60%),
-      radial-gradient(38rem 26rem at 50% 110%, oklch(0.65 0.11 230 / 10%), transparent 65%);
+      radial-gradient(52rem 30rem at 12% -8%, oklch(1 0 0 / 5%), transparent 60%),
+      radial-gradient(44rem 28rem at 88% 4%, oklch(1 0 0 / 3.5%), transparent 60%),
+      radial-gradient(38rem 26rem at 50% 110%, oklch(1 0 0 / 3%), transparent 65%);
   }
   :not(.dark) .bg-aurora {
     background:
-      radial-gradient(52rem 30rem at 12% -8%, oklch(0.7 0.115 200 / 12%), transparent 60%),
-      radial-gradient(44rem 28rem at 88% 4%, oklch(0.7 0.12 165 / 9%), transparent 60%),
-      radial-gradient(38rem 26rem at 50% 110%, oklch(0.62 0.1 230 / 8%), transparent 65%);
+      radial-gradient(52rem 30rem at 12% -8%, oklch(0 0 0 / 3.5%), transparent 60%),
+      radial-gradient(44rem 28rem at 88% 4%, oklch(0 0 0 / 2.5%), transparent 60%),
+      radial-gradient(38rem 26rem at 50% 110%, oklch(0 0 0 / 2%), transparent 65%);
   }
 
   /* Grille technique très discrète (héros de la landing). */
@@ -217,11 +220,11 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, oklch(0.84 0.125 195 / 55%), oklch(0.82 0.135 165 / 55%), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--foreground) 45%, transparent), transparent);
   }
 
   .shadow-glow {
-    box-shadow: 0 0 0 1px oklch(0.84 0.125 195 / 18%), 0 12px 44px -12px oklch(0.8 0.125 195 / 35%);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 16%, transparent), 0 14px 44px -14px color-mix(in oklab, var(--foreground) 30%, transparent);
   }
 }
 

@@ -453,7 +453,7 @@ ${files.js}
               onClick={() => setTab(t.id)}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
-                tab === t.id ? 'bg-accent text-cyan-300' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground/80'
+                tab === t.id ? 'bg-accent text-neutral-300' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground/80'
               )}
             >
               <t.icon className="h-3.5 w-3.5" />
@@ -478,14 +478,14 @@ ${files.js}
                   <span>{l.emoji}</span>
                   <span className="flex-1">{l.label}</span>
                   <span className="text-[10px] text-muted-foreground/60">.{l.ext}</span>
-                  {files.language === l.id && <Check className="h-3 w-3 text-cyan-400" />}
+                  {files.language === l.id && <Check className="h-3 w-3 text-neutral-400" />}
                 </DropdownMenuItem>
               ))}
               {!isScript && (
                 <DropdownMenuItem onClick={backToWeb} className="gap-2 text-xs">
                   <span>🌐</span>
                   <span className="flex-1">Page web (HTML/CSS/JS)</span>
-                  <Check className="h-3 w-3 text-cyan-400" />
+                  <Check className="h-3 w-3 text-neutral-400" />
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -497,8 +497,8 @@ ${files.js}
             variant="outline"
             className={cn(
               'relative h-8 gap-1.5 border-border text-xs hover:bg-accent',
-              pendingProposal && 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300',
-              proposalOpen && 'z-50 bg-accent text-cyan-300'
+              pendingProposal && 'border-neutral-500/50 bg-neutral-500/10 text-neutral-300',
+              proposalOpen && 'z-50 bg-accent text-neutral-300'
             )}
             onClick={() => setProposalOpen((v) => !v)}
             aria-expanded={proposalOpen}
@@ -506,7 +506,7 @@ ${files.js}
           >
             <Inbox className="h-3 w-3" />
             <span className="hidden sm:inline">Propositions</span>
-            {pendingProposal && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400" />}
+            {pendingProposal && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-neutral-400" />}
           </Button>
 
           <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
@@ -522,7 +522,7 @@ ${files.js}
               variant="outline"
               className={cn(
                 'relative h-8 gap-1.5 border-border text-xs hover:bg-accent',
-                versionsOpen && 'z-50 bg-accent text-cyan-300'
+                versionsOpen && 'z-50 bg-accent text-neutral-300'
               )}
               onClick={() => setVersionsOpen((v) => !v)}
               aria-expanded={versionsOpen}
@@ -531,7 +531,7 @@ ${files.js}
               <History className="h-3 w-3" />
               <span className="hidden sm:inline">Versions</span>
               {versions.length > 0 && (
-                <span className="rounded-full bg-cyan-500/15 px-1.5 text-[10px] font-semibold text-cyan-300">
+                <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
                   {versions.length}
                 </span>
               )}
@@ -549,7 +549,7 @@ ${files.js}
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 gap-1 px-2 text-[10px] text-emerald-300 hover:bg-emerald-500/10"
+                      className="h-6 gap-1 px-2 text-[10px] text-neutral-300 hover:bg-neutral-500/10"
                       onClick={() => {
                         pushVersion(files)
                         toast.success('Version actuelle enregistrée')
@@ -574,7 +574,7 @@ ${files.js}
                             className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             onClick={() => restoreVersion(v)}
                           >
-                            <RotateCcw className="h-3 w-3 shrink-0 text-cyan-400" />
+                            <RotateCcw className="h-3 w-3 shrink-0 text-neutral-400" />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[11px] font-medium text-foreground/90">
                                 #{versions.length - i} · {new Date(v.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -602,7 +602,7 @@ ${files.js}
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 border-border text-xs text-cyan-300 hover:bg-cyan-500/10"
+            className="h-8 gap-1.5 border-border text-xs text-neutral-300 hover:bg-neutral-500/10"
             onClick={() => setAiOpen((v) => !v)}
           >
             <Sparkles className="h-3 w-3" /> IA
@@ -615,8 +615,8 @@ ${files.js}
 
       {/* Barre IA */}
       {aiOpen && (
-        <div className="flex items-center gap-2 border-b border-border/70 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 px-3 py-2">
-          <Wand2 className="h-4 w-4 shrink-0 text-cyan-400" />
+        <div className="flex items-center gap-2 border-b border-border/70 bg-gradient-to-r from-neutral-500/10 to-neutral-500/10 px-3 py-2">
+          <Wand2 className="h-4 w-4 shrink-0 text-neutral-400" />
           <Input
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
@@ -627,7 +627,7 @@ ${files.js}
           />
           <Button
             size="sm"
-            className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 text-white hover:opacity-90"
+            className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 px-4 text-white hover:opacity-90"
             onClick={generateAI}
             disabled={aiLoading || aiPrompt.trim().length === 0}
           >
@@ -639,16 +639,16 @@ ${files.js}
 
       {/* Panneau Propositions : diff relu + validation (jamais d'écriture sans validation) */}
       {proposalOpen && (
-        <div className="border-b border-emerald-500/30 bg-emerald-500/5">
+        <div className="border-b border-neutral-500/30 bg-neutral-500/5">
           {pendingProposal ? (
             <div className="flex flex-col gap-2 px-3 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-neutral-300">
                   💼 Proposition de {pendingProposal.agentEmoji} {pendingProposal.agentName}
                 </span>
                 <span className="text-xs text-foreground/80">— {pendingProposal.title}</span>
                 <span className="ml-auto flex items-center gap-1.5">
-                  <Button size="sm" className="h-7 gap-1 bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-500" onClick={applyProposal}>
+                  <Button size="sm" className="h-7 gap-1 bg-neutral-600 px-3 text-xs text-white hover:bg-neutral-500" onClick={applyProposal}>
                     <Check className="h-3 w-3" /> Valider et appliquer
                   </Button>
                   <Button size="sm" variant="ghost" className="h-7 gap-1 px-3 text-xs text-rose-400 hover:bg-rose-500/10" onClick={rejectProposal}>
@@ -717,7 +717,7 @@ ${files.js}
         <div className="flex min-h-0 w-full flex-1 flex-col">
           {isScript ? (
             <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-3 overflow-y-auto p-6 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-500 to-neutral-600">
                 <FileCode2 className="h-6 w-6 text-white" />
               </span>
               <p className="text-sm font-semibold text-foreground">{files.filename || 'Script'}</p>
@@ -730,7 +730,7 @@ ${files.js}
                 langage (ex : <code className="rounded bg-muted px-1">python {files.filename ?? 'script.py'}</code>
                 {' '}ou dans Roblox Studio pour du Luau).
               </p>
-              <Button size="sm" className="gap-1.5 bg-sky-500 text-white hover:bg-sky-600" onClick={download}>
+              <Button size="sm" className="gap-1.5 bg-neutral-500 text-white hover:bg-sky-600" onClick={download}>
                 <Download className="h-3.5 w-3.5" />
                 Télécharger le script
               </Button>
@@ -779,7 +779,7 @@ ${files.js}
                   )}
                 </div>
                 <div className="flex items-center gap-2 border-t border-border/70 px-3 py-2">
-                  <Terminal className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                  <Terminal className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                   <input
                     value={replInput}
                     onChange={(e) => setReplInput(e.target.value)}
@@ -834,7 +834,7 @@ function ProposalDiff({ base, proposed }: { base: CodeFiles; proposed: CodeFiles
           <div key={s.key} className="overflow-hidden rounded-lg border border-border bg-zinc-950">
             <div className="flex items-center gap-2 border-b border-border/70 bg-card/70 px-2.5 py-1.5">
               <span className="text-[11px] font-semibold text-foreground/90">{s.label}</span>
-              <span className="text-[10px] font-medium text-emerald-400">+{s.stats.added}</span>
+              <span className="text-[10px] font-medium text-neutral-400">+{s.stats.added}</span>
               <span className="text-[10px] font-medium text-rose-400">−{s.stats.removed}</span>
             </div>
             <div className="max-h-72 overflow-y-auto p-0 font-mono text-[11px] leading-[1.5]" style={{ scrollbarWidth: 'thin' }}>
@@ -848,7 +848,7 @@ function ProposalDiff({ base, proposed }: { base: CodeFiles; proposed: CodeFiles
                     key={`l-${i}`}
                     className={cn(
                       'whitespace-pre-wrap break-words px-3',
-                      line.type === 'add' && 'bg-emerald-500/15 text-emerald-300',
+                      line.type === 'add' && 'bg-neutral-500/15 text-neutral-300',
                       line.type === 'del' && 'bg-rose-500/15 text-rose-300',
                       line.type === 'ctx' && 'text-foreground/50'
                     )}

@@ -141,7 +141,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
             )}
           >
             {active && (
-              <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-gradient-to-b from-cyan-400 to-emerald-400" aria-hidden />
+              <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground/70" aria-hidden />
             )}
             <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground/80')} />
             <span className="flex-1">{item.label}</span>
@@ -177,7 +177,7 @@ function AccountMenu() {
 
   const profile = user.profile ?? {}
   const label = profile.displayName || user.name || user.email.split('@')[0]
-  const color = profile.avatarColor ?? '#22d3ee'
+  const color = profile.avatarColor ?? '#ffffff'
   const initial = label.trim().charAt(0).toUpperCase()
 
   return (
@@ -240,7 +240,7 @@ function NexusApp() {
     return (
       <div className="flex h-dvh items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent" />
           <p className="text-xs text-muted-foreground">Ouverture de votre espace…</p>
         </div>
       </div>

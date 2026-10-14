@@ -211,7 +211,7 @@ export function ApiKeysPanel() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl space-y-5 p-6">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-300/20 to-neutral-500/20">
             <KeyRound className="h-5 w-5 text-amber-300" />
           </div>
           <div>
@@ -263,7 +263,7 @@ export function ApiKeysPanel() {
                     ))}
                   </select>
                 </div>
-                <Button onClick={create} disabled={creating} className="w-full gap-2 bg-amber-600 hover:bg-amber-500">
+                <Button onClick={create} disabled={creating} className="w-full gap-2 bg-amber-600 hover:bg-neutral-300">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                   Générer la clé
                 </Button>
@@ -287,13 +287,13 @@ export function ApiKeysPanel() {
                       className={cn(
                         'w-full rounded-xl border p-3 text-left transition-all',
                         selectedId === k.id
-                          ? 'border-amber-500/40 bg-amber-500/10'
+                          ? 'border-neutral-300/40 bg-neutral-300/10'
                           : 'border-border/70 bg-muted/20 hover:bg-muted/40'
                       )}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium text-foreground">{k.name}</span>
-                        <span className={cn('h-2 w-2 shrink-0 rounded-full', k.enabled ? 'bg-emerald-400' : 'bg-zinc-500')} />
+                        <span className={cn('h-2 w-2 shrink-0 rounded-full', k.enabled ? 'bg-neutral-400' : 'bg-zinc-500')} />
                       </div>
                       <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                         {k.prefix}••••{k.last4}
@@ -320,7 +320,7 @@ export function ApiKeysPanel() {
             ) : (
               <>
                 {/* Secret + intégration */}
-                <Card className="border-amber-500/30 bg-amber-500/5">
+                <Card className="border-neutral-300/30 bg-neutral-300/5">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-base">
                       <ShieldCheck className="h-4 w-4 text-amber-400" /> Clé secrète
@@ -331,7 +331,7 @@ export function ApiKeysPanel() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {secret ? (
-                      <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-background/60 p-2">
+                      <div className="flex items-center gap-2 rounded-lg border border-neutral-300/30 bg-background/60 p-2">
                         <code className="min-w-0 flex-1 truncate font-mono text-xs text-amber-200">
                           {showSecret[selected.id] ? secret : `${secret.slice(0, 8)}${'•'.repeat(24)}${secret.slice(-4)}`}
                         </code>
@@ -553,7 +553,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                   <Button variant="ghost" onClick={() => removeKey(selected.id)} className="gap-1.5 text-rose-300">
                     <Trash2 className="h-4 w-4" /> Supprimer la clé
                   </Button>
-                  <Button onClick={saveKey} disabled={saving} className="gap-2 bg-cyan-600 hover:bg-cyan-500">
+                  <Button onClick={saveKey} disabled={saving} className="gap-2 bg-neutral-500 hover:bg-neutral-500">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Enregistrer
                   </Button>
@@ -563,7 +563,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                 <Card className="border-border/70 bg-card/60">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-base">
-                      <Play className="h-4 w-4 text-emerald-400" /> Tester cette clé
+                      <Play className="h-4 w-4 text-neutral-400" /> Tester cette clé
                     </CardTitle>
                     <CardDescription className="text-xs">
                       Exactement l&apos;appel que fera le site de votre client.
@@ -577,7 +577,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                         placeholder="Message du visiteur…"
                         className="min-w-[220px] flex-1"
                       />
-                      <Button onClick={testKey} disabled={testing} className="gap-2 bg-emerald-600 hover:bg-emerald-500">
+                      <Button onClick={testKey} disabled={testing} className="gap-2 bg-neutral-600 hover:bg-neutral-500">
                         {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                         Envoyer
                       </Button>
@@ -585,12 +585,12 @@ console.log(reply)`, 'Snippet JS copié')}>
                     {testOut && (
                       <div className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-3">
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                          <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-cyan-200">
+                          <span className="rounded-full bg-neutral-500/15 px-2 py-0.5 text-neutral-300">
                             source : {testOut.source}
                           </span>
                           <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{testOut.ms} ms</span>
                           {testOut.matched && (
-                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">
+                            <span className="rounded-full bg-neutral-300/15 px-2 py-0.5 text-amber-200">
                               règle : « {testOut.matched} »
                             </span>
                           )}
@@ -605,7 +605,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                 <Card className="border-border/70 bg-card/60">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base">
-                      <Activity className="h-4 w-4 text-sky-400" /> Derniers appels
+                      <Activity className="h-4 w-4 text-neutral-400" /> Derniers appels
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -616,7 +616,7 @@ console.log(reply)`, 'Snippet JS copié')}>
                         {logs.map((l) => (
                           <div key={l.id} className="rounded-lg border border-border/60 bg-muted/20 p-2 text-[11px]">
                             <div className="flex items-center gap-2 text-muted-foreground">
-                              <span className={cn('h-1.5 w-1.5 rounded-full', l.ok ? 'bg-emerald-400' : 'bg-amber-400')} />
+                              <span className={cn('h-1.5 w-1.5 rounded-full', l.ok ? 'bg-neutral-400' : 'bg-amber-400')} />
                               <span>{new Date(l.at).toLocaleString('fr-FR')}</span>
                               <span>· {l.ms} ms</span>
                             </div>
@@ -702,7 +702,7 @@ function RuleRow({ rule, index, onChange, onRemove }: { rule: ReplyRule; index: 
           placeholder="Cela doit probablement être dû à la carte mère."
         />
       </div>
-      <p className="flex items-center gap-1 text-[10px] text-emerald-300/80">
+      <p className="flex items-center gap-1 text-[10px] text-neutral-300/80">
         <Check className="h-3 w-3" /> Réponse garantie à l&apos;identique, sans passage par le cerveau.
       </p>
     </div>

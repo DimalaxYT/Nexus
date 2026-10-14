@@ -7,6 +7,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import { useTheme } from 'next-themes'
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,7 +16,9 @@ import {
   Loader2,
   Lock,
   Mail,
+  Moon,
   ShieldCheck,
+  Sun,
   UserPlus,
   Workflow,
   Zap,
@@ -32,6 +35,22 @@ const MARKETING_POINTS = [
   { icon: Workflow, text: 'Blueprints : dessinez le schéma de vos agents sur canvas.' },
   { icon: ShieldCheck, text: 'Historique, mémoires et clés API cloisonnés par compte.' },
 ]
+
+function ThemeToggleCorner() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="absolute right-5 top-5 z-10 h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+    >
+      <Sun className="h-4 w-4 dark:hidden" />
+      <Moon className="hidden h-4 w-4 dark:block" />
+    </Button>
+  )
+}
 
 export function AuthGate() {
   const { login, register, accountsExist, accountCount } = useAuth()
@@ -63,13 +82,14 @@ export function AuthGate() {
 
   return (
     <div className="relative flex min-h-dvh bg-background text-foreground">
+      <ThemeToggleCorner />
       {/* Décor aurore */}
       <div className="pointer-events-none absolute inset-0 bg-aurora" aria-hidden />
 
       {/* ── Panneau de marque (desktop) ─────────────────────────────────── */}
       <aside className="relative hidden w-[46%] shrink-0 flex-col justify-between overflow-hidden border-r border-border/60 p-10 lg:flex">
         <div className="pointer-events-none absolute inset-0 bg-grid" aria-hidden />
-        <div className="pointer-events-none absolute -left-24 top-1/3 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -left-24 top-1/3 h-96 w-96 rounded-full bg-neutral-400/10 blur-3xl" aria-hidden />
 
         <Link href="/" className="relative flex items-center gap-2.5 text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
@@ -79,7 +99,7 @@ export function AuthGate() {
         <div className="relative">
           <div className="mb-8 flex items-center gap-3">
             <span
-              className="flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-[#071016] shadow-glow"
+              className="flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-[#0a0a0a] shadow-glow"
               style={{ background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})` }}
             >
               {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : 'N'}
@@ -97,7 +117,7 @@ export function AuthGate() {
               const Icon = point.icon
               return (
                 <li key={point.text} className="flex items-center gap-3 text-sm text-foreground/80">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-400/25 bg-cyan-400/10 text-cyan-300">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/50 text-foreground">
                     <Icon className="h-4.5 w-4.5" />
                   </span>
                   {point.text}
@@ -119,7 +139,7 @@ export function AuthGate() {
           {/* Marque compacte (mobile) */}
           <div className="mb-8 flex flex-col items-center text-center lg:hidden">
             <span
-              className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-[#071016] shadow-glow"
+              className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-[#0a0a0a] shadow-glow"
               style={{ background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})` }}
             >
               {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : <Bot className="h-6 w-6" />}
@@ -144,7 +164,7 @@ export function AuthGate() {
                 className={cn(
                   'rounded-lg px-3 py-2 text-sm font-medium transition-all',
                   mode === m
-                    ? 'bg-gradient-to-r from-cyan-500/90 to-emerald-400/90 text-[#071016] shadow'
+                    ? 'bg-foreground text-background shadow'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -154,7 +174,7 @@ export function AuthGate() {
           </div>
 
           {mode === 'register' && !accountsExist && (
-            <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3.5 text-xs leading-relaxed text-emerald-200">
+            <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-border bg-muted/50 p-3.5 text-xs leading-relaxed text-foreground/80">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
               <p>
                 Aucun compte sur cette instance : celui-ci deviendra le <strong>compte propriétaire</strong> et
@@ -236,7 +256,7 @@ export function AuthGate() {
             <Button
               type="submit"
               disabled={busy}
-              className="h-11 w-full gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-400 font-semibold text-[#071016] shadow-glow transition-transform hover:scale-[1.01]"
+              className="h-11 w-full gap-2 rounded-xl bg-foreground font-semibold text-background transition-transform hover:scale-[1.01] hover:opacity-90"
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -262,7 +282,7 @@ export function AuthGate() {
               Accueil
             </Link>
             <p className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
+              <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
               Identifiants & conversations stockés sur ce serveur uniquement.
             </p>
           </div>

@@ -193,8 +193,8 @@ function sourceHints(text: string): SourceKey[] {
 
 const VIRTUAL_TEAM: NexusAgent[] = [
   { id: 'virtual-scout', name: 'Scout', emoji: '🔎', role: 'chercheur', description: 'Chercheur web — trouve les meilleures sources', prompt: '', specialties: ['google', 'youtube'], color: '#38bdf8', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
-  { id: 'virtual-analyste', name: 'Analyste', emoji: '🧠', role: 'analyste', description: 'Extrait et retient les points clés', prompt: '', specialties: ['analyse'], color: '#22d3ee', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
-  { id: 'virtual-redacteur', name: 'Rédacteur', emoji: '✍️', role: 'redacteur', description: 'Rédige la synthèse finale', prompt: '', specialties: ['redaction'], color: '#34d399', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
+  { id: 'virtual-analyste', name: 'Analyste', emoji: '🧠', role: 'analyste', description: 'Extrait et retient les points clés', prompt: '', specialties: ['analyse'], color: '#ffffff', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
+  { id: 'virtual-redacteur', name: 'Rédacteur', emoji: '✍️', role: 'redacteur', description: 'Rédige la synthèse finale', prompt: '', specialties: ['redaction'], color: '#a3a3a3', enabled: true, writer: false, blueprintId: '', systemKey: '', createdAt: 0 },
 ]
 
 /** Charge l'équipe activée ; si l'utilisateur a désigné des agents pour cette

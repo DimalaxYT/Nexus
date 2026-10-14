@@ -31,7 +31,7 @@ const TONES = [
   { id: 'pedagogue', label: 'Pédagogue', hint: 'explique pas à pas' },
 ] as const
 
-const COLORS = ['#22d3ee', '#38bdf8', '#34d399', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#c084fc']
+const COLORS = ['#ffffff', '#38bdf8', '#a3a3a3', '#a3a3a3', '#fbbf24', '#f87171', '#60a5fa', '#c084fc']
 
 interface Stats {
   conversations: number
@@ -61,7 +61,7 @@ export function AccountPanel() {
   const [greeting, setGreeting] = useState(profile.greeting ?? '')
   const [company, setCompany] = useState(profile.company ?? '')
   const [website, setWebsite] = useState(profile.website ?? '')
-  const [color, setColor] = useState(profile.avatarColor ?? '#22d3ee')
+  const [color, setColor] = useState(profile.avatarColor ?? '#ffffff')
 
   const [saving, setSaving] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -154,7 +154,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <UserIcon className="h-4 w-4 text-cyan-400" /> Identité
+              <UserIcon className="h-4 w-4 text-neutral-400" /> Identité
             </CardTitle>
             <CardDescription className="text-xs">Nom affiché et adresse e-mail de connexion.</CardDescription>
           </CardHeader>
@@ -174,7 +174,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-cyan-400" /> Personnalisation de NEXUS
+              <Sparkles className="h-4 w-4 text-neutral-400" /> Personnalisation de NEXUS
             </CardTitle>
             <CardDescription className="text-xs">
               Ces réglages sont propres à <strong>ce compte</strong> : NEXUS adopte votre ton, votre prénom et vos
@@ -215,7 +215,7 @@ export function AccountPanel() {
                     className={
                       'rounded-full border px-3 py-1.5 text-xs transition-all ' +
                       (tone === t.id
-                        ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200'
+                        ? 'border-neutral-500/50 bg-neutral-500/15 text-neutral-300'
                         : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground')
                     }
                   >
@@ -279,7 +279,7 @@ export function AccountPanel() {
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={save} disabled={saving} className="gap-2 bg-cyan-600 hover:bg-cyan-500">
+              <Button onClick={save} disabled={saving} className="gap-2 bg-neutral-500 hover:bg-neutral-500">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Enregistrer
               </Button>
@@ -291,7 +291,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" /> Sécurité
+              <ShieldCheck className="h-4 w-4 text-neutral-400" /> Sécurité
             </CardTitle>
             <CardDescription className="text-xs">
               Le mot de passe est haché en local (scrypt) — il n&apos;est jamais stocké en clair.
@@ -340,7 +340,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Palette className="h-4 w-4 text-sky-400" /> Mes données
+              <Palette className="h-4 w-4 text-neutral-400" /> Mes données
             </CardTitle>
             <CardDescription className="text-xs">
               Tout ce qui est listé ci-dessous n&apos;appartient qu&apos;à ce compte.
