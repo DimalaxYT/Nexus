@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCw,
   Save,
   ShieldCheck,
   Terminal,
@@ -27,7 +28,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { MATCH_MODES, type ReplyRule } from '@/lib/rules'
-import type { ApiKeyConfig, ApiKeyInfo } from '@/lib/api-keys'
+import { PERSONAL_KEY_POLICY, type ApiKeyConfig, type ApiKeyInfo } from '@/lib/api-keys'
 import type { BlueprintSummary, NexusAgent } from '@/lib/nexus-types'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +59,8 @@ export function ApiKeysPanel() {
   const [newName, setNewName] = useState('')
   const [newAgent, setNewAgent] = useState('')
   const [newBlueprint, setNewBlueprint] = useState('')
+  const [newPersonal, setNewPersonal] = useState(false)
+  const [newLifetime, setNewLifetime] = useState(90)
   const [creating, setCreating] = useState(false)
 
   // Édition de la clé sélectionnée
@@ -124,7 +127,7 @@ export function ApiKeysPanel() {
       const res = await fetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim() || 'Clé API', agentId: newAgent, blueprintId: newBlueprint, config: DEFAULT_CONFIG }),
+        body: JSON.stringify({ name: newName.trim() || 'Clé API', agentId: newAgent, blueprintId: newBlueprint, config: DEFAULT_CONFIG, personalUse: newPersonal, lifetimeDays: newLifetime }),
       })
       const data = (await res.json()) as { key?: ApiKeyInfo; secret?: string; error?: string }
       if (!res.ok || !data.key) throw new Error(data.error ?? 'Création impossible')
@@ -132,6 +135,7 @@ export function ApiKeysPanel() {
       setNewName('')
       setNewAgent('')
       setNewBlueprint('')
+      setNewPersonal(false)
       setSelectedId(data.key.id)
       toast.success('Clé créée — copiez-la maintenant, elle ne sera plus affichée.')
       await load()
@@ -159,6 +163,23 @@ export function ApiKeysPanel() {
       toast.error(err instanceof Error ? err.message : 'Mise à jour impossible')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Renouvellement : repousse l'échéance (durées autorisées par la politique personnelle).
+  const renewKey = async (id: string, days: number) => {
+    try {
+      const res = await fetch(`/api/keys/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ renewDays: days }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Renouvellement impossible')
+      toast.success(`Clé renouvelée pour ${days} jours`)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Renouvellement impossible')
     }
   }
 
@@ -263,7 +284,27 @@ export function ApiKeysPanel() {
                     ))}
                   </select>
                 </div>
-                <Button onClick={create} disabled={creating} className="w-full gap-2 bg-amber-600 hover:bg-neutral-300">
+                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <p className="text-[11px] font-semibold text-foreground">Usage personnel et non commercial</p>
+                  <p className="text-[10px] leading-relaxed text-muted-foreground">
+                    Ces clés servent à ton usage personnel (projets, tests, apprentissage). Elles ne sont pas destinées à être revendues
+                    ni à alimenter un service commercial. Chaque clé expire et doit être renouvelée. Maximum 5 clés actives par compte.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-foreground">
+                    <input type="checkbox" className="mt-0.5" checked={newPersonal} onChange={(e) => setNewPersonal(e.target.checked)} />
+                    Je certifie un usage personnel et non commercial de cette clé.
+                  </label>
+                  <select
+                    value={newLifetime}
+                    onChange={(e) => setNewLifetime(Number(e.target.value))}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none"
+                  >
+                    <option value={30}>Valable 30 jours</option>
+                    <option value={90}>Valable 90 jours (recommandé)</option>
+                    <option value={365}>Valable 1 an</option>
+                  </select>
+                </div>
+                <Button onClick={create} disabled={creating || !newPersonal} className="w-full gap-2 bg-amber-600 hover:bg-neutral-300">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                   Générer la clé
                 </Button>
@@ -301,6 +342,13 @@ export function ApiKeysPanel() {
                       <p className="mt-0.5 text-[10px] text-muted-foreground/80">
                         {Number(k.totalCalls ?? 0)} appel(s){k.config?.rules?.length ? ` · ${k.config.rules.length} règle(s)` : ''}
                       </p>
+                      {k.config?.expiresAt ? (
+                        <p className={cn('mt-0.5 text-[10px]', Date.parse(k.config.expiresAt) <= Date.now() ? 'text-rose-300' : 'text-muted-foreground/80')}>
+                          {Date.parse(k.config.expiresAt) <= Date.now()
+                            ? 'Expirée — supprime-la et crée-en une nouvelle'
+                            : `Expire le ${new Date(k.config.expiresAt).toLocaleDateString('fr-FR')}`}
+                        </p>
+                      ) : null}
                     </button>
                   ))
                 )}
@@ -549,7 +597,21 @@ console.log(reply)`, 'Snippet JS copié')}>
                   </CardContent>
                 </Card>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {selected.config?.expiresAt ? (
+                    <div className="mr-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span>
+                        {Date.parse(selected.config.expiresAt) <= Date.now()
+                          ? 'Clé expirée — elle ne répond plus.'
+                          : `Expire le ${new Date(selected.config.expiresAt).toLocaleDateString('fr-FR')}`}
+                      </span>
+                      {PERSONAL_KEY_POLICY.lifetimesDays.map((d) => (
+                        <Button key={d} size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => renewKey(selected.id, d)}>
+                          <RotateCw className="h-3 w-3" /> Renouveler {d} j
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
                   <Button variant="ghost" onClick={() => removeKey(selected.id)} className="gap-1.5 text-rose-300">
                     <Trash2 className="h-4 w-4" /> Supprimer la clé
                   </Button>

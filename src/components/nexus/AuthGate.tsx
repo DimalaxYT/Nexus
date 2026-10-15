@@ -3,7 +3,7 @@
 // ─── NEXUS — Porte d'entrée de l'application (connexion / création) ──────────
 // Écran d'accès à /app : tant que l'utilisateur n'est pas connecté, aucune
 // fonction n'est montée. Flux complet :
-//   connexion → code de vérification e-mail (2FA) → session
+//   connexion e-mail + mot de passe → session (une seule étape, sans 2FA)
 //   mot de passe oublié → code e-mail → nouveau mot de passe
 // Identité monochrome : noir #000 / gris foncé #1A1A1A / gris #6B6B6B / blanc.
 
@@ -38,7 +38,7 @@ type Screen = 'login' | 'register' | 'forgot' | 'reset'
 const MARKETING_POINTS = [
   { icon: Zap, text: 'Cerveau local — réflexions en moins de 50 ms, sans service externe.' },
   { icon: Workflow, text: 'Blueprints : dessinez le schéma de vos agents sur canvas.' },
-  { icon: ShieldCheck, text: 'Connexion confirmée par un code e-mail (2FA) à chaque fois.' },
+  { icon: ShieldCheck, text: 'Connexion simple : e-mail + mot de passe, sans code à chaque fois.' },
 ]
 
 function ThemeToggleCorner() {

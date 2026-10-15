@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { BlueprintEditor } from '@/components/nexus/BlueprintEditor'
+import { BlueprintAutomation } from '@/components/nexus/BlueprintAutomation'
 import { useNexusStore } from '@/lib/store'
 import { nodeSpec, type BlueprintSummary, type NexusAgent } from '@/lib/nexus-types'
 import { cn } from '@/lib/utils'
@@ -154,6 +155,8 @@ export function BlueprintsPanel() {
             </p>
           </div>
         </div>
+
+        <BlueprintAutomation blueprints={blueprints} onChanged={load} />
 
         {/* Nouveau schéma */}
         <Card className="border-border/70 bg-card/60">

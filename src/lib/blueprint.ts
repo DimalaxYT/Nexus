@@ -18,6 +18,9 @@ import type { BlueprintEdge, BlueprintGraph, BlueprintNode, BlueprintNodeType } 
 import { webSearch, readWebpage } from '@/lib/brain/search'
 import { evaluateMath } from '@/lib/brain/math-engine'
 import { fetchGithubActivity, fetchRecentEmails } from '@/lib/connections-tools'
+import { createHash } from 'crypto'
+import { sendPlainMail } from '@/lib/mailer'
+import { validateSafeExternalUrl } from '@/lib/security'
 
 export interface BlueprintStep {
   nodeId: string
@@ -38,6 +41,8 @@ export interface RunOptions {
   timeoutMs?: number
   /** Suivi en direct (étapes affichées dans le chat). */
   onStep?: (step: BlueprintStep) => void
+  /** Blueprint exécuté (sert à mémoriser l'état des surveillances de sites). */
+  blueprintId?: string
 }
 
 export interface RunResult {
@@ -219,6 +224,78 @@ async function runToolNode(tool: string, argument: string, message: string, ms: 
   } catch (err) {
     return `Outil « ${tool} » en échec : ${err instanceof Error ? err.message : 'erreur'}`
   }
+}
+
+/** Surveillance d'un site : compare la page à la dernière visite (empreinte SHA-256). */
+async function runWatchNode(
+  node: BlueprintNode,
+  vars: Record<string, string>,
+  ms: number,
+  blueprintId: string
+): Promise<{ ok: boolean; text: string; changed: 'initial' | 'oui' | 'non'; found: boolean; title: string; excerpt: string }> {
+  const fail = (text: string) => ({ ok: false, text, changed: 'non' as const, found: false, title: '', excerpt: '' })
+  const rawUrl = subst(cfgStr(node, 'url'), vars).trim()
+  const safe = await validateSafeExternalUrl(rawUrl)
+  if (!safe.ok || !safe.url) return fail(`URL refusée : ${safe.reason ?? 'adresse invalide'}`)
+  const page = await withTimeout(readWebpage(safe.url, 6000), Math.min(ms, 20_000), null)
+  if (!page || !String(page.text ?? '').trim()) return fail('Page illisible ou vide.')
+  const text = String(page.text).replace(/\s+/g, ' ').trim().slice(0, 6000)
+  const digest = createHash('sha256').update(text).digest('hex')
+
+  // Mémoire de la dernière visite : une ligne SiteSetting par (blueprint, nœud, adresse).
+  const key = `bp.watch.${blueprintId || 'libre'}.${node.id}.${createHash('sha1').update(safe.url).digest('hex').slice(0, 12)}`
+  let previous = ''
+  try {
+    const row = (await db.siteSetting.findUnique({ where: { key } })) as { value?: unknown } | null
+    if (row) previous = String((JSON.parse(String(row.value ?? '{}')) as { digest?: string }).digest ?? '')
+  } catch {
+    previous = ''
+  }
+  const payload = JSON.stringify({ digest, at: new Date().toISOString(), url: safe.url })
+  try {
+    if (previous || (await db.siteSetting.findUnique({ where: { key } }))) {
+      await db.siteSetting.update({ where: { key }, data: { value: payload, updatedBy: 'blueprint' } })
+    } else {
+      await db.siteSetting.create({ data: { key, value: payload, updatedBy: 'blueprint' } })
+    }
+  } catch {
+    /* mémoire indisponible : la surveillance reste utilisable */
+  }
+
+  const keyword = subst(cfgStr(node, 'keyword'), vars).trim().toLowerCase()
+  const found = keyword ? text.toLowerCase().includes(keyword) : true
+  const changed: 'initial' | 'oui' | 'non' = !previous ? 'initial' : previous === digest ? 'non' : 'oui'
+  return { ok: true, text: changed === 'oui' ? 'Le contenu a changé depuis la dernière visite.' : changed === 'initial' ? 'Première visite : contenu mémorisé.' : 'Aucun changement.', changed, found, title: String(page.title ?? '').slice(0, 160), excerpt: text.slice(0, 1200) }
+}
+
+/** Informer l'utilisateur : notification dans NEXUS et/ou e-mail (SMTP configuré). */
+async function runNotifyNode(node: BlueprintNode, vars: Record<string, string>, userId?: string | null): Promise<{ ok: boolean; detail: string }> {
+  const title = subst(cfgStr(node, 'title', 'NEXUS'), vars).slice(0, 120) || 'NEXUS'
+  const body = subst(cfgStr(node, 'body', '{{reponse}}'), vars).slice(0, 4000)
+  const channel = cfgStr(node, 'channel', 'inapp')
+  const parts: string[] = []
+  let ok = true
+  if (channel !== 'email') {
+    try {
+      await db.notification.create({ data: { userId: userId ?? '', title, body, source: 'blueprint', read: false } })
+      parts.push('notification NEXUS')
+    } catch (err) {
+      ok = false
+      parts.push(`notification impossible (${err instanceof Error ? err.message : 'erreur'})`)
+    }
+  }
+  if (channel !== 'inapp') {
+    const user = userId ? ((await db.user.findUnique({ where: { id: userId } })) as { email?: string } | null) : null
+    if (!user?.email) {
+      ok = false
+      parts.push('e-mail : aucune adresse sur le compte')
+    } else {
+      const r = await sendPlainMail(user.email, `[NEXUS] ${title}`, body)
+      if (!r.sent) ok = false
+      parts.push(r.sent ? 'e-mail envoyé' : `e-mail non envoyé (${r.error ?? 'erreur'})`)
+    }
+  }
+  return { ok, detail: parts.join(' · ') || 'aucun canal' }
 }
 
 /** Appel HTTP sortant (webhook) — vers VOTRE infrastructure, jamais unLLM. */
@@ -430,6 +507,29 @@ export async function runBlueprintGraph(graph: BlueprintGraph, options: RunOptio
       emit({ ...stepBase, label: 'Webhook', detail: ok ? 'réponse reçue' : text.slice(0, 120), status: ok ? 'done' : 'error' })
       const branch = ok ? undefined : edges.find((e) => e.from === node.id && e.fromPort === 'error')
       current = byId.get(branch?.to ?? nextEdge(edges, node.id, 'out')?.to ?? '')
+      continue
+    }
+
+    // ── Surveillance de site ────────────────────────────────────────────────
+    if (node.type === 'watch') {
+      emit({ ...stepBase, label: 'Surveillance', detail: 'lecture de la page…', status: 'running' })
+      const w = await runWatchNode(node, vars, remaining, options.blueprintId ?? '')
+      const name = cfgStr(node, 'variable', 'veille') || 'veille'
+      vars[name] = w.excerpt
+      vars[`${name}_titre`] = w.title
+      vars[`${name}_changed`] = w.changed
+      vars[`${name}_found`] = w.found ? 'oui' : 'non'
+      emit({ ...stepBase, label: 'Surveillance', detail: w.ok ? `${w.text}${cfgStr(node, 'keyword') ? ` · mot-clé ${w.found ? 'trouvé' : 'absent'}` : ''}` : w.text, status: w.ok ? 'done' : 'error' })
+      const branch = w.ok ? undefined : edges.find((e) => e.from === node.id && e.fromPort === 'error')
+      current = byId.get(branch?.to ?? nextEdge(edges, node.id, 'out')?.to ?? '')
+      continue
+    }
+
+    // ── Informer l'utilisateur ──────────────────────────────────────────────
+    if (node.type === 'notify') {
+      const n = await runNotifyNode(node, vars, options.userId)
+      emit({ ...stepBase, label: 'Information', detail: n.detail, status: n.ok ? 'done' : 'error' })
+      current = byId.get(nextEdge(edges, node.id, 'out')?.to ?? '')
       continue
     }
 

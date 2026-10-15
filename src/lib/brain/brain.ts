@@ -30,6 +30,11 @@ import { extractMemories, extractExplicitRetention, autoTitle } from './memory-r
 import * as R from './responder'
 import { stems } from './text'
 import { llmComplete, llmStream, extractJson, type LlmMessage } from '@/lib/llm'
+import { triageEmails, triageMarkdown, triageFactsBlock } from '@/lib/mail-triage'
+
+/** Nombre de mails lus pour une vérification / un tri (au lieu de 6). */
+const MAIL_TRIAGE_SIZE = 25
+const frDateShort = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 import { startMissionRun } from '@/lib/mission-runner'
 import { runEnsemble, personaSystemPrompt, NEXUS_SPEAKER } from './ensemble'
 import { fetchRecentEmails, fetchGithubActivity, fetchTikTokProfile, emailFactsBlock, githubFactsBlock, tiktokFactsBlock } from '../connections-tools'
@@ -748,16 +753,30 @@ async function skillYouTubeWatch(ctx: Ctx): Promise<string> {
 
 const noAccents = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
+const MAIL_NOUN = '(mails?|e-?mails?|courriels?|messagerie|boite (?:mail|mails|de reception)|inbox|gmail)'
+const MAIL_VERB_READ = '(lis|lire|regarde|regarder|verifie|verifier|check|ouvre|ouvrir|montre|affiche|consulte|consulter|controle|controler|scanne|scanner|parcours|parcourir|resume|resumer|analyse|analyser|fais le point|dis moi ce que)'
+const MAIL_VERB_SORT = '(tri|trie|trier|triez|classe|classer|range|ranger|organise|organiser|priorise|prioriser|categorise|categoriser|filtre|filtrer|separe|separer)'
+
 /** « lis ma boîte mail », « mes mails », « tu as de nouveaux mails ? »… */
 export function isInboxRequest(text: string): boolean {
   const t = noAccents(text.toLowerCase())
-  if (/\b(genere|cree|fabrique|ecri[s]?[t]?|programme)\b/.test(t) && !/\bmail|boite/.test(t)) return false
+  // Une demande de CRÉATION (« écris un script qui trie mes mails », « crée une page… ») n'est pas une lecture.
+  if (/^\s*(ecri[sv]?|cree[rz]?|genere[rz]?|fabrique[rz]?|programme[rz]?|developpe[rz]?|fais (moi )?(un|une|des))\b/.test(t)) return false
   return (
-    /\b(lis|lire|regarde|regarder|verifie|check|ouvre|montre|affiche|consulte)\b[^.?!]{0,30}\b(ma|mes|la|mon|des)?\s*(mails?|boite mail|courriels?|inbox)\b/.test(t) ||
-    /\b(ma|mes)\s+(mails?|boite mail|courriels?|inbox)\b/.test(t) ||
-    /\b(nouveaux?|nouveautes?|derniers?)\s+mails?\b/.test(t) ||
-    /\bai[- ]je\s+(des|de|mes)\s+mails?\b/.test(t)
+    new RegExp(`\\b${MAIL_VERB_READ}\\b[^.?!]{0,40}\\b(ma|mes|la|mon|des|les|tes|ses|nos|vos|mon|ta|sa)?\\s*${MAIL_NOUN}\\b`).test(t) ||
+    new RegExp(`\\b${MAIL_VERB_SORT}\\b[^.?!]{0,40}\\b${MAIL_NOUN}\\b`).test(t) ||
+    new RegExp(`\\b${MAIL_NOUN}\\b[^.?!]{0,30}\\b(${MAIL_VERB_SORT.slice(1, -1)}|nouveaux?|non lus?|urgents?|importants?|${MAIL_VERB_READ.slice(1, -1)})\\b`).test(t) ||
+    /\b(ma|mes)\s+(mails?|boite mail|courriels?|inbox|e-?mails?)\b/.test(t) ||
+    /\b(nouveaux?|nouveautes?|derniers?)\s+(mails?|e-?mails?|courriels?)\b/.test(t) ||
+    /\bai[- ]je\s+(des|de|mes)\s+(mails?|e-?mails?|courriels?)\b/.test(t)
   )
+}
+
+/** Demande de VÉRIFICATION / TRI de la boîte (et non une simple lecture) : « trie mes mails », « classe-les »… */
+export function isMailTriageRequest(text: string): boolean {
+  const t = noAccents(text.toLowerCase())
+  if (!isInboxRequest(text)) return false
+  return new RegExp(`\\b${MAIL_VERB_SORT}\\b`).test(t) || /\b(verifie|verifier|controle|controler|check|fais le point|priorite|prioritaire|urgent|importants?)\b/.test(t)
 }
 
 /** « mes repos GitHub », « mes notifications GitHub », « regarde mon GitHub »… */
@@ -787,16 +806,22 @@ export function isTiktokAccountRequest(text: string): boolean {
 }
 
 /** Lecture réelle de la boîte mail connectée (chemin déterministe). */
-async function skillCheckEmail(ctx: Ctx): Promise<string> {
-  const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
+async function skillCheckEmail(ctx: Ctx, triage = false): Promise<string> {
+  const s = makeStep('check_email', 'Boîte mail', triage ? 'vérification et tri des mails' : 'lecture IMAP de la boîte connectée')
   ctx.send({ type: 'step', ...s, status: 'running' })
-  ctx.send({ type: 'thought', text: 'Connexion IMAP réelle à la boîte Gmail reliée (le mot de passe d\'application est stocké localement) : je récupère les derniers mails avec expéditeurs, sujets, dates et extraits.' })
-  const result = await fetchRecentEmails(6, undefined, ctx.userId ?? null)
+  ctx.send({
+    type: 'thought',
+    text: triage
+      ? 'Connexion IMAP réelle à la boîte Gmail reliée : je lis les 25 derniers mails (expéditeur, sujet, date, extrait), puis je les classe par catégorie. Aucune recherche web.'
+      : 'Connexion IMAP réelle à la boîte Gmail reliée (le mot de passe d\'application est stocké localement) : je récupère les derniers mails avec expéditeurs, sujets, dates et extraits.',
+  })
+  const result = await fetchRecentEmails(triage ? MAIL_TRIAGE_SIZE : 6, undefined, ctx.userId ?? null)
   if (!result.ok) {
     ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: result.note ?? 'boîte inaccessible', status: 'error' })
     return result.note?.startsWith('Aucun compte') ? R.notConnected('Gmail') : `Je n'ai pas réussi à lire ta boîte mail : ${result.note ?? 'erreur inconnue'}. Réessaie dans un instant — ou vérifie la connexion dans le panneau **Connexions**.`
   }
   ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: `${result.emails.length} mail(s) lus en direct`, status: 'done' })
+  if (triage) return triageMarkdown(triageEmails(result.emails), frDateShort)
   return R.emailAnswer(result.emails)
 }
 
@@ -1082,7 +1107,7 @@ async function executeTool(call: ToolCall, ctx: Ctx): Promise<{ result: string; 
     return { result: 'Aucune mission trouvée en base.' }
   }
   if (tool === 'check_email') {
-    const max = Math.min(8, Math.max(3, typeof call.max === 'number' ? call.max : 6))
+    const max = Math.min(MAIL_TRIAGE_SIZE, Math.max(3, typeof call.max === 'number' ? call.max : 6))
     const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
     ctx.send({ type: 'step', ...s, status: 'running' })
     const result = await fetchRecentEmails(max, undefined, ctx.userId ?? null)
@@ -1347,10 +1372,11 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     finalText = await skillYouTubeWatch(ctx)
     handled = true
   } else if (isInboxRequest(lastUser)) {
-    // « Lis ma boîte mail » : lecture IMAP RÉELLE de la boîte connectée —
-    // chemin déterministe, pas de LLM requis.
-    send({ type: 'step', ...analysisStep, detail: 'boîte mail connectée → lecture IMAP réelle', status: 'done' })
-    finalText = await skillCheckEmail(ctx)
+    // « Lis / vérifie / trie ma boîte mail » : lecture IMAP RÉELLE de la boîte
+    // connectée — chemin déterministe, pas de LLM ni de recherche web.
+    const triage = isMailTriageRequest(lastUser)
+    send({ type: 'step', ...analysisStep, detail: triage ? 'boîte mail → vérification et tri (IMAP réel)' : 'boîte mail connectée → lecture IMAP réelle', status: 'done' })
+    finalText = await skillCheckEmail(ctx, triage)
     handled = true
   } else if (isGithubAccountRequest(lastUser)) {
     send({ type: 'step', ...analysisStep, detail: 'compte GitHub connecté → API officielle', status: 'done' })
@@ -1676,7 +1702,8 @@ async function runLlmPipeline(
       }
       // Sinon la réponse a déjà été streamée au fil de l'eau
     } else {
-      // LLM indisponible → cerveau local instantané
+      // LLM externe indisponible : le cerveau à règles prend le relais. Le modèle
+      // NEXUS n'est PAS exécuté ici : il tourne dans le navigateur (voir AgentChat).
       await localFallback(ctx, classification, false)
     }
   }
@@ -1787,13 +1814,16 @@ async function handleSoloAgentTurn(agentId: string, ctx: Ctx): Promise<void> {
   else if (isGithubAccountRequest(ctx.lastUser)) connKind = 'github'
   else if (isTiktokAccountRequest(ctx.lastUser)) connKind = 'tiktok'
   if (connKind === 'email') {
-    const s = makeStep('check_email', 'Boîte mail', 'lecture IMAP de la boîte connectée')
+    const triage = isMailTriageRequest(ctx.lastUser)
+    const s = makeStep('check_email', 'Boîte mail', triage ? 'vérification et tri des mails' : 'lecture IMAP de la boîte connectée')
     ctx.send({ type: 'step', ...s, status: 'running' })
-    const mails = await fetchRecentEmails(6, undefined, ctx.userId ?? null)
+    const mails = await fetchRecentEmails(triage ? MAIL_TRIAGE_SIZE : 6, undefined, ctx.userId ?? null)
     if (mails.ok) {
       ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: `${mails.emails.length} mail(s) lus en direct`, status: 'done' })
       ctx.excludeTools = new Set(['check_email']) // déjà exécuté : ne pas ré-exécuter (double latence)
-      connFacts = `\n\nRÉSULTATS DE TA LECTURE MAIL (déjà effectuée en IMAP — APPUIE-TOI DESSUS, n'invente rien) :\n${emailFactsBlock(mails)}\nRésume ces mails réels : expéditeur, sujet, ce qui attend une réponse.`
+      connFacts = triage
+        ? `\n\nRÉSULTATS DU TRI DE TA BOÎTE (${mails.emails.length} mails lus en IMAP, classés localement — APPUIE-TOI DESSUS, n'invente rien) :\n${triageFactsBlock(triageEmails(mails.emails))}\nPrésente ce tri : d'abord « À traiter », puis le reste. Cite les sujets réels. Ne fais AUCUNE recherche web.`
+        : `\n\nRÉSULTATS DE TA LECTURE MAIL (déjà effectuée en IMAP — APPUIE-TOI DESSUS, n'invente rien) :\n${emailFactsBlock(mails)}\nRésume ces mails réels : expéditeur, sujet, ce qui attend une réponse.`
     } else {
       ctx.send({ type: 'step', ...s, tool: 'check_email', label: 'Boîte mail', detail: mails.note ?? 'boîte inaccessible', status: 'error' })
       connFacts = `\n\nTENTATIVE DE LECTURE MAIL ÉCHOUÉE : ${mails.note ?? 'cause inconnue'} — informe honnêtement et oriente vers le panneau Connexions.`

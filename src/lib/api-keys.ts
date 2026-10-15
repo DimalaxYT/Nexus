@@ -32,6 +32,21 @@ export interface ApiKeyConfig {
   strictRulesOnly?: boolean
   /** Renvoyer le détail du parcours (diagnostic) dans la réponse JSON. */
   debug?: boolean
+  /** Déclaration d'usage personnel et non commercial (horodatée, posée par le serveur). */
+  personalUseAcceptedAt?: string
+  /** Fin de validité de la clé (ISO). Au-delà, la clé est refusée jusqu'au renouvellement. */
+  expiresAt?: string
+}
+
+/** Politique d'usage : clés strictement personnelles et non commerciales. */
+export const PERSONAL_KEY_POLICY = {
+  /** Nombre maximum de clés actives par compte. */
+  maxKeysPerAccount: 5,
+  /** Durées de validité proposées (jours). */
+  lifetimesDays: [30, 90, 365] as const,
+  defaultLifetimeDays: 90,
+  /** Plafond d'appels par minute, quel que soit le réglage saisi. */
+  maxRateLimitPerMin: 120,
 }
 
 export interface ApiKeyInfo {
@@ -130,17 +145,27 @@ export function normalizeConfig(input: Partial<ApiKeyConfig> | null | undefined)
     ? c.allowedOrigins.map((o) => String(o).trim()).filter(Boolean).slice(0, 20)
     : []
   const limit = Number(c.rateLimitPerMin)
+  const cap = PERSONAL_KEY_POLICY.maxRateLimitPerMin
   return {
     rules: sanitizeRules(c.rules),
     systemPrompt: String(c.systemPrompt ?? '').slice(0, 8000),
     welcomeMessage: String(c.welcomeMessage ?? '').slice(0, 1000),
     fallbackMessage: String(c.fallbackMessage ?? '').slice(0, 2000) || DEFAULT_CONFIG.fallbackMessage,
     allowedOrigins: origins,
-    rateLimitPerMin: Number.isFinite(limit) && limit >= 0 ? Math.min(limit, 6000) : 60,
+    rateLimitPerMin: Number.isFinite(limit) && limit >= 0 ? Math.min(limit, cap) : 60,
     useAgent: Boolean(c.useAgent),
     strictRulesOnly: Boolean(c.strictRulesOnly),
     debug: Boolean(c.debug),
+    ...(typeof c.personalUseAcceptedAt === 'string' ? { personalUseAcceptedAt: c.personalUseAcceptedAt.slice(0, 40) } : {}),
+    ...(typeof c.expiresAt === 'string' ? { expiresAt: c.expiresAt.slice(0, 40) } : {}),
   }
+}
+
+/** Clé expirée ? (les clés créées avant la politique n'ont pas de date : elles restent valides). */
+export function isKeyExpired(config: ApiKeyConfig, now = Date.now()): boolean {
+  if (!config.expiresAt) return false
+  const t = Date.parse(config.expiresAt)
+  return Number.isFinite(t) && t <= now
 }
 
  
@@ -176,6 +201,9 @@ export async function authenticateApiKey(
     if (row.enabled === false) return { ok: false, status: 403, error: 'Clé API désactivée.' }
 
     const key = toApiKeyInfo(row)
+    if (isKeyExpired(key.config)) {
+      return { ok: false, status: 403, error: 'Clé API expirée : renouvelez-la dans l’espace Clés API (usage personnel).' }
+    }
 
     // Contrôle d'origine (CORS) : si une liste est définie, elle fait foi.
     const origin = req.headers.get('origin')

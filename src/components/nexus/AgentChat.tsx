@@ -11,6 +11,7 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Cpu,
   Download,
   ExternalLink,
   FileCode2,
@@ -72,6 +73,7 @@ import { MissionsPanel } from '@/components/nexus/MissionsPanel'
 import { TeamPanel } from '@/components/nexus/TeamPanel'
 import { BrainView } from '@/components/nexus/BrainView'
 import { cn } from '@/lib/utils'
+import { askLocalModel } from '@/lib/llm/nexus-code-client'
 
 const SUGGESTIONS = [
   { label: 'Veille IA', text: 'Quelles sont les dernières avancées en intelligence artificielle cette semaine ? Fais une synthèse.' },
@@ -535,6 +537,9 @@ export function AgentChat() {
   const [knowledgeOpen, setKnowledgeOpen] = useState(false)
   const [knowledgeCount, setKnowledgeCount] = useState(0)
   const [notifyOn, setNotifyOn] = useState(false)
+  // Modèle NEXUS exécuté dans le navigateur (aucune inférence sur le serveur)
+  const [localModel, setLocalModel] = useState(false)
+  const localModelRef = useRef(false)
   const [memories, setMemories] = useState<MemoryItem[]>([])
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browsedPages, setBrowsedPages] = useState<BrowsedPage[]>([])
@@ -617,6 +622,9 @@ export function AgentChat() {
       const saved = localStorage.getItem('nexus-notify') === '1'
       notifyRef.current = saved
       setNotifyOn(saved)
+      const local = localStorage.getItem('nexus-local-model') === '1'
+      localModelRef.current = local
+      setLocalModel(local)
     }
   }, [hydrateFromServer, refreshMemories, refreshKnowledge, refreshTasks, refreshAgents, refreshGroups])
 
@@ -692,6 +700,18 @@ export function AgentChat() {
     } catch {
       /* notifications indisponibles : ignoré */
     }
+  }, [])
+
+  const toggleLocalModel = useCallback(() => {
+    const next = !localModelRef.current
+    localModelRef.current = next
+    setLocalModel(next)
+    localStorage.setItem('nexus-local-model', next ? '1' : '0')
+    toast.success(
+      next
+        ? 'Modèle NEXUS local activé : les réponses sont générées dans votre navigateur (les actions restent sur le serveur)'
+        : 'Modèle NEXUS local désactivé'
+    )
   }, [])
 
   const toggleNotify = useCallback(async () => {
@@ -810,6 +830,49 @@ export function AgentChat() {
       stickRef.current = true
       const controller = new AbortController()
       abortRef.current = controller
+
+      // Modèle local : la génération se fait dans le navigateur (Web Worker).
+      if (localModelRef.current && target.kind === 'nexus') {
+        let acc = ''
+        let dirtyLocal = false
+        let loadPct: number | null = null
+        const localTimer = setInterval(() => {
+          if (!dirtyLocal && loadPct === null) return
+          dirtyLocal = false
+          const shown = acc || (loadPct !== null ? `Chargement du modèle NEXUS dans votre navigateur… ${loadPct} %` : '')
+          patchAssistant(convId as string, assistantId, (m) => ({ ...m, content: shown }))
+        }, 90)
+        try {
+          const full = await askLocalModel(text, {
+            signal: controller.signal,
+            onText: (chunk) => {
+              acc += chunk
+              dirtyLocal = true
+            },
+            onProgress: (loaded, total) => {
+              loadPct = total ? Math.round((loaded / total) * 100) : null
+            },
+          })
+          loadPct = null
+          patchAssistant(convId as string, assistantId, (m) => ({
+            ...m,
+            content: full.trim() || '…',
+            pending: false,
+          }))
+        } catch (err) {
+          const aborted = err instanceof DOMException && err.name === 'AbortError'
+          patchAssistant(convId as string, assistantId, (m) => ({
+            ...m,
+            content: aborted ? acc.trim() : `Modèle local indisponible : ${err instanceof Error ? err.message : String(err)}`,
+            pending: false,
+          }))
+        } finally {
+          clearInterval(localTimer)
+          setStreaming(false)
+          abortRef.current = null
+        }
+        return
+      }
 
       // Buffers pour limiter les re-rendus — currentId suit la bulle active
       // (un speaker multi-agents ouvre une nouvelle bulle)
@@ -1322,6 +1385,20 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           aria-label={notifyOn ? 'Désactiver les notifications' : 'Activer les notifications de fin de tâche'}
         >
           {notifyOn ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className={cn(
+            'h-9 w-9 shrink-0 border-border hover:bg-accent',
+            localModel && 'border-neutral-300/40 bg-neutral-300/10 text-emerald-300'
+          )}
+          onClick={toggleLocalModel}
+          aria-pressed={localModel}
+          aria-label={localModel ? 'Désactiver le modèle NEXUS local' : 'Utiliser le modèle NEXUS local (navigateur)'}
+          title="Modèle NEXUS local (dans le navigateur)"
+        >
+          <Cpu className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
