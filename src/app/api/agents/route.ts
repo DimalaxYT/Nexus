@@ -41,9 +41,10 @@ async function ensureDefaultTeam(userId: string | null): Promise<void> {
   try {
     const count = await db.agentProfile.count({ where: ownerFilter(userId) })
     if (count > 0) return
-    for (const agent of DEFAULT_TEAM) {
-      await db.agentProfile.create({ data: { ...agent, ...(userId ? { userId } : {}) } })
-    }
+    // Créations en parallèle (au lieu de N allers-retours séquentiels).
+    await Promise.all(
+      DEFAULT_TEAM.map((agent) => db.agentProfile.create({ data: { ...agent, ...(userId ? { userId } : {}) } }))
+    )
   } catch {
     /* base indisponible : on retentera au prochain appel */
   }

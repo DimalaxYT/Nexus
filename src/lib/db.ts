@@ -455,8 +455,10 @@ function getConn(): Conn {
 /** Schéma + migrations légères. Idempotent : sûr à relancer à chaque démarrage. */
 async function initSchema(client: Client, mode: DbMode): Promise<void> {
   if (mode === 'local') {
-    await client.execute('PRAGMA busy_timeout = 5000')
-    await client.execute('PRAGMA journal_mode = WAL')
+    await Promise.all([
+      client.execute('PRAGMA busy_timeout = 5000'),
+      client.execute('PRAGMA journal_mode = WAL'),
+    ])
   }
   await client.executeMultiple(BASE_DDL)
 
@@ -470,22 +472,35 @@ async function initSchema(client: Client, mode: DbMode): Promise<void> {
       /* table pas encore créée : le CREATE TABLE ci-dessus la créera complète */
     }
   }
-  for (const table of USER_SCOPED_TABLES) {
-    await addColumnIfMissing(table, 'userId', '"userId" TEXT')
-    await client.execute(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
-  }
-  await addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
-  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
-  // depuis un autre compte.
-  await addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\'')
-  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
-  await addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
-  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
-  await addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
-  for (const t of ['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson']) {
-    await addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
-  }
-  for (const sql of INDEX_SQL) await client.execute(sql)
+
+  // Toutes ces opérations sont indépendantes : on les parallélise pour éviter
+  // ~50 allers-retours SQL SÉQUENTIELS au premier accès DB (très coûteux sur
+  // une base distante / Turso, où chaque requête paie la latence réseau).
+  // Au sein d'UNE même table, la colonne est ajoutée AVANT son index ; entre
+  // tables distinctes, tout est concurrent (WAL côté local, requêtes HTTP côté Turso).
+  await Promise.all([
+    ...USER_SCOPED_TABLES.map(
+      (table) =>
+        (async () => {
+          await addColumnIfMissing(table, 'userId', '"userId" TEXT')
+          await client.execute(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
+        })()
+    ),
+    addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT'),
+    // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
+    // depuis un autre compte.
+    addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\''),
+    // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
+    addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\''),
+    client.execute('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")'),
+    addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME'),
+    ...['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson'].map((t) =>
+      addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
+    ),
+  ])
+
+  // Index restants (dépendent des colonnes ajoutées ci-dessus) : tous indépendants.
+  await Promise.all(INDEX_SQL.map((sql) => client.execute(sql)))
 }
 
 const INDEX_SQL = [
