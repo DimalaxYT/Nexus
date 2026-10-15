@@ -28,7 +28,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { MATCH_MODES, type ReplyRule } from '@/lib/rules'
-import { PERSONAL_KEY_POLICY, type ApiKeyConfig, type ApiKeyInfo } from '@/lib/api-keys'
+import { PERSONAL_KEY_POLICY, type ApiKeyConfig, type ApiKeyInfo } from '@/lib/api-keys-shared'
 import type { BlueprintSummary, NexusAgent } from '@/lib/nexus-types'
 import { cn } from '@/lib/utils'
 
