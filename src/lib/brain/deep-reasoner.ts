@@ -13,7 +13,10 @@ import { refactorExistingCode } from './codegen'
 import { searchKnowledgeBank } from './knowledge-bank'
 import { readWebpage, webSearch, type SearchResult } from './search'
 import { extractKeySentences, synthesizePages, type PageContent } from './synthesize'
-import { capitalize, normalize } from './text'
+import { capitalize, normalize, stems } from './text'
+
+/** Petit helper d'attente (la recherche web est bornée par un timeout). */
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 export type Emit = (event: AgentEvent) => void
 
@@ -311,8 +314,22 @@ export async function deepReasonAndAnswer(input: DeepReasonInput): Promise<strin
   // 3) Recherche autonome sur le web / Wikipédia / StackExchange si le sujet n'est pas déjà couvert à 90%
   let webResults: SearchResult[] = []
   let webSynthesis = ''
-  if (!bestBank || bestBank.score < 0.88) {
+  // 3) Recherche autonome sur le web / Wikipédia / StackExchange si le sujet
+  // n'est pas déjà couvert à 90%. Pour éviter que CHAQUE message « général »
+  // ne déclenche un aller-retour réseau coûteux (webSearch + lecture de pages,
+  // jusqu'à ~12 s sur un déploiement), on :
+  //   • saute la recherche pour les requêtes triviales (< 3 mots significatifs),
+  //   • lit au plus 1 page (au lieu de 2) avec un timeout plus court,
+  //   • borne le tout par une course contre un timeout : au-delà, on rend la
+  //     main et on reasonne sur le savoir local / les snippets.
+  // Désactivable totalement via NEXUS_WEB_SEARCH=off (raisonnement 100 % local).
+  const webSearchEnabled = (process.env.NEXUS_WEB_SEARCH ?? 'on').toLowerCase() !== 'off'
+  const trivialQuery = stems(cleanTopic).filter((w) => w.length > 2).length < 3
+  if (webSearchEnabled && !trivialQuery && (!bestBank || bestBank.score < 0.88)) {
     const searchStepId = `step-reason-${Date.now()}`
+    const WEB_SEARCH_MAX_PAGES = 1
+    const WEB_PAGE_TIMEOUT_MS = 5000
+    const WEB_SEARCH_TIMEOUT_MS = 8000
     send({
       type: 'step',
       id: searchStepId,
@@ -322,55 +339,80 @@ export async function deepReasonAndAnswer(input: DeepReasonInput): Promise<strin
       status: 'running',
     })
     try {
-      const results = await webSearch(cleanTopic, 6)
-      if (results && results.length > 0) {
-        webResults = results
-        const sources: SourceItem[] = results.slice(0, 6).map((r) => ({
-          title: r.title,
-          url: r.url,
-          domain: r.domain,
-          snippet: r.snippet,
-        }))
-        send({ type: 'sources', sources })
+      const search = (async () => {
+        const results = await webSearch(cleanTopic, 6)
+        const out = { webResults: [] as SearchResult[], webSynthesis: '' }
+        if (results && results.length > 0) {
+          out.webResults = results
+          const sources: SourceItem[] = results.slice(0, 6).map((r) => ({
+            title: r.title,
+            url: r.url,
+            domain: r.domain,
+            snippet: r.snippet,
+          }))
+          send({ type: 'sources', sources })
 
-        // Lecture rapide des 2 meilleures pages non-média pour extraire des faits précis
-        const pagesToRead = results.filter((r) => !/(youtube|tiktok|reddit)/i.test(r.domain)).slice(0, 2)
-        const readPages = (
-          await Promise.all(
-            pagesToRead.map(async (r): Promise<PageContent | null> => {
-              const p = await readWebpage(r.url, 6000)
-              return p ? { title: p.title, url: p.url, domain: r.domain, text: p.text } : null
-            })
-          )
-        ).filter((p): p is PageContent => p !== null)
+          // Lecture rapide d'AU PLUS 1 page non-média pour extraire des faits précis
+          const pagesToRead = results.filter((r) => !/(youtube|tiktok|reddit)/i.test(r.domain)).slice(0, WEB_SEARCH_MAX_PAGES)
+          const readPages = (
+            await Promise.all(
+              pagesToRead.map(async (r): Promise<PageContent | null> => {
+                const p = await readWebpage(r.url, WEB_PAGE_TIMEOUT_MS)
+                return p ? { title: p.title, url: p.url, domain: r.domain, text: p.text } : null
+              })
+            )
+          ).filter((p): p is PageContent => p !== null)
 
-        if (readPages.length > 0) {
-          webSynthesis = synthesizePages(cleanTopic, readPages, 3, 6)
-        }
-        if (!webSynthesis) {
-          const snippetText = results.map((r) => `${r.title}. ${r.snippet}`).join('. ')
-          const keySents = extractKeySentences(snippetText, cleanTopic, 4)
-          if (keySents.length > 0) {
-            webSynthesis = keySents.map((s) => `- ${s}`).join('\n')
+          if (readPages.length > 0) {
+            out.webSynthesis = synthesizePages(cleanTopic, readPages, 3, 6)
           }
+          if (!out.webSynthesis) {
+            const snippetText = results.map((r) => `${r.title}. ${r.snippet}`).join('. ')
+            const keySents = extractKeySentences(snippetText, cleanTopic, 4)
+            if (keySents.length > 0) {
+              out.webSynthesis = keySents.map((s) => `- ${s}`).join('\n')
+            }
+          }
+          send({
+            type: 'step',
+            id: searchStepId,
+            tool: 'web_search',
+            label: 'Recherche & Recoupement',
+            detail: `${results.length} sources croisées${readPages.length > 0 ? ` · ${readPages.length} page analysée` : ''}`,
+            status: 'done',
+          })
+        } else {
+          send({
+            type: 'step',
+            id: searchStepId,
+            tool: 'web_search',
+            label: 'Recherche & Recoupement',
+            detail: 'base de connaissances locale activée',
+            status: 'done',
+          })
         }
+        return out
+      })()
+
+      // Course contre le timeout : on ne bloque jamais la réponse au-delà de
+      // WEB_SEARCH_TIMEOUT_MS. Si le réseau est lent, on rend la main et on
+      // continue avec le savoir local (la recherche en cours est abandonnée).
+      const raced = await Promise.race([
+        search.then((r) => ({ r, timedOut: false as const })),
+        sleep(WEB_SEARCH_TIMEOUT_MS).then(() => ({ r: null, timedOut: true as const })),
+      ])
+      if (raced.timedOut) {
         send({
           type: 'step',
           id: searchStepId,
           tool: 'web_search',
           label: 'Recherche & Recoupement',
-          detail: `${results.length} sources croisées${readPages.length > 0 ? ` · ${readPages.length} pages analysées` : ''}`,
+          detail: 'raisonnement local autonome (délai réseau dépassé)',
           status: 'done',
         })
       } else {
-        send({
-          type: 'step',
-          id: searchStepId,
-          tool: 'web_search',
-          label: 'Recherche & Recoupement',
-          detail: 'base de connaissances locale activée',
-          status: 'done',
-        })
+        webResults = raced.r.webResults
+        webSynthesis = raced.r.webSynthesis
       }
     } catch {
       send({
