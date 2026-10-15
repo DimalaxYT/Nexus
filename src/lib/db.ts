@@ -1,7 +1,13 @@
 import crypto from 'crypto'
-import fs from 'fs'
-import path from 'path'
-import { DatabaseSync } from 'node:sqlite'
+import { createClient, type Client, type InValue, type ResultSet } from '@libsql/client'
+import { resolveSource, localSource, type DbMode, type DbSource } from '@/lib/db-source'
+
+// ─── NEXUS — Couche de données (libSQL : fichier local OU Turso) ─────────────
+// Même API que l'ancien client (findMany / findUnique / create / update /
+// upsert / delete / deleteMany / count), désormais ASYNCHRONE : chaque appel
+// passe par une connexion libSQL. La cible (SQLite locale ou base Turso) se
+// règle depuis l'espace Dev → Réglages, sans redéploiement. Les données sont
+// migrables d'une cible à l'autre (copyDatabase).
 
 interface TableSpec {
   table: string
@@ -252,7 +258,60 @@ const TABLES: Record<string, TableSpec> = {
       filePath: '',
     },
   },
+
+  /** Modèle de langage maison : poids, vocabulaire et configuration (un seul actif). */
+  llmModel: {
+    table: 'LlmModel',
+    dateCols: ['createdAt', 'updatedAt'],
+    boolCols: ['active'],
+    hasUpdatedAt: true,
+    defaults: {
+      name: 'nexus-llm',
+      config: '{}',
+      vocab: '[]',
+      weights: '',
+      steps: 0,
+      loss: 0,
+      corpusChars: 0,
+      corpusInfo: '{}',
+      active: false,
+    },
+  },
+  /** Filtres de conversations (espace Dev) : exclure de l'entraînement ou masquer. */
+  conversationFilter: {
+    table: 'ConversationFilter',
+    dateCols: ['createdAt', 'updatedAt'],
+    boolCols: ['enabled'],
+    hasUpdatedAt: true,
+    defaults: { userId: '', scopeUserId: '', kind: 'keyword', pattern: '', action: 'exclude', enabled: true, hits: 0 },
+  },
+  /** Notifications in-app (surveillances de sites, planifications de blueprints). */
+  notification: {
+    table: 'Notification',
+    dateCols: ['createdAt'],
+    boolCols: ['read'],
+    defaults: { userId: '', title: '', body: '', source: 'system', read: false },
+  },
+  /** Exécution automatique d'un blueprint (assistant qui tourne seul). */
+  blueprintSchedule: {
+    table: 'BlueprintSchedule',
+    dateCols: ['createdAt', 'updatedAt', 'lastRunAt', 'nextRunAt'],
+    boolCols: ['enabled'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      blueprintId: '',
+      everyMin: 60,
+      message: '',
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: null,
+      lastStatus: '',
+      lastReply: '',
+    },
+  },
 }
+
 
 /**
  * Tables cloisonnées par compte : une colonne `userId` est ajoutée
@@ -273,39 +332,7 @@ function cuid(): string {
   return `c${Date.now().toString(36)}${crypto.randomBytes(6).toString('hex')}`
 }
 
-function resolveDbPath(): string {
-  const defaultPath = path.join(process.cwd(), 'db', 'custom.db')
-  const raw = process.env.DATABASE_URL?.trim()
-  if (!raw || raw.includes('/home/z/my-project')) {
-    // En standalone Next (.next/standalone), le dossier courant est recréé à
-    // chaque build → la base serait effacée à chaque déploiement. On préfère
-    // alors la base persistante du projet racine (<repo>/db/custom.db).
-    if (process.cwd().includes(`${path.sep}.next${path.sep}standalone`)) {
-      const rootDb = path.resolve(process.cwd(), '..', '..', 'db', 'custom.db')
-      try {
-        if (fs.existsSync(rootDb)) return rootDb
-      } catch {
-        /* FS indisponible : on retombe sur le dossier courant. */
-      }
-    }
-    return defaultPath
-  }
-  if (raw.startsWith('file:')) {
-    const rel = raw.slice(5)
-    // Chemin absolu (ex. `file:/data/custom.db` sur un disque persistant) :
-    // on l'utilise tel quel, même si le fichier n'existe pas encore — sinon on
-    // retomberait sur le dossier du projet, qui est éphémère en production.
-    if (path.isAbsolute(rel)) return rel
-    const fromPrisma = path.resolve(process.cwd(), 'prisma', rel)
-    if (fs.existsSync(fromPrisma)) return fromPrisma
-    return path.resolve(process.cwd(), rel)
-  }
-  // Chemin absolu brut, sans préfixe `file:`.
-  if (path.isAbsolute(raw)) return raw
-  return defaultPath
-}
-
-function toSqlVal(v: unknown): string | number | null {
+function toSqlVal(v: unknown): InValue {
   if (v === undefined || v === null) return null
   if (v instanceof Date) return v.getTime()
   if (typeof v === 'boolean') return v ? 1 : 0
@@ -313,9 +340,22 @@ function toSqlVal(v: unknown): string | number | null {
   return JSON.stringify(v)
 }
 
-function hydrateRow(row: Record<string, unknown> | undefined, spec: TableSpec, select?: Record<string, boolean>) {
+type Row = Record<string, unknown>
+
+/** Convertit un ResultSet libSQL en objets { colonne: valeur }. */
+function rowsOf(res: ResultSet): Row[] {
+  return res.rows.map((r) => {
+    const out: Row = {}
+    res.columns.forEach((col, i) => {
+      out[col] = r[i]
+    })
+    return out
+  })
+}
+
+function hydrateRow(row: Row | undefined, spec: TableSpec, select?: Record<string, boolean>) {
   if (!row) return null
-  const out: Record<string, unknown> = {}
+  const out: Row = {}
   for (const [k, v] of Object.entries(row)) {
     if (select && !select[k]) continue
     if (spec.dateCols.includes(k)) {
@@ -329,16 +369,16 @@ function hydrateRow(row: Record<string, unknown> | undefined, spec: TableSpec, s
   return out
 }
 
-function buildWhere(where: Record<string, unknown> | undefined): { sql: string; params: (string | number | null)[] } {
+function buildWhere(where: Row | undefined): { sql: string; params: InValue[] } {
   if (!where || Object.keys(where).length === 0) return { sql: '', params: [] }
   const clauses: string[] = []
-  const params: (string | number | null)[] = []
+  const params: InValue[] = []
   for (const [col, cond] of Object.entries(where)) {
     if (cond === undefined) continue
     if (cond === null) {
       clauses.push(`"${col}" IS NULL`)
     } else if (typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
-      const c = cond as Record<string, unknown>
+      const c = cond as Row
       if (Array.isArray(c.in)) {
         if (c.in.length === 0) {
           clauses.push('1 = 0')
@@ -388,10 +428,109 @@ function buildOrderBy(orderBy: unknown): string {
   return parts.length > 0 ? ` ORDER BY ${parts.join(', ')}` : ''
 }
 
-function createModelDelegate(sqlite: DatabaseSync, spec: TableSpec) {
+// ── Connexion courante (locale ou Turso) ─────────────────────────────────────
+
+interface Conn {
+  client: Client
+  source: DbSource
+  /** Schéma prêt (promesse résolue) ; remise à null si l'initialisation échoue. */
+  ready: Promise<void> | null
+}
+
+const g = globalThis as unknown as { __nexusDbConn?: Conn }
+
+function makeConn(source: DbSource): Conn {
+  const client =
+    source.mode === 'local'
+      ? createClient({ url: `file:${source.url}` })
+      : createClient({ url: source.url, authToken: source.authToken })
+  return { client, source, ready: null }
+}
+
+function getConn(): Conn {
+  if (!g.__nexusDbConn) g.__nexusDbConn = makeConn(resolveSource())
+  return g.__nexusDbConn
+}
+
+/** Schéma + migrations légères. Idempotent : sûr à relancer à chaque démarrage. */
+async function initSchema(client: Client, mode: DbMode): Promise<void> {
+  if (mode === 'local') {
+    await client.execute('PRAGMA busy_timeout = 5000')
+    await client.execute('PRAGMA journal_mode = WAL')
+  }
+  await client.executeMultiple(BASE_DDL)
+
+  // Colonnes ajoutées après coup (bases existantes)
+  const addColumnIfMissing = async (table: string, column: string, ddl: string) => {
+    try {
+      const res = await client.execute(`PRAGMA table_info("${table}")`)
+      const cols = rowsOf(res).map((c) => String(c.name))
+      if (!cols.includes(column)) await client.execute(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`)
+    } catch {
+      /* table pas encore créée : le CREATE TABLE ci-dessus la créera complète */
+    }
+  }
+  for (const table of USER_SCOPED_TABLES) {
+    await addColumnIfMissing(table, 'userId', '"userId" TEXT')
+    await client.execute(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
+  }
+  await addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
+  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
+  // depuis un autre compte.
+  await addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\'')
+  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
+  await addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
+  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
+  await addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
+  for (const t of ['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson']) {
+    await addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
+  }
+  for (const sql of INDEX_SQL) await client.execute(sql)
+}
+
+const INDEX_SQL = [
+  'CREATE UNIQUE INDEX IF NOT EXISTS "SiteSetting_key_key" ON "SiteSetting"("key")',
+  'CREATE INDEX IF NOT EXISTS "DevPatch_userId_idx" ON "DevPatch"("userId")',
+  'CREATE INDEX IF NOT EXISTS "DevTask_userId_idx" ON "DevTask"("userId")',
+  'CREATE INDEX IF NOT EXISTS "DevPage_userId_idx" ON "DevPage"("userId")',
+  'CREATE INDEX IF NOT EXISTS "DevPage_url_idx" ON "DevPage"("url")',
+  'CREATE INDEX IF NOT EXISTS "TrainingObjective_userId_idx" ON "TrainingObjective"("userId")',
+  'CREATE INDEX IF NOT EXISTS "TrainingItem_userId_idx" ON "TrainingItem"("userId")',
+  'CREATE INDEX IF NOT EXISTS "TrainingRun_userId_idx" ON "TrainingRun"("userId")',
+  'CREATE INDEX IF NOT EXISTS "TrainingLesson_userId_idx" ON "TrainingLesson"("userId")',
+  'CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId")',
+  'CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId")',
+  'CREATE INDEX IF NOT EXISTS "ApiKeyLog_keyId_idx" ON "ApiKeyLog"("keyId")',
+  'CREATE INDEX IF NOT EXISTS "Blueprint_userId_idx" ON "Blueprint"("userId")',
+  'CREATE INDEX IF NOT EXISTS "ConversationFilter_userId_idx" ON "ConversationFilter"("userId")',
+  'CREATE INDEX IF NOT EXISTS "Notification_userId_idx" ON "Notification"("userId")',
+  'CREATE INDEX IF NOT EXISTS "BlueprintSchedule_userId_idx" ON "BlueprintSchedule"("userId")',
+]
+
+/** Garantit que la connexion courante est prête (schéma créé) avant toute requête. */
+async function client(): Promise<Client> {
+  const conn = getConn()
+  if (!conn.ready) {
+    const ready: Promise<void> = initSchema(conn.client, conn.source.mode).catch((err: unknown) => {
+      if (conn.ready === ready) conn.ready = null
+      throw err
+    })
+    conn.ready = ready
+  }
+  await conn.ready
+  return conn.client
+}
+
+async function run(sql: string, args: InValue[] = []): Promise<ResultSet> {
+  return (await client()).execute({ sql, args })
+}
+
+// ── Délégués de modèles (API identique à l'ancien client) ───────────────────
+
+function createModelDelegate(spec: TableSpec) {
   return {
     async findMany(args?: {
-      where?: Record<string, unknown>
+      where?: Row
       orderBy?: unknown
       take?: number
       select?: Record<string, boolean>
@@ -399,32 +538,32 @@ function createModelDelegate(sqlite: DatabaseSync, spec: TableSpec) {
       const { sql: whereSql, params } = buildWhere(args?.where)
       const orderSql = buildOrderBy(args?.orderBy)
       const limitSql = typeof args?.take === 'number' ? ` LIMIT ${Math.max(0, Math.floor(args.take))}` : ''
-      const rows = sqlite.prepare(`SELECT * FROM "${spec.table}"${whereSql}${orderSql}${limitSql}`).all(...params) as Record<string, unknown>[]
-      return rows.map((r) => hydrateRow(r, spec, args?.select))
+      const res = await run(`SELECT * FROM "${spec.table}"${whereSql}${orderSql}${limitSql}`, params)
+      return rowsOf(res).map((r) => hydrateRow(r, spec, args?.select))
     },
 
-    async findUnique(args: { where: Record<string, unknown>; select?: Record<string, boolean> }) {
+    async findUnique(args: { where: Row; select?: Record<string, boolean> }) {
       const { sql: whereSql, params } = buildWhere(args.where)
-      const row = sqlite.prepare(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`).get(...params) as Record<string, unknown> | undefined
-      return hydrateRow(row, spec, args.select)
+      const res = await run(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`, params)
+      return hydrateRow(rowsOf(res)[0], spec, args.select)
     },
 
-    async findFirst(args?: { where?: Record<string, unknown>; orderBy?: unknown; select?: Record<string, boolean> }) {
+    async findFirst(args?: { where?: Row; orderBy?: unknown; select?: Record<string, boolean> }) {
       const { sql: whereSql, params } = buildWhere(args?.where)
       const orderSql = buildOrderBy(args?.orderBy)
-      const row = sqlite.prepare(`SELECT * FROM "${spec.table}"${whereSql}${orderSql} LIMIT 1`).get(...params) as Record<string, unknown> | undefined
-      return hydrateRow(row, spec, args?.select)
+      const res = await run(`SELECT * FROM "${spec.table}"${whereSql}${orderSql} LIMIT 1`, params)
+      return hydrateRow(rowsOf(res)[0], spec, args?.select)
     },
 
-    async count(args?: { where?: Record<string, unknown> }) {
+    async count(args?: { where?: Row }) {
       const { sql: whereSql, params } = buildWhere(args?.where)
-      const row = sqlite.prepare(`SELECT COUNT(*) as cnt FROM "${spec.table}"${whereSql}`).get(...params) as { cnt: number } | undefined
-      return Number(row?.cnt ?? 0)
+      const res = await run(`SELECT COUNT(*) as cnt FROM "${spec.table}"${whereSql}`, params)
+      return Number(rowsOf(res)[0]?.cnt ?? 0)
     },
 
-    async create(args: { data: Record<string, unknown> }) {
+    async create(args: { data: Row }) {
       const now = Date.now()
-      const record: Record<string, unknown> = {
+      const record: Row = {
         id: cuid(),
         ...spec.defaults,
         createdAt: now,
@@ -434,15 +573,13 @@ function createModelDelegate(sqlite: DatabaseSync, spec: TableSpec) {
       const cols = Object.keys(record)
       const placeholders = cols.map(() => '?').join(', ')
       const vals = cols.map((c) => toSqlVal(record[c]))
-      sqlite
-        .prepare(`INSERT INTO "${spec.table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`)
-        .run(...vals)
-      const row = sqlite.prepare(`SELECT * FROM "${spec.table}" WHERE "id" = ? LIMIT 1`).get(toSqlVal(record.id)) as Record<string, unknown> | undefined
-      return hydrateRow(row, spec)
+      await run(`INSERT INTO "${spec.table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`, vals)
+      const res = await run(`SELECT * FROM "${spec.table}" WHERE "id" = ? LIMIT 1`, [toSqlVal(record.id)])
+      return hydrateRow(rowsOf(res)[0], spec)
     },
 
-    async update(args: { where: Record<string, unknown>; data: Record<string, unknown> }) {
-      const patch: Record<string, unknown> = {
+    async update(args: { where: Row; data: Row }) {
+      const patch: Row = {
         ...args.data,
         ...(spec.hasUpdatedAt ? { updatedAt: Date.now() } : {}),
       }
@@ -450,16 +587,12 @@ function createModelDelegate(sqlite: DatabaseSync, spec: TableSpec) {
       const setSql = cols.map((c) => `"${c}" = ?`).join(', ')
       const setVals = cols.map((c) => toSqlVal(patch[c]))
       const { sql: whereSql, params: whereVals } = buildWhere(args.where)
-      sqlite.prepare(`UPDATE "${spec.table}" SET ${setSql}${whereSql}`).run(...setVals, ...whereVals)
-      const row = sqlite.prepare(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`).get(...whereVals) as Record<string, unknown> | undefined
-      return hydrateRow(row, spec)
+      await run(`UPDATE "${spec.table}" SET ${setSql}${whereSql}`, [...setVals, ...whereVals])
+      const res = await run(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`, whereVals)
+      return hydrateRow(rowsOf(res)[0], spec)
     },
 
-    async upsert(args: {
-      where: Record<string, unknown>
-      create: Record<string, unknown>
-      update: Record<string, unknown>
-    }) {
+    async upsert(args: { where: Row; create: Row; update: Row }) {
       const existing = await this.findUnique({ where: args.where })
       if (existing) {
         return this.update({ where: args.where, data: args.update })
@@ -467,41 +600,132 @@ function createModelDelegate(sqlite: DatabaseSync, spec: TableSpec) {
       return this.create({ data: { ...args.where, ...args.create } })
     },
 
-    async delete(args: { where: Record<string, unknown> }) {
+    async delete(args: { where: Row }) {
       const existing = await this.findUnique({ where: args.where })
       const { sql: whereSql, params } = buildWhere(args.where)
-      sqlite.prepare(`DELETE FROM "${spec.table}"${whereSql}`).run(...params)
+      await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
       return existing
     },
 
-    async deleteMany(args?: { where?: Record<string, unknown> }) {
+    async deleteMany(args?: { where?: Row }) {
       const { sql: whereSql, params } = buildWhere(args?.where)
-      const info = sqlite.prepare(`DELETE FROM "${spec.table}"${whereSql}`).run(...params)
-      return { count: Number(info.changes ?? 0) }
+      const res = await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
+      return { count: Number(res.rowsAffected ?? 0) }
     },
   }
 }
 
-function createSqliteClient() {
-  const dbPath = resolveDbPath()
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
-  const sqlite = new DatabaseSync(dbPath)
-  sqlite.exec('PRAGMA busy_timeout = 5000;')
-  sqlite.exec('PRAGMA journal_mode = WAL;')
+// ── Outils de migration & de diagnostic (utilisés par l'espace Dev) ─────────
 
-  // ── Migrations légères : ajoute les colonnes manquantes aux tables existantes
-  // (les bases créées avant l'arrivée des comptes/blueprints n'ont pas userId).
-  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
+/** Liste des tables utilisateur d'une base. */
+export async function listTables(c: Client): Promise<string[]> {
+  const res = await c.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+  return rowsOf(res).map((r) => String(r.name))
+}
+
+/**
+ * Copie intégrale d'une base vers une autre (local → Turso ou Turso → local).
+ * Le schéma de la cible est créé d'abord, puis les lignes sont recopiées par lots
+ * (INSERT OR REPLACE : relancer la copie est sans risque).
+ */
+export async function copyDatabase(from: Client, to: Client): Promise<{ tables: number; rows: number }> {
+  await initSchema(to, 'turso')
+  const names = await listTables(from)
+  let rows = 0
+  for (const table of names) {
+    const src = await from.execute(`SELECT * FROM "${table}"`)
+    if (src.rows.length === 0) continue
+    const cols = src.columns
+    const sql = `INSERT OR REPLACE INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    for (let i = 0; i < src.rows.length; i += 100) {
+      const chunk = src.rows.slice(i, i + 100)
+      await to.batch(
+        chunk.map((r) => ({ sql, args: cols.map((_c, idx) => (r[idx] as InValue) ?? null) })),
+        'write'
+      )
+    }
+    rows += src.rows.length
+  }
+  return { tables: names.length, rows }
+}
+
+/** Nombre de lignes par table + latence (pour l'état de la base dans le dashboard). */
+export async function databaseStats(): Promise<{
+  latencyMs: number
+  tables: { name: string; rows: number }[]
+  totalRows: number
+}> {
+  const t0 = Date.now()
+  const c = await client()
+  const latencyMs = Date.now() - t0
+  const names = await listTables(c)
+  const tables: { name: string; rows: number }[] = []
+  let totalRows = 0
+  for (const name of names) {
+    const res = await c.execute(`SELECT COUNT(*) AS cnt FROM "${name}"`)
+    const n = Number(rowsOf(res)[0]?.cnt ?? 0)
+    tables.push({ name, rows: n })
+    totalRows += n
+  }
+  return { latencyMs, tables, totalRows }
+}
+
+/** Connexion courante : mode et hôte (sans jeton). */
+export function currentDatabase(): { mode: DbMode; origin: DbSource['origin']; target: string } {
+  const { source } = getConn()
+  let target = source.url
+  if (source.mode === 'turso') {
     try {
-      const cols = sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]
-      if (!cols.some((c) => c.name === column)) {
-        sqlite.exec(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`)
-      }
+      target = new URL(source.url).host
     } catch {
-      /* table pas encore créée : le CREATE TABLE ci-dessous la créera complète */
+      target = source.url
     }
   }
-  sqlite.exec(`
+  return { mode: source.mode, origin: source.origin, target }
+}
+
+/** Client de la base courante (pour copier vers l'autre cible). */
+export async function currentClient(): Promise<Client> {
+  return client()
+}
+
+/**
+ * Bascule la connexion vers une autre cible. La nouvelle connexion est testée
+ * (schéma créé) AVANT le basculement : en cas d'échec, l'ancienne reste active.
+ */
+export async function switchDatabase(source: DbSource): Promise<void> {
+  const next = makeConn(source)
+  await (next.ready = initSchema(next.client, source.mode).then(() => undefined))
+  const prev = g.__nexusDbConn
+  g.__nexusDbConn = next
+  if (prev && prev.client !== next.client) {
+    try {
+      prev.client.close()
+    } catch {
+      /* déjà fermé */
+    }
+  }
+}
+
+/** Ouvre une cible sans basculer (test de connexion, copie). */
+export async function openTarget(source: DbSource): Promise<Client> {
+  const c = makeConn(source).client
+  try {
+    await initSchema(c, source.mode)
+    return c
+  } catch (err) {
+    try {
+      c.close()
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
+}
+
+export { localSource }
+
+const BASE_DDL = `
     CREATE TABLE IF NOT EXISTS "Memory" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "content" TEXT NOT NULL,
@@ -748,65 +972,91 @@ function createSqliteClient() {
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-  `)
+    CREATE TABLE IF NOT EXISTS "LlmModel" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL DEFAULT 'nexus-llm',
+      "config" TEXT NOT NULL DEFAULT '{}',
+      "vocab" TEXT NOT NULL DEFAULT '[]',
+      "weights" TEXT NOT NULL DEFAULT '',
+      "steps" INTEGER NOT NULL DEFAULT 0,
+      "loss" REAL NOT NULL DEFAULT 0,
+      "corpusChars" INTEGER NOT NULL DEFAULT 0,
+      "corpusInfo" TEXT NOT NULL DEFAULT '{}',
+      "active" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "ConversationFilter" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "scopeUserId" TEXT NOT NULL DEFAULT '',
+      "kind" TEXT NOT NULL DEFAULT 'keyword',
+      "pattern" TEXT NOT NULL DEFAULT '',
+      "action" TEXT NOT NULL DEFAULT 'exclude',
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "hits" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "Notification" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "title" TEXT NOT NULL DEFAULT '',
+      "body" TEXT NOT NULL DEFAULT '',
+      "source" TEXT NOT NULL DEFAULT 'system',
+      "read" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "BlueprintSchedule" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "blueprintId" TEXT NOT NULL DEFAULT '',
+      "everyMin" INTEGER NOT NULL DEFAULT 60,
+      "message" TEXT NOT NULL DEFAULT '',
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "lastRunAt" DATETIME,
+      "nextRunAt" DATETIME,
+      "lastStatus" TEXT NOT NULL DEFAULT '',
+      "lastReply" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 
-  // Colonnes ajoutées après coup (bases existantes) + index de cloisonnement
-  for (const table of USER_SCOPED_TABLES) {
-    addColumnIfMissing(table, 'userId', '"userId" TEXT')
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
-  }
-  addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
-  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
-  // depuis un autre compte.
-  addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\'')
-  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
-  addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
-  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
-  addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
-  for (const t of ['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson']) {
-    addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
-  }
-  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS "SiteSetting_key_key" ON "SiteSetting"("key")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPatch_userId_idx" ON "DevPatch"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevTask_userId_idx" ON "DevTask"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPage_userId_idx" ON "DevPage"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "DevPage_url_idx" ON "DevPage"("url")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingObjective_userId_idx" ON "TrainingObjective"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingItem_userId_idx" ON "TrainingItem"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingRun_userId_idx" ON "TrainingRun"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "TrainingLesson_userId_idx" ON "TrainingLesson"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "ApiKeyLog_keyId_idx" ON "ApiKeyLog"("keyId")')
-  sqlite.exec('CREATE INDEX IF NOT EXISTS "Blueprint_userId_idx" ON "Blueprint"("userId")')
+  `
 
+function buildDb() {
   return {
-    memory: createModelDelegate(sqlite, TABLES.memory),
-    conversation: createModelDelegate(sqlite, TABLES.conversation),
-    knowledge: createModelDelegate(sqlite, TABLES.knowledge),
-    task: createModelDelegate(sqlite, TABLES.task),
-    agentProfile: createModelDelegate(sqlite, TABLES.agentProfile),
-    accountConnection: createModelDelegate(sqlite, TABLES.accountConnection),
-    agentGroup: createModelDelegate(sqlite, TABLES.agentGroup),
-    user: createModelDelegate(sqlite, TABLES.user),
-    session: createModelDelegate(sqlite, TABLES.session),
-    blueprint: createModelDelegate(sqlite, TABLES.blueprint),
-    apiKey: createModelDelegate(sqlite, TABLES.apiKey),
-    apiKeyLog: createModelDelegate(sqlite, TABLES.apiKeyLog),
-    siteSetting: createModelDelegate(sqlite, TABLES.siteSetting),
-    devPatch: createModelDelegate(sqlite, TABLES.devPatch),
-    devTask: createModelDelegate(sqlite, TABLES.devTask),
-    devPage: createModelDelegate(sqlite, TABLES.devPage),
-    trainingObjective: createModelDelegate(sqlite, TABLES.trainingObjective),
-    trainingItem: createModelDelegate(sqlite, TABLES.trainingItem),
-    trainingRun: createModelDelegate(sqlite, TABLES.trainingRun),
-    trainingLesson: createModelDelegate(sqlite, TABLES.trainingLesson),
-    verificationCode: createModelDelegate(sqlite, TABLES.verificationCode),
+    memory: createModelDelegate(TABLES.memory),
+    conversation: createModelDelegate(TABLES.conversation),
+    knowledge: createModelDelegate(TABLES.knowledge),
+    task: createModelDelegate(TABLES.task),
+    agentProfile: createModelDelegate(TABLES.agentProfile),
+    accountConnection: createModelDelegate(TABLES.accountConnection),
+    agentGroup: createModelDelegate(TABLES.agentGroup),
+    user: createModelDelegate(TABLES.user),
+    session: createModelDelegate(TABLES.session),
+    blueprint: createModelDelegate(TABLES.blueprint),
+    apiKey: createModelDelegate(TABLES.apiKey),
+    apiKeyLog: createModelDelegate(TABLES.apiKeyLog),
+    siteSetting: createModelDelegate(TABLES.siteSetting),
+    devPatch: createModelDelegate(TABLES.devPatch),
+    devTask: createModelDelegate(TABLES.devTask),
+    devPage: createModelDelegate(TABLES.devPage),
+    trainingObjective: createModelDelegate(TABLES.trainingObjective),
+    trainingItem: createModelDelegate(TABLES.trainingItem),
+    trainingRun: createModelDelegate(TABLES.trainingRun),
+    trainingLesson: createModelDelegate(TABLES.trainingLesson),
+    verificationCode: createModelDelegate(TABLES.verificationCode),
+    llmModel: createModelDelegate(TABLES.llmModel),
+    conversationFilter: createModelDelegate(TABLES.conversationFilter),
+    notification: createModelDelegate(TABLES.notification),
+    blueprintSchedule: createModelDelegate(TABLES.blueprintSchedule),
   }
 }
 
-const globalForPrisma = globalThis as unknown as { prisma: any }
-
-export const db = globalForPrisma.prisma ?? createSqliteClient()
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+/**
+ * Client « db » : délégués asynchrones. Typé `any` pour conserver la souplesse
+ * de l'ancien client (les lignes sont des objets dynamiques).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const db: any = buildDb()

@@ -5,7 +5,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, ownerFilter } from '@/lib/auth'
-import { mintApiKey, normalizeConfig, toApiKeyInfo } from '@/lib/api-keys'
+import { PERSONAL_KEY_POLICY, mintApiKey, normalizeConfig, toApiKeyInfo } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,6 +33,22 @@ export async function POST(req: NextRequest) {
   const agentId = String(body?.agentId ?? '').trim().slice(0, 60)
   const blueprintId = String(body?.blueprintId ?? '').trim().slice(0, 60)
   const config = normalizeConfig(body?.config ?? {})
+
+  // Politique : usage personnel et non commercial uniquement, clé à durée limitée.
+  if (body?.personalUse !== true) {
+    return Response.json({ error: 'Confirme que la clé sert à un usage personnel et non commercial.' }, { status: 400 })
+  }
+  const days = Number(body?.lifetimeDays ?? PERSONAL_KEY_POLICY.defaultLifetimeDays)
+  if (!(PERSONAL_KEY_POLICY.lifetimesDays as readonly number[]).includes(days)) {
+    return Response.json({ error: 'Durée de validité non autorisée.' }, { status: 400 })
+  }
+  const active = await db.apiKey.count({ where: { ...(ownerFilter(user.id) ?? {}), enabled: true } })
+  if (active >= PERSONAL_KEY_POLICY.maxKeysPerAccount) {
+    return Response.json({ error: `Maximum ${PERSONAL_KEY_POLICY.maxKeysPerAccount} clés actives par compte : désactive ou supprime une clé avant d’en créer une autre.` }, { status: 409 })
+  }
+  const now = Date.now()
+  config.personalUseAcceptedAt = new Date(now).toISOString()
+  config.expiresAt = new Date(now + days * 24 * 60 * 60 * 1000).toISOString()
 
   // L'agent lié doit appartenir au compte
   if (agentId) {

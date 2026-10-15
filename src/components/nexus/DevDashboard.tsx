@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Code2,
   Database,
+  Filter,
+  Settings2,
   FileCode2,
   FolderTree,
   Gauge,
@@ -44,6 +46,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { DevAgentPanel } from '@/components/nexus/DevAgentPanel'
 import { DevTrainerPanel } from '@/components/nexus/DevTrainerPanel'
+import { DevLlmPanel } from '@/components/nexus/DevLlmPanel'
+import { DevFiltersPanel } from '@/components/nexus/DevFiltersPanel'
+import { DevSettingsPanel } from '@/components/nexus/DevSettingsPanel'
 import { useSiteSettings } from '@/lib/site-settings-client'
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from '@/lib/site-types'
 
@@ -1041,6 +1046,8 @@ export function DevDashboard() {
               { value: 'site', label: 'Site', icon: Palette },
               { value: 'agent', label: 'Agent Dev', icon: Terminal },
               { value: 'entrainement', label: 'Entraînement', icon: GraduationCap },
+              { value: 'filtres', label: 'Filtres', icon: Filter },
+              { value: 'reglages', label: 'Réglages', icon: Settings2 },
               { value: 'code', label: 'Code', icon: Code2 },
               { value: 'correctifs', label: 'Correctifs', icon: ListChecks },
               { value: 'taches', label: 'Améliorations', icon: Layers },
@@ -1080,8 +1087,15 @@ export function DevDashboard() {
               <DevAgentPanel />
             </div>
           </TabsContent>
-          <TabsContent value="entrainement" className="mt-0">
+          <TabsContent value="entrainement" className="mt-0 space-y-4">
+            <DevLlmPanel />
             <DevTrainerPanel />
+          </TabsContent>
+          <TabsContent value="filtres" className="mt-0">
+            <DevFiltersPanel />
+          </TabsContent>
+          <TabsContent value="reglages" className="mt-0">
+            <DevSettingsPanel />
           </TabsContent>
           <TabsContent value="code" className="mt-0">
             <div className="h-[calc(100vh-13rem)] min-h-[420px]">

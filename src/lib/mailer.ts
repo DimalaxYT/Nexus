@@ -1,6 +1,7 @@
 // ─── NEXUS — Envoi d'e-mails (SMTP) ───────────────────────────────────────────
-// Sert à la double authentification (code à 6 chiffres à la connexion) et à la
-// réinitialisation de mot de passe.
+// Sert à la réinitialisation de mot de passe (code à 6 chiffres), aux notifications
+// des surveillances de sites et à l'envoi de rapports de blueprints. La double
+// authentification à la connexion a été retirée.
 //
 // Configuration via variables d'environnement :
 //   SMTP_HOST   ex. smtp.gmail.com
@@ -38,11 +39,8 @@ export function mailFrom(): string {
   return process.env.MAIL_FROM?.trim() || `NEXUS <${String(process.env.SMTP_USER).trim()}>`
 }
 
-function codeEmail(code: string, purpose: 'login' | 'reset'): string {
-  const action =
-    purpose === 'login'
-      ? 'confirmer votre connexion'
-      : 'réinitialiser votre mot de passe'
+function codeEmail(code: string): string {
+  const action = 'réinitialiser votre mot de passe'
   return `<!doctype html>
 <html lang="fr"><body style="margin:0;padding:32px;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:16px;overflow:hidden;">
@@ -66,29 +64,43 @@ function codeEmail(code: string, purpose: 'login' | 'reset'): string {
 </body></html>`
 }
 
-/** Tente l'envoi du code. Renvoie sent=false (avec le code) si SMTP absent. */
+/** Tente l'envoi du code de réinitialisation. Renvoie sent=false (avec le code) si SMTP absent. */
 export async function sendVerificationEmail(
   email: string,
-  code: string,
-  purpose: 'login' | 'reset'
+  code: string
 ): Promise<{ sent: boolean; error?: string }> {
   if (!mailConfigured()) {
     // Mode développement : le code reste côté serveur (journal) et est renvoyé
     // à l'UI qui l'affiche dans un encart explicite.
-    console.log(`[nexus][2fa] code pour ${email} (${purpose}) : ${code}`)
+    console.log(`[nexus][mail] code de réinitialisation pour ${email} : ${code}`)
     return { sent: false }
   }
   try {
     await transport().sendMail({
       from: mailFrom(),
       to: email,
-      subject: purpose === 'login' ? `Code de connexion NEXUS : ${code}` : `Code de réinitialisation NEXUS : ${code}`,
-      html: codeEmail(code, purpose),
-      text: `Votre code NEXUS (${purpose === 'login' ? 'connexion' : 'réinitialisation'}) : ${code} — valable 10 minutes.`,
+      subject: `Code de réinitialisation NEXUS : ${code}`,
+      html: codeEmail(code),
+      text: `Votre code NEXUS (réinitialisation) : ${code} — valable 10 minutes.`,
     })
     return { sent: true }
   } catch (err) {
-    console.error('[nexus][2fa] envoi SMTP impossible :', err instanceof Error ? err.message : err)
+    console.error('[nexus][mail] envoi SMTP impossible :', err instanceof Error ? err.message : err)
+    return { sent: false, error: err instanceof Error ? err.message : 'envoi impossible' }
+  }
+}
+
+/** Envoi d'un e-mail texte simple (notifications de surveillance). Ne jette jamais. */
+export async function sendPlainMail(
+  to: string,
+  subject: string,
+  text: string
+): Promise<{ sent: boolean; error?: string }> {
+  if (!mailConfigured()) return { sent: false, error: 'SMTP non configuré (SMTP_HOST / SMTP_USER / SMTP_PASS)' }
+  try {
+    await transport().sendMail({ from: mailFrom(), to, subject, text })
+    return { sent: true }
+  } catch (err) {
     return { sent: false, error: err instanceof Error ? err.message : 'envoi impossible' }
   }
 }

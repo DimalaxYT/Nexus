@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // ne doit PAS être bundlé par Next (binaires + workers dynamiques).
   // imapflow (lecture IMAP réelle de la boîte Gmail connectée) : idem — le
   // bundling casse ses connexions TLS (timeout en dev, testé en réel).
-  serverExternalPackages: ["playwright", "imapflow"],
+  serverExternalPackages: ["playwright", "imapflow", "@libsql/client", "libsql"],
   async headers() {
     return [
       {

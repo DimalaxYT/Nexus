@@ -14,6 +14,7 @@ import { extractKeySentences } from './brain/synthesize'
 import { searchKnowledgeBank } from './brain/knowledge-bank'
 import { stems } from './brain/text'
 import { buildKnowledgePatch } from './devknowledge'
+import { maybeRetrainModel, probeModel, validQuestions } from './devmodel'
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -809,8 +810,6 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
     await db.trainingRun.update({ where: { id: runId }, data: { objective: objective.label } }).catch(() => {})
     step('Objectif', objective.label)
     return gather(objective)
-    await db.trainingRun.update({ where: { id: runId }, data: { objective: objective.label } }).catch(() => {})
-    step('Objectif', objective.label)
 
     /** Récolte, rédaction, évaluation et promotion pour un objectif donné. */
     async function gather(objective: { id: string; label: string; query: string; category: string }) {
@@ -999,6 +998,19 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
       await db.trainingItem.update({ where: { id: itemId }, data: { status: 'valide' } }).catch(() => {})
       await bumpAttempts(objective.id, { status: 'fait', lastScore: score })
 
+      // 6 bis. Le modèle maison apprend ce savoir : relance en arrière-plan si
+      // assez de nouveautés se sont accumulées.
+      const retrain = await maybeRetrainModel().catch((e) => ({
+        started: false,
+        reason: e instanceof Error ? e.message : 'erreur',
+        steps: 0,
+      }))
+      step(
+        'Modèle',
+        retrain.started ? `Entraînement lancé — ${retrain.reason}` : `Pas de relance — ${retrain.reason}`,
+        'ok'
+      )
+
       // 7. Vérification : est-ce que ça change vraiment quelque chose ?
       const after = await probeNexus(userId)
       const delta = after.score - before.score
@@ -1007,6 +1019,17 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
         `couverture ${Math.round(before.score * 100)} % → ${Math.round(after.score * 100)} % (${delta >= 0 ? '+' : ''}${Math.round(delta * 100)} pt)`,
         delta > 0 ? 'ok' : 'warn'
       )
+
+      // Mesure du modèle lui-même (et non du seul savoir) : répond-il aux questions
+      // qu'il a apprises, garde-fou compris ?
+      const modelProbe = await probeModel(await validQuestions(6)).catch(() => null)
+      if (modelProbe) {
+        step(
+          'Modèle mesuré',
+          `répond à ${modelProbe.answered}/${modelProbe.total} questions de son savoir appris (${Math.round(modelProbe.ms / 1000)} s)`,
+          modelProbe.answered > 0 ? 'ok' : 'warn'
+        )
+      }
 
       // 8. Le cycle alimente la prochaine cible : les trous restants
       for (const miss of after.misses.slice(0, 3)) {

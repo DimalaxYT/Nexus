@@ -1,7 +1,7 @@
-// ─── NEXUS — Codes de vérification (2FA e-mail & mot de passe oublié) ─────────
+// ─── NEXUS — Codes de vérification (mot de passe oublié) ─────────────────────
 // Un code à 6 chiffres, haché (SHA-256), valable 10 minutes, 5 essais max.
-// Deux usages : « login » (double authentification à la connexion) et
-// « reset » (réinitialisation de mot de passe).
+// Usage unique : « reset » (réinitialisation de mot de passe). La double
+// authentification à la connexion a été retirée.
 
 import crypto from 'crypto'
 import { db } from '@/lib/db'
@@ -18,7 +18,7 @@ function hashCode(email: string, code: string): string {
 /** Génère, stocke et envoie un code. Renvoie devCode si SMTP non configuré. */
 export async function issueVerificationCode(
   email: string,
-  purpose: 'login' | 'reset'
+  purpose: 'reset'
 ): Promise<{ ok: boolean; sent?: boolean; devCode?: string; error?: string }> {
   // Anti-abus : 3 codes maximum par 10 minutes par e-mail + usage.
   const rl = checkRateLimit(`vcode:${purpose}:${email.toLowerCase()}`, 3, 10 * 60 * 1000)
@@ -45,7 +45,7 @@ export async function issueVerificationCode(
     },
   })
 
-  const res = await sendVerificationEmail(email, code, purpose)
+  const res = await sendVerificationEmail(email, code)
   if (res.error) {
     return { ok: false, error: `Envoi de l'e-mail impossible (${res.error}). Vérifiez la configuration SMTP.` }
   }
@@ -55,7 +55,7 @@ export async function issueVerificationCode(
 /** Vérifie un code. Le consomme en cas de succès (single-use). */
 export async function verifyVerificationCode(
   email: string,
-  purpose: 'login' | 'reset',
+  purpose: 'reset',
   code: string
 ): Promise<{ ok: boolean; error?: string }> {
   const clean = code.replace(/\D/g, '')

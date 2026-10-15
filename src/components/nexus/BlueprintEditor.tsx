@@ -655,6 +655,10 @@ function defaultConfigFor(type: BlueprintNodeType): Record<string, unknown> {
       return { url: '', method: 'POST', body: '{"message":"{{message}}"}', variable: 'api', timeoutMs: '8000' }
     case 'reply':
       return { text: '{{reponse}}' }
+    case 'watch':
+      return { url: '', keyword: '', variable: 'veille' }
+    case 'notify':
+      return { title: 'NEXUS', body: '{{veille}}', channel: 'inapp' }
     case 'end':
       return { text: '' }
     default:
@@ -682,6 +686,10 @@ function summarize(node: BlueprintNode): string {
       return `${String(c.method ?? 'POST')} ${String(c.url ?? '').slice(0, 40)}`
     case 'reply':
       return String(c.text ?? '').slice(0, 90) || '(vide)'
+    case 'watch':
+      return `${String(c.url ?? '(adresse à définir)').slice(0, 50)}${c.keyword ? ` · guette « ${String(c.keyword)} »` : ''}`
+    case 'notify':
+      return `${String(c.channel ?? 'inapp') === 'inapp' ? 'Notification' : String(c.channel) === 'email' ? 'E-mail' : 'Notification + e-mail'} · ${String(c.title ?? '').slice(0, 40)}`
     case 'start':
       return String(c.greeting ?? 'Réception du message')
     default:

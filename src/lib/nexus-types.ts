@@ -650,6 +650,8 @@ export type BlueprintNodeType =
   | 'webhook'
   | 'reply'
   | 'end'
+  | 'watch'
+  | 'notify'
 
 export interface BlueprintNode {
   id: string
@@ -794,6 +796,26 @@ export const BLUEPRINT_NODE_SPECS: BlueprintNodeSpec[] = [
     hint: "Termine le parcours (sans texte : la réponse calculée s'affiche).",
     ports: [],
     fields: [{ key: 'text', label: 'Texte final (optionnel)', kind: 'textarea' }],
+  },
+  {
+    type: 'watch', label: 'Surveiller un site', emoji: '👀', color: '#34d399',
+    hint: 'Ouvre une page, compare avec la dernière visite et dit si elle a changé (ou si un mot-clé apparaît).',
+    ports: [{ id: 'out', label: 'Suite' }, { id: 'error', label: 'Échec' }],
+    fields: [
+      { key: 'url', label: 'Adresse du site', kind: 'text', placeholder: 'https://exemple.fr/actualites' },
+      { key: 'keyword', label: 'Mot-clé à guetter (optionnel)', kind: 'text', placeholder: 'disponible' },
+      { key: 'variable', label: 'Préfixe des variables', kind: 'text', placeholder: 'veille' },
+    ],
+  },
+  {
+    type: 'notify', label: 'Informer', emoji: '🔔', color: '#fbbf24',
+    hint: 'Prévient l’utilisateur : notification dans NEXUS et/ou e-mail.',
+    ports: [{ id: 'out', label: 'Suite' }],
+    fields: [
+      { key: 'title', label: 'Titre', kind: 'text', placeholder: 'Changement détecté' },
+      { key: 'body', label: 'Message', kind: 'textarea', placeholder: 'Le site a changé : {{veille}}' },
+      { key: 'channel', label: 'Canal', kind: 'select', options: ['inapp', 'email', 'both'] },
+    ],
   },
 ]
 
