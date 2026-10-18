@@ -65,3 +65,11 @@ server.log
 
 # Espace développeur : sauvegardes automatiques avant écriture
 .arena/
+
+# Nexus LLM (llm/) : artefacts d'entraînement régénérables (le code, le
+# tokenizer et les résultats mesurés sont versionnés, pas les poids binaires)
+/llm/checkpoints/*.npz
+/llm/data/token_ids*.npy
+/llm/data/corpus.txt
+/llm/data/external/
+/llm/**/__pycache__/

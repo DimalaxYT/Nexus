@@ -1,0 +1,16 @@
+{
+  "documents": [
+    "nexus-fr:README.md",
+    "nexus-fr:worklog.md",
+    "nexus-fr:knowledge-bank.ts",
+    "nexus-fr:dataset.ts"
+  ],
+  "chars": {
+    "nexus-fr:README.md": 13234,
+    "nexus-fr:worklog.md": 78544,
+    "nexus-fr:knowledge-bank.ts": 4598,
+    "nexus-fr:dataset.ts": 6445
+  },
+  "repeat": 3,
+  "total_chars": 308650
+}

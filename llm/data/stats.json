@@ -1,0 +1,17 @@
+{
+  "documents": [
+    "nexus:README.md",
+    "nexus:worklog.md",
+    "nexus:knowledge-bank.ts",
+    "nexus:dataset.ts",
+    "tinyshakespeare"
+  ],
+  "chars": {
+    "nexus:README.md": 17200,
+    "nexus:worklog.md": 79916,
+    "nexus:knowledge-bank.ts": 36110,
+    "nexus:dataset.ts": 20522,
+    "tinyshakespeare": 1115394
+  },
+  "total_chars": 1269210
+}
