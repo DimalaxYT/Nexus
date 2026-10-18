@@ -1,0 +1,4 @@
+# Nexus LLM — seule dépendance : NumPy (calcul tensoriel).
+# Tout le reste (tokenizer BPE, autograd, Transformer, Adam, serveur HTTP)
+# est écrit de zéro dans ce dépôt, en bibliothèque standard.
+numpy>=1.26

@@ -1,0 +1,16 @@
+{
+  "config": {
+    "vocab_size": 4097,
+    "block_size": 256,
+    "n_layer": 8,
+    "n_embd": 384,
+    "n_head": 12,
+    "dropout": 0.0,
+    "label_smoothing": 0.0
+  },
+  "num_params": 15868032,
+  "step": 100,
+  "train_loss": 4.379,
+  "val_loss": 5.8725,
+  "tokenizer": "data/tokenizer_v2.json"
+}
