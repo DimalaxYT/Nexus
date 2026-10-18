@@ -22,6 +22,10 @@ export interface LocalLlmOptions {
   topP?: number
   /** > 1 pénalise les tokens déjà émis (anti-boucles, utile aux petits modèles) */
   repetitionPenalty?: number
+  /** seuil relatif à p_max (ex. 0,05) ; 0 = désactivé */
+  minP?: number
+  /** > 1 : recherche par faisceaux déterministe (ignore température/top-k/top-p) */
+  beamWidth?: number
   seed?: number
   timeoutMs?: number
 }
@@ -80,6 +84,8 @@ export async function generateWithLocalLlm(prompt: string, opts: LocalLlmOptions
         top_k: opts.topK ?? 40,
         top_p: opts.topP ?? 0.95,
         repetition_penalty: opts.repetitionPenalty ?? 1.1,
+        min_p: opts.minP ?? 0,
+        beam_width: opts.beamWidth ?? 1,
         seed: opts.seed,
       }),
     },

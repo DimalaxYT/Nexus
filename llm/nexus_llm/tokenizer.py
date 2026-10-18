@@ -18,8 +18,10 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-# Lettres (unicode, accents inclus) | nombres | suites d'espaces | autre caractère
-_SPLIT_RE = re.compile(r"[^\W\d_]+|\d+|\s+|[^\s\w]", re.UNICODE)
+# Lettres (unicode, accents inclus) | chiffres UN PAR UN (façon GPT-2 : le
+# modèle généralise aux nombres jamais vus au lieu de mémoriser "2024") |
+# suites d'espaces | autre caractère
+_SPLIT_RE = re.compile(r"[^\W\d_]+|\d|\s+|[^\s\w]", re.UNICODE)
 
 EOS_TOKEN = "<|endoftext|>"
 

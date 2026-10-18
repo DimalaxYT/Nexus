@@ -39,6 +39,8 @@ export async function POST(req: Request) {
     topK: num(body.topK, 40),
     topP: num(body.topP, 0.95),
     repetitionPenalty: num(body.repetitionPenalty, 1.1),
+    minP: num(body.minP, 0),
+    beamWidth: num(body.beamWidth, 1),
     seed: typeof body.seed === 'number' ? body.seed : undefined,
   })
   if (text === null) {

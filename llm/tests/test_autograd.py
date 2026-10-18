@@ -97,7 +97,34 @@ def test_gradients_primitives():
     assert max_err < 1e-6, f"gradient de primitive incorrect : {max_err}"
 
 
+def test_label_smoothing_gradient():
+    """Le gradient de la cross-entropy lissée doit aussi être exact."""
+    rng = np.random.default_rng(11)
+    logits = Tensor(rng.normal(size=(5, 7)))
+    targets = np.array([0, 3, 6, 2, 5])
+
+    def build():
+        return cross_entropy(logits, targets, smoothing=0.1)
+
+    build().backward()
+    eps, max_err = 1e-6, 0.0
+    it = np.nditer(logits.data, flags=["multi_index"])
+    while not it.finished:
+        idx = it.multi_index
+        orig = logits.data[idx]
+        logits.data[idx] = orig + eps
+        lp = float(build().data)
+        logits.data[idx] = orig - eps
+        lm = float(build().data)
+        logits.data[idx] = orig
+        max_err = max(max_err, abs((lp - lm) / (2 * eps) - logits.grad[idx]))
+        it.iternext()
+    print(f"erreur max gradient cross-entropy lissée (ε=0,1) : {max_err:.3e}")
+    assert max_err < 1e-6
+
+
 if __name__ == "__main__":
     test_gradients()
     test_gradients_primitives()
+    test_label_smoothing_gradient()
     print("OK — rétropropagation vérifiée")

@@ -15,7 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .autograd import Tensor, attention, cross_entropy, embedding, layernorm, matmul, relu, transpose
+from .autograd import (Tensor, attention, cross_entropy, dropout, embedding,
+                       layernorm, matmul, relu, transpose)
 
 
 @dataclass
@@ -25,9 +26,13 @@ class GPTConfig:
     n_layer: int = 6
     n_embd: int = 256
     n_head: int = 8
+    dropout: float = 0.0          # actif seulement en mode entraînement (forward training=True)
+    label_smoothing: float = 0.0  # ε de lissage des étiquettes (0 = cross-entropy classique)
 
     def __post_init__(self):
         assert self.n_embd % self.n_head == 0, "n_embd doit être divisible par n_head"
+        assert 0.0 <= self.dropout < 1.0, "dropout dans [0, 1)"
+        assert 0.0 <= self.label_smoothing < 1.0, "label_smoothing dans [0, 1)"
 
 
 class _Layer:
@@ -54,6 +59,7 @@ class GPT:
     def __init__(self, config: GPTConfig, seed: int = 42):
         self.config = config
         rng = np.random.default_rng(seed)
+        self._drop_rng = np.random.default_rng(seed + 12345)  # flux dédié aux masques de dropout
         c = config
         rn = lambda *s, std=0.02: Tensor(rng.normal(0, std, s).astype(np.float32))  # noqa: E731
         self.wte = rn(c.vocab_size, c.n_embd)
@@ -79,15 +85,27 @@ class GPT:
             p.zero_grad()
 
     # ---------------------------------------------------------------- forward
-    def forward(self, ids: np.ndarray) -> Tensor:
-        """ids (B, T) int → logits (B, T, vocab) via le graphe autograd."""
+    def forward(self, ids: np.ndarray, training: bool = False) -> Tensor:
+        """ids (B, T) int → logits (B, T, vocab) via le graphe autograd.
+
+        training=True active le dropout (masques tirés dans _drop_rng) :
+        sorties d'attention et de MLP + embedding, comme GPT-2. À False
+        (évaluation, tests), le réseau est strictement déterministe."""
         c = self.config
         _, t = ids.shape
         x = embedding(self.wte, ids) + embedding(self.wpe, np.arange(t))
+        if training:
+            x = dropout(x, c.dropout, self._drop_rng)
         mask = _causal_mask(t, x.data.dtype)
         for layer in self.layers:
-            x = x + self._attention(layernorm(x, layer.ln1_w, layer.ln1_b), layer, mask)
-            x = x + self._mlp(layernorm(x, layer.ln2_w, layer.ln2_b), layer)
+            sub = self._attention(layernorm(x, layer.ln1_w, layer.ln1_b), layer, mask)
+            if training:
+                sub = dropout(sub, c.dropout, self._drop_rng)
+            x = x + sub
+            sub = self._mlp(layernorm(x, layer.ln2_w, layer.ln2_b), layer)
+            if training:
+                sub = dropout(sub, c.dropout, self._drop_rng)
+            x = x + sub
         x = layernorm(x, self.lnf_w, self.lnf_b)
         return matmul(x, transpose(self.wte, (1, 0)))  # poids liés
 
@@ -110,10 +128,18 @@ class GPT:
         return matmul(relu(matmul(x, layer.w1) + layer.b1), layer.w2) + layer.b2
 
     # ---------------------------------------------------------------- perte
-    def loss(self, ids: np.ndarray, targets: np.ndarray) -> Tensor:
-        logits = self.forward(ids)
+    def loss(self, ids: np.ndarray, targets: np.ndarray, training: bool = False) -> Tensor:
+        logits = self.forward(ids, training=training)
         b, t, v = logits.shape
-        return cross_entropy(logits.reshape(b * t, v), targets.reshape(b * t))
+        return cross_entropy(logits.reshape(b * t, v), targets.reshape(b * t),
+                             smoothing=self.config.label_smoothing)
+
+    def decay_param_ids(self) -> set[int]:
+        """Paramètres soumis au weight decay (AdamW) : les matrices (ndim ≥ 2).
+
+        Biais et gains de LayerNorm sont exclus, comme dans les recettes
+        GPT standard — décroître un biais ne régularise rien."""
+        return {id(p) for p in self.params() if p.data.ndim >= 2}
 
     # ------------------------------------------------------------- génération
     # ------------------------------------------------------------- inférence
@@ -158,7 +184,7 @@ class GPT:
     @np.errstate(all="ignore")
     def generate(self, prompt_ids: list[int], max_new_tokens: int = 100,
                  temperature: float = 0.9, top_k: int = 40, top_p: float = 0.95,
-                 repetition_penalty: float = 1.0,
+                 repetition_penalty: float = 1.0, min_p: float = 0.0,
                  rng: np.random.Generator | None = None,
                  stop_at_eos: int | None = None) -> list[int]:
         """Échantillonnage auto-régressif avec cache KV (un pas par token).
@@ -173,8 +199,9 @@ class GPT:
         out: list[int] = []
         logits, cache = self.forward_np(np.array([ids], dtype=np.int64))
         for _ in range(max_new_tokens):
-            nxt = _sample(logits[0, -1].astype(np.float64), temperature, top_k, top_p,
-                          repetition_penalty, ids + out, rng)
+            nxt = _sample(logits[0, -1].astype(np.float64), ids + out, rng,
+                          temperature=temperature, top_k=top_k, top_p=top_p,
+                          repetition_penalty=repetition_penalty, min_p=min_p)
             out.append(nxt)
             if stop_at_eos is not None and nxt == stop_at_eos:
                 break
@@ -184,6 +211,57 @@ class GPT:
             else:
                 logits, cache = self.forward_np(np.array([[nxt]], dtype=np.int64), cache)
         return out
+
+    @np.errstate(all="ignore")
+    def beam_search(self, prompt_ids: list[int], beam_width: int = 4,
+                    max_new_tokens: int = 100, repetition_penalty: float = 1.0,
+                    stop_at_eos: int | None = None) -> list[int]:
+        """Recherche par faisceaux déterministe, sur cache KV batché.
+
+        Score d'un faisceau = somme des log-probabilités (pénalité de
+        répétition appliquée aux logits avant log-softmax, comme pour
+        l'échantillonnage). Les faisceaux avancent en lockstep dans un
+        seul batch : le cache est réordonné par indexation à chaque pas.
+        Largeur 1 ≡ décodage glouton (prouvé par test). Retourne les
+        tokens générés (sans le prompt, coupés au premier EOS)."""
+        w = max(1, int(beam_width))
+        prompt = list(prompt_ids[-self.config.block_size:])
+        vocab = self.config.vocab_size
+        logits, cache = self.forward_np(np.array([prompt] * w, dtype=np.int64))
+        seqs = [list(prompt) for _ in range(w)]
+        scores = np.full(w, -np.inf)
+        scores[0] = 0.0
+        finished = [False] * w
+        for _ in range(max_new_tokens):
+            last = logits[:, -1, :].astype(np.float64)
+            for i, seq in enumerate(seqs):
+                if finished[i] and stop_at_eos is not None:
+                    last[i] = -np.inf
+                    last[i, stop_at_eos] = 0.0  # un faisceau fini ne fait que se prolonger à coût nul
+                elif repetition_penalty != 1.0:
+                    last[i] = _apply_repetition_penalty(last[i], seq, repetition_penalty)
+            m = last.max(axis=-1, keepdims=True)
+            logp = last - (m + np.log(np.exp(last - m).sum(axis=-1, keepdims=True)))
+            cand = (scores[:, None] + logp).reshape(-1)
+            top = np.argpartition(cand, -w)[-w:]
+            top = top[np.argsort(-cand[top])]
+            beam_idx, toks = top // vocab, top % vocab
+            cache = [(k[beam_idx], v[beam_idx]) for (k, v) in cache]
+            seqs = [seqs[b] + [int(t)] for b, t in zip(beam_idx.tolist(), toks.tolist())]
+            scores = cand[top]
+            finished = [finished[b] or (stop_at_eos is not None and int(t) == stop_at_eos)
+                        for b, t in zip(beam_idx.tolist(), toks.tolist())]
+            if all(finished):
+                break
+            if len(seqs[0]) >= self.config.block_size:
+                windows = [s[-self.config.block_size:] for s in seqs]
+                logits, cache = self.forward_np(np.array(windows, dtype=np.int64))
+            else:
+                logits, cache = self.forward_np(toks.reshape(w, 1).astype(np.int64), cache)
+        best = seqs[int(np.argmax(scores))][len(prompt):]
+        if stop_at_eos is not None and stop_at_eos in best:
+            best = best[:best.index(stop_at_eos)]
+        return best
 
     # ------------------------------------------------------------ persistance
     def save(self, path: str | Path, extra: dict | None = None) -> None:
@@ -201,7 +279,10 @@ class GPT:
         with np.load(path) as data:
             for i, p in enumerate(model.params()):
                 arr = data[f"p{i}"]
-                assert arr.shape == p.data.shape, f"forme inattendue pour p{i}"
+                assert arr.shape == p.data.shape, (
+                    f"forme inattendue pour p{i} : checkpoint {arr.shape} vs modèle "
+                    f"{p.data.shape} — le .json associé décrit probablement une autre "
+                    "architecture (poids et métadonnées doivent rester appariés)")
                 p.data = arr.copy()
         return model, meta
 
@@ -221,21 +302,31 @@ def _layernorm_np(x: np.ndarray, weight: np.ndarray, bias: np.ndarray,
     return xc / np.sqrt(var + eps) * weight + bias
 
 
+def _apply_repetition_penalty(logits: np.ndarray, seen_ids, penalty: float) -> np.ndarray:
+    """Pénalité de répétition (style CTRL) sur une copie : un logit déjà
+    émis est divisé par le facteur s'il est positif, multiplié sinon —
+    jamais d'interdiction dure."""
+    logits = logits.astype(np.float64, copy=True)
+    for tid in set(seen_ids):
+        if 0 <= tid < logits.shape[0]:
+            logits[tid] = (logits[tid] / penalty if logits[tid] > 0
+                           else logits[tid] * penalty)
+    return logits
+
+
 def filter_logits(logits: np.ndarray, seen_ids: list[int] | tuple = (),
                   temperature: float = 0.9, top_k: int = 40, top_p: float = 0.95,
-                  repetition_penalty: float = 1.0) -> np.ndarray:
-    """Applique pénalité de répétition, température, top-k et top-p.
+                  repetition_penalty: float = 1.0, min_p: float = 0.0) -> np.ndarray:
+    """Chaîne d'échantillonnage complète : pénalité, température, top-k,
+    min-p, top-p. Fonction pure (testable) : logits 1D -> probabilités 1D.
 
-    Fonction pure (testable unitairement) : logits 1D -> probabilités 1D.
-    Pénalité (style CTRL) : un logit déjà émis est divisé par le facteur
-    s'il est positif, multiplié sinon — jamais d'interdiction dure.
-    """
-    logits = logits.astype(np.float64, copy=True)
+    min_p : seuil relatif à la meilleure probabilité (ex. 0,05 garde les
+    tokens à ≥ 5 % de p_max) — plus doux que top-k quand le modèle hésite
+    entre peu d'options."""
     if repetition_penalty and repetition_penalty != 1.0:
-        for tid in set(seen_ids):
-            if 0 <= tid < logits.shape[0]:
-                logits[tid] = (logits[tid] / repetition_penalty if logits[tid] > 0
-                               else logits[tid] * repetition_penalty)
+        logits = _apply_repetition_penalty(logits, seen_ids, repetition_penalty)
+    else:
+        logits = logits.astype(np.float64, copy=True)
     if temperature <= 0:  # glouton : one-hot sur l'argmax
         probs = np.zeros_like(logits)
         probs[int(np.argmax(logits))] = 1.0
@@ -246,6 +337,9 @@ def filter_logits(logits: np.ndarray, seen_ids: list[int] | tuple = (),
         logits = np.where(logits < kth, -np.inf, logits)
     probs = np.exp(logits - logits.max())
     probs /= probs.sum()
+    if min_p and min_p > 0.0:
+        probs = np.where(probs < min_p * probs.max(), 0.0, probs)
+        probs /= probs.sum()
     if top_p and top_p < 1.0:  # nucleus sampling
         order = np.argsort(-probs)
         cum = np.cumsum(probs[order])
@@ -256,8 +350,9 @@ def filter_logits(logits: np.ndarray, seen_ids: list[int] | tuple = (),
     return probs
 
 
-def _sample(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
-            repetition_penalty: float, seen_ids: list[int],
-            rng: np.random.Generator) -> int:
-    probs = filter_logits(logits, seen_ids, temperature, top_k, top_p, repetition_penalty)
+def _sample(logits: np.ndarray, seen_ids: list[int], rng: np.random.Generator, *,
+            temperature: float, top_k: int, top_p: float,
+            repetition_penalty: float, min_p: float) -> int:
+    probs = filter_logits(logits, seen_ids, temperature, top_k, top_p,
+                          repetition_penalty, min_p)
     return int(rng.choice(len(probs), p=probs))

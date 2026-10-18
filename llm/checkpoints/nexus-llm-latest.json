@@ -1,14 +1,16 @@
 {
   "config": {
-    "vocab_size": 2049,
+    "vocab_size": 4097,
     "block_size": 256,
-    "n_layer": 6,
-    "n_embd": 256,
-    "n_head": 8
+    "n_layer": 8,
+    "n_embd": 384,
+    "n_head": 12,
+    "dropout": 0.0,
+    "label_smoothing": 0.0
   },
-  "num_params": 5329152,
-  "step": 1749,
-  "train_loss": 3.040176536648675,
-  "val_loss": 3.205771826945417,
-  "tokenizer": "data/tokenizer.json"
+  "num_params": 15868032,
+  "step": 100,
+  "train_loss": 4.379,
+  "val_loss": 5.8725,
+  "tokenizer": "data/tokenizer_v2.json"
 }

@@ -5,7 +5,7 @@ charge le checkpoint et expose, sur 127.0.0.1 par défaut :
 
     GET  /health   -> {ok, model, step, params, vocab}
     POST /generate -> {prompt, max_tokens, temperature, top_k, top_p,
-                       repetition_penalty, seed}
+                       repetition_penalty, min_p, beam_width, seed}
                       renvoie {text, prompt}
 
 Le tokenizer est celui enregistré dans les métadonnées du checkpoint
@@ -81,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
                     top_k=int(req.get("top_k", 40)),
                     top_p=float(req.get("top_p", 0.95)),
                     repetition_penalty=float(req.get("repetition_penalty", 1.1)),
+                    min_p=float(req.get("min_p", 0.0)),
+                    beam_width=int(req.get("beam_width", 1)),
                     seed=req.get("seed"),
                 )
             self._json(200, {"text": text, "prompt": prompt})

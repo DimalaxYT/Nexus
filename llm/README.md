@@ -73,11 +73,13 @@ Le code est prêt et le pré-entraînement v2 est amorcé (checkpoint
 python -m nexus_llm.train --corpus corpus_v2.txt --tokenizer tokenizer_v2.json \
   --resume checkpoints/nexus-llm-latest.npz --steps 550 \
   --n-layer 8 --n-embd 384 --n-head 12 --lr 2e-3 \
+  --dropout 0.1 --label-smoothing 0.05 \
   --out checkpoints/nexus-llm-v2.npz
 
-# 2. Affinage français (prose Nexus nettoyée)
+# 2. Affinage français (prose Nexus nettoyée, LR constant plus doux)
 python -m nexus_llm.train --corpus corpus_fr.txt --tokenizer tokenizer_v2.json \
   --resume checkpoints/nexus-llm-v2.npz --steps 300 --lr 8e-4 \
+  --lr-schedule constant --dropout 0.1 \
   --out checkpoints/nexus-llm-v2fr.npz
 
 # 3. Promouvoir le meilleur checkpoint en modèle servi par défaut
@@ -92,6 +94,13 @@ Outils d'entraînement intégrés : **accumulation de gradient**
 **meilleur checkpoint automatique** (`nexus-llm-best.npz` sur perplexité
 de validation), garde anti-NaN, `--eval-batches` réglable. En cas
 d'interruption, `--resume` repart du dernier `nexus-llm-latest.npz`.
+
+Régularisation et décodage (activables sans réentraîner l'architecture) :
+**dropout** `--dropout` et **label smoothing** `--label-smoothing`
+(modifiables à la reprise), **AdamW** (décroissance découplée sur les
+matrices seulement), plannings LR `--lr-schedule cosine|constant|linear`,
+et côté génération **beam search** (`--beam-width`), **min-p**
+(`--min-p`), pénalité de répétition — tous exposés jusqu'à l'API Nexus.
 
 ## Limites assumées (et pistes, voir TASKS.md)
 

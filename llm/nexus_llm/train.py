@@ -103,7 +103,13 @@ def main() -> None:
     ap.add_argument("--n-head", type=int, default=8)
     ap.add_argument("--vocab-size", type=int, default=2048)
     ap.add_argument("--lr", type=float, default=3e-3)
+    ap.add_argument("--lr-schedule", choices=["cosine", "constant", "linear"], default="cosine",
+                    help="planning après warmup (constant : affinages à petit LR stable)")
     ap.add_argument("--warmup", type=int, default=40)
+    ap.add_argument("--dropout", type=float, default=0.0,
+                    help="probabilité de dropout à l'entraînement (0,1 = bon défaut sur petit corpus répété)")
+    ap.add_argument("--label-smoothing", type=float, default=0.0,
+                    help="ε de lissage des étiquettes (0,05–0,1 régularise la confiance)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--resume", type=str, default="")
     ap.add_argument("--corpus", type=str, default="corpus.txt",
@@ -138,17 +144,27 @@ def main() -> None:
           f"vocab modèle = {tok.model_vocab_size}")
 
     config = GPTConfig(vocab_size=tok.model_vocab_size, block_size=args.block_size,
-                       n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head)
+                       n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
+                       dropout=args.dropout, label_smoothing=args.label_smoothing)
     model = GPT(config, seed=args.seed)
     start_step = 0
     if args.resume:
         model, meta = GPT.load(args.resume)
         start_step = int(meta.get("step", 0))
         print(f"[train] reprise depuis {args.resume} (étape {start_step})")
-    print(f"[train] modèle : {model.num_params() / 1e6:.2f} M paramètres, config = {config}")
+        # Dropout et lissage n'ont pas de paramètres : on peut les changer
+        # à la reprise (ex. activer le dropout pour un affinage).
+        if (model.config.dropout != args.dropout
+                or model.config.label_smoothing != args.label_smoothing):
+            model.config.dropout = args.dropout
+            model.config.label_smoothing = args.label_smoothing
+            print(f"[train] régularisation ajustée : dropout={args.dropout}, "
+                  f"label_smoothing={args.label_smoothing}")
+    print(f"[train] modèle : {model.num_params() / 1e6:.2f} M paramètres, config = {model.config}")
 
     params = model.params()
-    opt = Adam(params, beta1=0.9, beta2=0.95, weight_decay=0.01)
+    opt = Adam(params, beta1=0.9, beta2=0.95, weight_decay=0.01,
+               decay_ids=model.decay_param_ids())  # AdamW : matrices seulement
     if args.resume and load_optim_state(args.resume, opt):
         print(f"[train] état Adam restauré (t={opt.t}) : reprise fidèle, pas de redémarrage à froid de l'optimiseur")
     rng = np.random.default_rng(args.seed)
@@ -171,7 +187,7 @@ def main() -> None:
         loss = 0.0
         for _micro in range(accum):
             x, y = get_batch(train_ids, args.block_size, args.batch_size, rng)
-            loss_t = model.loss(x, y)
+            loss_t = model.loss(x, y, training=True)  # training=True : dropout actif si configuré
             micro_loss = float(loss_t.data)  # lu avant backward (intermédiaires libérés pendant)
             if not math.isfinite(micro_loss):
                 raise SystemExit(
@@ -181,7 +197,8 @@ def main() -> None:
             (loss_t * (1.0 / accum)).backward()  # gradients moyennés entre micro-lots
             del loss_t, x, y
         norm = clip_grad_norm(params, 1.0)
-        lr = lr_at(step - start_step, args.steps, args.lr, warmup=args.warmup)
+        lr = lr_at(step - start_step, args.steps, args.lr, warmup=args.warmup,
+                   schedule=args.lr_schedule)
         opt.step(lr)
         if step % 25 == 0:
             # Hygiène mémoire d'un entraînement CPU long : les graphes forment

@@ -41,3 +41,22 @@ il ne contient **aucune** réponse pré-écrite.
 - [ ] Finir le pré-entraînement v2 (commandes dans `llm/README.md`, ~70 min)
 - [ ] Affinage FR v2 puis promotion de `nexus-llm-best.npz` (idem, ~35 min)
 - [ ] Compléter `RESULTS.md` avec les chiffres et échantillons v2
+
+## Améliorations code — passe 2 (qualité modèle & génération, testées)
+
+| Amélioration | Détail | Preuve |
+|---|---|---|
+| Dropout | `--dropout`, masques Bernoulli en mode `training=True` seulement (embedding + sorties de blocs) | éval déterministe == forward_np ; gradient traverse |
+| Label smoothing | `--label-smoothing`, cible (1−ε)·one-hot + ε/V dans la cross-entropy | gradient vérifié numériquement : 4,4×10⁻¹⁰ |
+| AdamW | décroissance découplée réservée aux matrices (`decay_param_ids`), biais/LN épargnés | test unitaire à gradient nul |
+| Plannings LR | `--lr-schedule cosine\|constant\|linear` | test unitaire des trois courbes |
+| Beam search | `beam_search` déterministe sur cache KV batché (faisceaux en lockstep, cache réordonné) | largeur 1 ≡ glouton (test) ; démo sur checkpoint v2 |
+| Min-p | seuil relatif à p_max dans `filter_logits`, exposé CLI/serveur/API | test des filtres |
+| Tokenizer nombres | chiffres découpés un par un (généralisation aux nombres inconnus) ; tokenizer_v2 réentraîné | « 2026 » -> 2·0·2·6, aller-retour exact |
+| Corpus v2 mélangé | documents permutés (graine 42) : la validation couvre tous les domaines | `data --v2` régénéré |
+| Chargement durci | message explicite si poids et .json sont désappariés (incident réel réparé) | les 5 checkpoints du dépôt rechargés un par un |
+
+Note génération (checkpoint v2 étape 100, sous-entraîné) : à ce stade les
+faisceaux dégénèrent sur « de de de… » (chemin le plus probable d'un
+modèle qui ne sait encore rien) — l'échantillonnage reste préférable
+tant que la perplexité n'est pas descendue.

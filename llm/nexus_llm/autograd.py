@@ -275,24 +275,48 @@ def embedding(weight: Tensor, ids: np.ndarray) -> Tensor:
     return out
 
 
-def cross_entropy(logits: Tensor, targets: np.ndarray) -> Tensor:
-    """Entropie croisée moyenne : logits (N, V), targets (N,) d'indices."""
+def cross_entropy(logits: Tensor, targets: np.ndarray, smoothing: float = 0.0) -> Tensor:
+    """Entropie croisée moyenne : logits (N, V), targets (N,) d'indices.
+
+    smoothing > 0 : label smoothing — la cible devient (1-ε)·one-hot + ε/V.
+    Régularise la confiance (utile quand le corpus est repassé plusieurs
+    époques) ; gradient = (p − cible_lissée)/N. Calcul en float64 interne
+    pour la stabilité du log, gradient ramené au dtype des logits."""
     z = logits.data.astype(np.float64)
     z = z - z.max(axis=-1, keepdims=True)
     e = np.exp(z)
     p = e / e.sum(axis=-1, keepdims=True)
-    n = targets.shape[0]
-    loss = float(-np.log(p[np.arange(n), targets] + 1e-12).mean())
+    n, v = targets.shape[0], logits.data.shape[-1]
+    logp = np.log(p + 1e-12)
+    if smoothing > 0.0:
+        loss = float(-((1.0 - smoothing) * logp[np.arange(n), targets]
+                       + smoothing * logp.mean(axis=-1)).mean())
+    else:
+        loss = float(-logp[np.arange(n), targets].mean())
     out = Tensor(np.array(loss, dtype=np.float64), (logits,), True)
 
     def _backward():
         d = p.copy()
-        d[np.arange(n), targets] -= 1.0
+        d[np.arange(n), targets] -= (1.0 - smoothing)
+        d -= smoothing / v
         d /= n
-        logits._accumulate(d)
+        logits._accumulate(d.astype(logits.data.dtype, copy=False))
 
     out._backward = _backward
     return out
+
+
+def dropout(a: Tensor, p: float, rng: np.random.Generator) -> Tensor:
+    """Dropout inversé : masque de Bernoulli tiré à chaque forward.
+
+    Le masque est une constante du graphe (le gradient le traverse via
+    `mul`) ; à l'évaluation, on n'appelle tout simplement pas cette
+    fonction. p <= 0 -> identité (aucun tirage, coût nul)."""
+    if p <= 0.0:
+        return a
+    keep = 1.0 - p
+    mask = (rng.random(a.data.shape) < keep).astype(a.data.dtype, copy=False) / keep
+    return mul(a, Tensor(mask, requires_grad=False))
 
 
 def attention(q: Tensor, k: Tensor, v: Tensor, mask: np.ndarray) -> Tensor:

@@ -131,6 +131,12 @@ def build_corpus_v2() -> tuple[str, dict]:
     docs.append(("nexus-fr-pondere", fr_corpus))
     docs.append(("nexus-fr-pondere", fr_corpus))
     docs.append(("nexus-fr-pondere", fr_corpus))
+    # Mélange des documents (graine fixe) : sans cela, la validation —
+    # découpée dans la queue du flux — ne contiendrait que le dernier
+    # document (le bloc Nexus), et le « meilleur checkpoint » serait
+    # sélectionné sur un seul domaine.
+    order = np.random.default_rng(42).permutation(len(docs))
+    docs = [docs[i] for i in order]
     corpus = SEPARATOR.join(text for _, text in docs)
     stats = {
         "documents": [name for name, _ in docs],

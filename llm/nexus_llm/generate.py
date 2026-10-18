@@ -43,14 +43,25 @@ def load_all(ckpt: str | Path, tok_path: str | Path | None = None):
 
 def generate_text(model: GPT, tok: BPETokenizer, prompt: str, max_new_tokens: int = 120,
                   temperature: float = 0.9, top_k: int = 40, top_p: float = 0.95,
-                  repetition_penalty: float = 1.0, seed: int | None = None,
+                  repetition_penalty: float = 1.0, min_p: float = 0.0,
+                  beam_width: int = 1, seed: int | None = None,
                   stop_at_eos: bool = True) -> str:
+    """beam_width > 1 bascule en recherche par faisceaux déterministe
+    (température/top-k/top-p/min-p sont alors ignorés, la pénalité de
+    répétition reste appliquée)."""
     rng = np.random.default_rng(seed)
     prompt_ids = tok.encode(prompt) or [tok.eos_id]
-    out_ids = model.generate(prompt_ids, max_new_tokens=max_new_tokens,
-                             temperature=temperature, top_k=top_k, top_p=top_p,
-                             repetition_penalty=repetition_penalty,
-                             rng=rng, stop_at_eos=tok.eos_id if stop_at_eos else None)
+    eos = tok.eos_id if stop_at_eos else None
+    if beam_width and beam_width > 1:
+        out_ids = model.beam_search(prompt_ids, beam_width=beam_width,
+                                    max_new_tokens=max_new_tokens,
+                                    repetition_penalty=repetition_penalty,
+                                    stop_at_eos=eos)
+    else:
+        out_ids = model.generate(prompt_ids, max_new_tokens=max_new_tokens,
+                                 temperature=temperature, top_k=top_k, top_p=top_p,
+                                 repetition_penalty=repetition_penalty, min_p=min_p,
+                                 rng=rng, stop_at_eos=eos)
     return tok.decode(out_ids)
 
 
@@ -63,6 +74,10 @@ def main() -> None:
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--repetition-penalty", type=float, default=1.1,
                     help="> 1 pénalise les tokens déjà émis (anti-boucles)")
+    ap.add_argument("--min-p", type=float, default=0.0,
+                    help="seuil relatif à p_max (ex. 0,05) ; 0 = désactivé")
+    ap.add_argument("--beam-width", type=int, default=1,
+                    help="> 1 : recherche par faisceaux déterministe au lieu de l'échantillonnage")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--ckpt", default=str(DEFAULT_CKPT))
     ap.add_argument("--tokenizer", default=None,
@@ -73,8 +88,10 @@ def main() -> None:
     print(f"[generate] checkpoint étape {meta.get('step', '?')}, "
           f"perte d'entraînement {meta.get('train_loss', float('nan')):.3f}")
     print(f"\n{args.prompt}", end="", flush=True)
-    text = generate_text(model, tok, args.prompt, args.tokens, args.temperature,
-                         args.top_k, args.top_p, args.repetition_penalty, args.seed)
+    text = generate_text(model, tok, args.prompt, max_new_tokens=args.tokens,
+                         temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+                         repetition_penalty=args.repetition_penalty, min_p=args.min_p,
+                         beam_width=args.beam_width, seed=args.seed)
     print(text)
 
 

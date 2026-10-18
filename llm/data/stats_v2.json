@@ -1,31 +1,31 @@
 {
   "documents": [
     "roman:FRA00101_Adam.txt",
-    "roman:FRA00102_Adam.txt",
-    "roman:FRA00201_Audoux.txt",
-    "roman:FRA00301_Aimard.txt",
-    "roman:FRA00302_Aimard.txt",
-    "roman:FRA00401_Allais.txt",
-    "roman:FRA00501_Balzac.txt",
+    "nexus-fr-pondere",
     "roman:FRA00502_Balzac.txt",
-    "roman:FRA00503_Balzac.txt",
+    "nexus-fr-pondere",
     "tinyshakespeare",
+    "roman:FRA00301_Aimard.txt",
+    "roman:FRA00501_Balzac.txt",
+    "roman:FRA00401_Allais.txt",
+    "roman:FRA00201_Audoux.txt",
+    "roman:FRA00302_Aimard.txt",
     "nexus-fr-pondere",
-    "nexus-fr-pondere",
-    "nexus-fr-pondere"
+    "roman:FRA00102_Adam.txt",
+    "roman:FRA00503_Balzac.txt"
   ],
   "chars": {
     "roman:FRA00101_Adam.txt": 116379,
-    "roman:FRA00102_Adam.txt": 160434,
-    "roman:FRA00201_Audoux.txt": 202148,
-    "roman:FRA00301_Aimard.txt": 513935,
-    "roman:FRA00302_Aimard.txt": 797452,
-    "roman:FRA00401_Allais.txt": 228274,
-    "roman:FRA00501_Balzac.txt": 238158,
+    "nexus-fr-pondere": 102872,
     "roman:FRA00502_Balzac.txt": 629956,
-    "roman:FRA00503_Balzac.txt": 532361,
     "tinyshakespeare": 1115394,
-    "nexus-fr-pondere": 102872
+    "roman:FRA00301_Aimard.txt": 513935,
+    "roman:FRA00501_Balzac.txt": 238158,
+    "roman:FRA00401_Allais.txt": 228274,
+    "roman:FRA00201_Audoux.txt": 202148,
+    "roman:FRA00302_Aimard.txt": 797452,
+    "roman:FRA00102_Adam.txt": 160434,
+    "roman:FRA00503_Balzac.txt": 532361
   },
   "total_chars": 4843311
 }
