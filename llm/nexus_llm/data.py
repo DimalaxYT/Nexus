@@ -109,14 +109,50 @@ def build_fr_corpus(repeat: int = 3) -> tuple[str, dict]:
     return corpus, stats
 
 
+ROMANS_DIR = DATA / "external/romans-fr"
+ROMANS_BUDGET = 3_000_000  # ~3 Mo de prose littéraire française (sur 49 Mo dispos)
+
+
+def build_corpus_v2() -> tuple[str, dict]:
+    """Corpus v2 (modèle élargi) : romans français ELTeC (domaine public),
+    Tiny Shakespeare, et prose Nexus nettoyée pondérée ×3 (domaine cible)."""
+    docs: list[tuple[str, str]] = []
+    if ROMANS_DIR.exists():
+        total = 0
+        for path in sorted(ROMANS_DIR.glob("*.txt")):
+            if total >= ROMANS_BUDGET:
+                break
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            docs.append((f"roman:{path.name}", text))
+            total += len(text)
+    if SHAKESPEARE.exists():
+        docs.append(("tinyshakespeare", SHAKESPEARE.read_text(encoding="utf-8", errors="ignore")))
+    fr_corpus, _ = build_fr_corpus(repeat=1)
+    docs.append(("nexus-fr-pondere", fr_corpus))
+    docs.append(("nexus-fr-pondere", fr_corpus))
+    docs.append(("nexus-fr-pondere", fr_corpus))
+    corpus = SEPARATOR.join(text for _, text in docs)
+    stats = {
+        "documents": [name for name, _ in docs],
+        "chars": {name: len(text) for name, text in docs},
+        "total_chars": len(corpus),
+    }
+    return corpus, stats
+
+
 def main() -> None:
     import argparse
 
     ap = argparse.ArgumentParser(description="Prépare le corpus d'entraînement")
     ap.add_argument("--fr", action="store_true", help="corpus d'affinage 100 % français")
+    ap.add_argument("--v2", action="store_true", help="corpus v2 : romans FR + Shakespeare + Nexus pondéré")
     args = ap.parse_args()
     DATA.mkdir(parents=True, exist_ok=True)
-    if args.fr:
+    if args.v2:
+        corpus, stats = build_corpus_v2()
+        (DATA / "corpus_v2.txt").write_text(corpus, encoding="utf-8")
+        (DATA / "stats_v2.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif args.fr:
         corpus, stats = build_fr_corpus()
         (DATA / "corpus_fr.txt").write_text(corpus, encoding="utf-8")
         (DATA / "stats_fr.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8")

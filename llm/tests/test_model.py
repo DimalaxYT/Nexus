@@ -60,8 +60,40 @@ def test_generate():
     print(f"génération OK : {out} ; glouton déterministe OK")
 
 
+def test_kv_cache_equivalence():
+    """Le décodage avec cache KV doit donner les mêmes logits que le
+    forward complet (c'est un changement d'implémentation, pas de maths)."""
+    cfg = GPTConfig(vocab_size=97, block_size=32, n_layer=2, n_embd=64, n_head=4)
+    model = GPT(cfg, seed=3)
+    ids = np.random.default_rng(5).integers(0, 97, size=(1, 14)).astype(np.int64)
+    full = model.forward(ids).data
+    logits, cache = model.forward_np(ids[:, :6])  # pré-remplissage
+    assert np.allclose(logits, full[:, :6], atol=1e-4), "préfixe divergent"
+    for t in range(6, 14):  # décodage token par token avec cache
+        logits, cache = model.forward_np(ids[:, t:t + 1], cache)
+        assert np.allclose(logits[0, -1], full[0, t], atol=1e-4), f"token {t} divergent"
+    print("cache KV : logits identiques au forward complet (préfixe + token par token)")
+
+
+def test_sampling_filters():
+    from nexus_llm.model import filter_logits
+
+    logits = np.array([2.0, 1.0, 0.0, -1.0])
+    greedy = filter_logits(logits, temperature=0.0)
+    assert greedy[0] == 1.0 and greedy.sum() == 1.0
+    plain = filter_logits(logits, seen_ids=[0], temperature=1.0, top_k=0, top_p=1.0)
+    penalized = filter_logits(logits, seen_ids=[0], temperature=1.0, top_k=0,
+                              top_p=1.0, repetition_penalty=2.0)
+    assert penalized[0] < plain[0], "la pénalité doit réduire le token déjà émis"
+    topk = filter_logits(logits, temperature=1.0, top_k=2, top_p=1.0)
+    assert topk[2] == 0 and topk[3] == 0 and abs(topk.sum() - 1.0) < 1e-9
+    print("filtres : glouton, pénalité de répétition, top-k OK")
+
+
 if __name__ == "__main__":
     test_shapes()
     test_overfit_one_batch()
     test_generate()
+    test_kv_cache_equivalence()
+    test_sampling_filters()
     print("OK — modèle vérifié")

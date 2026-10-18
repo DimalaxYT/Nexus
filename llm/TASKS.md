@@ -22,3 +22,22 @@ Contraintes assumées : 2 CPU / 4 Go RAM → modèle volontairement petit
 (~5 M paramètres). C'est un vrai LLM au sens architectural et mathématique,
 pas un modèle géant : il apprend la statistique du corpus par gradient,
 il ne contient **aucune** réponse pré-écrite.
+
+## Améliorations code (leçon des entraînements v1, aucun nouvel entraînement lancé)
+
+| Amélioration | Détail | Preuve |
+|---|---|---|
+| Cache KV à la génération | `forward_np` NumPy pur + cache par couche ; avant : un forward complet par token | test d'équivalence des logits (préfixe + token par token) |
+| Pénalité de répétition | `filter_logits` pur et testable, exposée CLI / serveur / API Nexus | test unitaire (probabilité du token répété réduite) |
+| Tokenizer : cache par morceau | mémoïsation des mots à l'encodage (accélère le démarrage des entraînements) | aller-retour inchangé, tests verts |
+| Tokenizer résolu par checkpoint | `generate`/`serve` lisent le champ `tokenizer` des métadonnées (anti-mélange v1/v2) | v2 chargé avec `tokenizer_v2.json` automatiquement |
+| Accumulation de gradient | `--grad-accum` : batch effectif ↑ sans pic mémoire (micro-lots moyennés) | test fumée 4 étapes, perte décroissante |
+| État Adam persisté | `*.optim.npz` sauvegardé/restauré (moments + t) : reprise fidèle | test fumée : « état Adam restauré (t=4) » |
+| Meilleur checkpoint auto | `nexus-llm-best.npz` dès que la perplexité de validation s'améliore | test fumée : créé à chaque évaluation |
+| Garde anti-NaN + `--eval-batches` | arrêt explicite si perte non finie ; coût d'évaluation réglable | code relu, chemins testés |
+
+## Reste à faire (de votre côté)
+
+- [ ] Finir le pré-entraînement v2 (commandes dans `llm/README.md`, ~70 min)
+- [ ] Affinage FR v2 puis promotion de `nexus-llm-best.npz` (idem, ~35 min)
+- [ ] Compléter `RESULTS.md` avec les chiffres et échantillons v2

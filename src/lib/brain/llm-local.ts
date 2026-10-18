@@ -20,6 +20,8 @@ export interface LocalLlmOptions {
   temperature?: number
   topK?: number
   topP?: number
+  /** > 1 pénalise les tokens déjà émis (anti-boucles, utile aux petits modèles) */
+  repetitionPenalty?: number
   seed?: number
   timeoutMs?: number
 }
@@ -77,6 +79,7 @@ export async function generateWithLocalLlm(prompt: string, opts: LocalLlmOptions
         temperature: opts.temperature ?? 0.9,
         top_k: opts.topK ?? 40,
         top_p: opts.topP ?? 0.95,
+        repetition_penalty: opts.repetitionPenalty ?? 1.1,
         seed: opts.seed,
       }),
     },

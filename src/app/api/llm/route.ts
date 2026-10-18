@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     temperature: num(body.temperature, 0.9),
     topK: num(body.topK, 40),
     topP: num(body.topP, 0.95),
+    repetitionPenalty: num(body.repetitionPenalty, 1.1),
     seed: typeof body.seed === 'number' ? body.seed : undefined,
   })
   if (text === null) {

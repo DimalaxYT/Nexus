@@ -18,11 +18,11 @@ numérique des gradients (erreur ~5×10⁻¹⁰) et par la chute de perte mesur�
 |---|---|
 | Tokenizer | BPE byte-level (256 octets + fusions apprises + `<\|endoftext\|>`) — `nexus_llm/tokenizer.py` |
 | Autodifférentiation | graphe inverse : matmul, softmax, LayerNorm, embedding, cross-entropy, attention fusionnée, ReLU — `nexus_llm/autograd.py` |
-| Modèle | GPT pre-norm : 6 couches, d_model 256, 8 têtes, contexte 256, poids embedding/sortie liés — **5,33 M paramètres** — `nexus_llm/model.py` |
+| Modèle | GPT pre-norm, poids embedding/sortie liés, contexte 256 — v1 : 6 couches × 256 (**5,33 M paramètres**, entraîné, voir `RESULTS.md`) ; v2 : 8 couches × 384, 12 têtes (**15,9 M**, tokenizer 4096, amorcé étape 100) — `nexus_llm/model.py` |
 | Optimisation | Adam (β 0,9/0,95), warmup + cosinus, clipping de gradient — `nexus_llm/optim.py` |
 | Corpus | français Nexus (README, worklog, base de connaissances) + Tiny Shakespeare (domaine public) : 635 287 tokens |
-| Génération | auto-régressive, température / top-k / top-p — `nexus_llm/model.py` |
-| Inférence | serveur HTTP stdlib, zéro dépendance — `nexus_llm/serve.py` |
+| Génération | auto-régressive avec **cache KV** (un pas par token, équivalence prouvée par test), température / top-k / top-p / **pénalité de répétition** — `nexus_llm/model.py` |
+| Inférence | serveur HTTP stdlib, zéro dépendance ; tokenizer résolu depuis les métadonnées du checkpoint — `nexus_llm/serve.py` |
 
 Choix d'ingénierie documentés dans le code : attention en primitive
 fusionnée (les scores sont recalculés au backward, principe de
@@ -63,10 +63,41 @@ python -m nexus_llm.serve --port 8765
   `POST /api/llm` (génération). Variable optionnelle `NEXUS_LLM_URL`
   (défaut `http://127.0.0.1:8765`).
 
+## Entraînement v2 (15,9 M paramètres) — à lancer de votre côté
+
+Le code est prêt et le pré-entraînement v2 est amorcé (checkpoint
+`nexus-llm-latest.npz`, étape 100, reprenable). Commandes :
+
+```bash
+# 1. Continuer le pré-entraînement (romans FR ELTeC + Shakespeare + Nexus)
+python -m nexus_llm.train --corpus corpus_v2.txt --tokenizer tokenizer_v2.json \
+  --resume checkpoints/nexus-llm-latest.npz --steps 550 \
+  --n-layer 8 --n-embd 384 --n-head 12 --lr 2e-3 \
+  --out checkpoints/nexus-llm-v2.npz
+
+# 2. Affinage français (prose Nexus nettoyée)
+python -m nexus_llm.train --corpus corpus_fr.txt --tokenizer tokenizer_v2.json \
+  --resume checkpoints/nexus-llm-v2.npz --steps 300 --lr 8e-4 \
+  --out checkpoints/nexus-llm-v2fr.npz
+
+# 3. Promouvoir le meilleur checkpoint en modèle servi par défaut
+cp checkpoints/nexus-llm-best.npz checkpoints/nexus-llm.npz
+cp checkpoints/nexus-llm-best.json checkpoints/nexus-llm.json
+python -m nexus_llm.serve --port 8765
+```
+
+Outils d'entraînement intégrés : **accumulation de gradient**
+(`--grad-accum`, batch effectif sans pic mémoire), **état Adam persisté**
+(`*.optim.npz` : reprise fidèle, plus de redémarrage à froid),
+**meilleur checkpoint automatique** (`nexus-llm-best.npz` sur perplexité
+de validation), garde anti-NaN, `--eval-batches` réglable. En cas
+d'interruption, `--resume` repart du dernier `nexus-llm-latest.npz`.
+
 ## Limites assumées (et pistes, voir TASKS.md)
 
-Modèle volontairement petit (entraînement CPU, 2 cœurs / 4 Go) : il apprend
-la langue et le vocabulaire du corpus, pas la connaissance du monde. Pas de
-cache KV (génération O(T) par token), pas de quantification, contexte de
-256 tokens. Ce sont des limites d'échelle, pas de nature : l'architecture,
-les mathématiques et l'apprentissage sont ceux d'un vrai LLM.
+Modèles volontairement petits (entraînement CPU, 2 cœurs / 4 Go) : ils
+apprennent la langue et le vocabulaire du corpus, pas la connaissance du
+monde. Pas de quantification, contexte de 256 tokens, décodage séquentiel
+(même avec cache KV). Ce sont des limites d'échelle, pas de nature :
+l'architecture, les mathématiques et l'apprentissage sont ceux d'un
+vrai LLM.

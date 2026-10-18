@@ -27,6 +27,7 @@ EOS_TOKEN = "<|endoftext|>"
 class BPETokenizer:
     def __init__(self, merges: list[tuple[int, int]] | None = None):
         self.merges: list[tuple[int, int]] = list(merges or [])
+        self._chunk_cache: dict[str, tuple[int, ...]] = {}
         self._ranks: dict[tuple[int, int], int] = {p: i for i, p in enumerate(self.merges)}
         # token id -> octets
         self._token_bytes: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
@@ -135,10 +136,19 @@ class BPETokenizer:
             ids = merged
         return ids
 
+    def _encode_chunk_cached(self, chunk: str) -> tuple[int, ...]:
+        # Les mêmes mots reviennent des millions de fois dans un corpus :
+        # mémoïser par morceau accélère l'encodage d'un ordre de grandeur.
+        hit = self._chunk_cache.get(chunk)
+        if hit is None:
+            hit = tuple(self._encode_chunk(chunk))
+            self._chunk_cache[chunk] = hit
+        return hit
+
     def encode(self, text: str) -> list[int]:
         out: list[int] = []
         for chunk in _SPLIT_RE.findall(text):
-            out.extend(self._encode_chunk(chunk))
+            out.extend(self._encode_chunk_cached(chunk))
         return out
 
     def encode_document(self, text: str) -> list[int]:

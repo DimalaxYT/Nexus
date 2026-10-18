@@ -116,23 +116,73 @@ class GPT:
         return cross_entropy(logits.reshape(b * t, v), targets.reshape(b * t))
 
     # ------------------------------------------------------------- génération
+    # ------------------------------------------------------------- inférence
+    def forward_np(self, ids: np.ndarray, cache: list | None = None):
+        """Forward NumPy pur (sans graphe autograd), avec cache KV optionnel.
+
+        ids : (B, T_new) ; cache : liste par couche de (K, V) déjà calculés,
+        chacun (B, nh, T_past, hs). Retourne (logits (B, T_new, vocab),
+        nouveau cache). À mathématique identique avec `forward` (prouvé par
+        test d'équivalence), mais chaque token décodé ne coûte qu'un pas :
+        sans cache, générer N tokens coûtait N forwards complets.
+        """
+        c = self.config
+        b, t = ids.shape
+        past = 0 if cache is None else cache[0][0].shape[2]
+        nh, hs = c.n_head, c.n_embd // c.n_head
+        x = self.wte.data[ids] + self.wpe.data[past:past + t][None, :, :]
+        new_cache: list = []
+        scale = float(1.0 / np.sqrt(hs))
+        for li, layer in enumerate(self.layers):
+            h = _layernorm_np(x, layer.ln1_w.data, layer.ln1_b.data)
+            q = (h @ layer.wq.data + layer.bq.data).reshape(b, t, nh, hs).transpose(0, 2, 1, 3)
+            k = (h @ layer.wk.data + layer.bk.data).reshape(b, t, nh, hs).transpose(0, 2, 1, 3)
+            v = (h @ layer.wv.data + layer.bv.data).reshape(b, t, nh, hs).transpose(0, 2, 1, 3)
+            if cache is not None:
+                k = np.concatenate([cache[li][0], k], axis=2)
+                v = np.concatenate([cache[li][1], v], axis=2)
+            new_cache.append((k, v))
+            s = q @ k.transpose(0, 1, 3, 2) * scale
+            qpos = np.arange(past, past + t)[:, None]
+            kpos = np.arange(k.shape[2])[None, :]
+            s = s + np.where(kpos <= qpos, 0.0, -1e9).astype(s.dtype)[None, None]
+            p = np.exp(s - s.max(axis=-1, keepdims=True))
+            p /= p.sum(axis=-1, keepdims=True)
+            y = (p @ v).transpose(0, 2, 1, 3).reshape(b, t, c.n_embd)
+            x = x + y @ layer.wo.data + layer.bo.data
+            h2 = _layernorm_np(x, layer.ln2_w.data, layer.ln2_b.data)
+            x = x + np.maximum(h2 @ layer.w1.data + layer.b1.data, 0.0) @ layer.w2.data + layer.b2.data
+        x = _layernorm_np(x, self.lnf_w.data, self.lnf_b.data)
+        return x @ self.wte.data.T, new_cache
+
     @np.errstate(all="ignore")
     def generate(self, prompt_ids: list[int], max_new_tokens: int = 100,
                  temperature: float = 0.9, top_k: int = 40, top_p: float = 0.95,
+                 repetition_penalty: float = 1.0,
                  rng: np.random.Generator | None = None,
                  stop_at_eos: int | None = None) -> list[int]:
-        """Échantillonnage auto-régressif (sans cache KV — simple et correct)."""
+        """Échantillonnage auto-régressif avec cache KV (un pas par token).
+
+        repetition_penalty > 1 (ex. 1,1) pénalise les tokens déjà émis :
+        remède classique aux boucles dégénérées des petits modèles.
+        Si le contexte dépasse block_size, le cache est reconstruit depuis
+        la fenêtre récente (même sémantique que le recadrage historique).
+        """
         rng = rng or np.random.default_rng()
         ids = list(prompt_ids[-self.config.block_size:])
         out: list[int] = []
+        logits, cache = self.forward_np(np.array([ids], dtype=np.int64))
         for _ in range(max_new_tokens):
-            ctx = np.array([ids[-self.config.block_size:]], dtype=np.int64)
-            logits = self.forward(ctx).data[0, -1].astype(np.float64)
-            nxt = _sample(logits, temperature, top_k, top_p, rng)
+            nxt = _sample(logits[0, -1].astype(np.float64), temperature, top_k, top_p,
+                          repetition_penalty, ids + out, rng)
             out.append(nxt)
-            ids.append(nxt)
             if stop_at_eos is not None and nxt == stop_at_eos:
                 break
+            if len(ids) + len(out) >= self.config.block_size:
+                window = (ids + out)[-self.config.block_size:]
+                logits, cache = self.forward_np(np.array([window], dtype=np.int64))
+            else:
+                logits, cache = self.forward_np(np.array([[nxt]], dtype=np.int64), cache)
         return out
 
     # ------------------------------------------------------------ persistance
@@ -162,10 +212,34 @@ def _causal_mask(t: int, dtype) -> np.ndarray:
     return mask[None, None, :, :]
 
 
-def _sample(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
-            rng: np.random.Generator) -> int:
-    if temperature <= 0:  # glouton
-        return int(np.argmax(logits))
+def _layernorm_np(x: np.ndarray, weight: np.ndarray, bias: np.ndarray,
+                  eps: float = 1e-5) -> np.ndarray:
+    """LayerNorm NumPy pur (miroir exact de la primitive autograd)."""
+    mu = x.mean(axis=-1, keepdims=True)
+    xc = x - mu
+    var = (xc * xc).mean(axis=-1, keepdims=True)
+    return xc / np.sqrt(var + eps) * weight + bias
+
+
+def filter_logits(logits: np.ndarray, seen_ids: list[int] | tuple = (),
+                  temperature: float = 0.9, top_k: int = 40, top_p: float = 0.95,
+                  repetition_penalty: float = 1.0) -> np.ndarray:
+    """Applique pénalité de répétition, température, top-k et top-p.
+
+    Fonction pure (testable unitairement) : logits 1D -> probabilités 1D.
+    Pénalité (style CTRL) : un logit déjà émis est divisé par le facteur
+    s'il est positif, multiplié sinon — jamais d'interdiction dure.
+    """
+    logits = logits.astype(np.float64, copy=True)
+    if repetition_penalty and repetition_penalty != 1.0:
+        for tid in set(seen_ids):
+            if 0 <= tid < logits.shape[0]:
+                logits[tid] = (logits[tid] / repetition_penalty if logits[tid] > 0
+                               else logits[tid] * repetition_penalty)
+    if temperature <= 0:  # glouton : one-hot sur l'argmax
+        probs = np.zeros_like(logits)
+        probs[int(np.argmax(logits))] = 1.0
+        return probs
     logits = logits / temperature
     if top_k and top_k > 0:
         kth = np.partition(logits, -top_k)[-top_k]
@@ -179,4 +253,11 @@ def _sample(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
         filtered = np.zeros_like(probs)
         filtered[order[keep]] = probs[order[keep]]
         probs = filtered / filtered.sum()
+    return probs
+
+
+def _sample(logits: np.ndarray, temperature: float, top_k: int, top_p: float,
+            repetition_penalty: float, seen_ids: list[int],
+            rng: np.random.Generator) -> int:
+    probs = filter_logits(logits, seen_ids, temperature, top_k, top_p, repetition_penalty)
     return int(rng.choice(len(probs), p=probs))
