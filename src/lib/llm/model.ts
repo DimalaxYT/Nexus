@@ -21,12 +21,71 @@ export interface LmConfig {
   lexicon?: string[]
   /** Format d'apprentissage : `grounded-v1` = le modèle répond à partir d'un passage fourni. */
   format?: string
+  /**
+   * Tokenizer : `char` (défaut historique, vocabulaire ~320 caractères) ou `bpe`
+   * (sous-mots entraînés du dépôt, vocabulaire 2049). En BPE, `Vocab.itos` est
+   * inutilisé : les ids sont les octets/fusions du tokenizer (`./bpe`).
+   */
+  tokenizer?: 'char' | 'bpe'
 }
 
 /** Format « ancré » : chaque exemple donne le passage source (C:), la question (Q:) et la réponse (R:). */
 export const GROUNDED_FORMAT = 'grounded-v1'
 /** Contexte nécessaire pour un exemple complet (passage + question + réponse). */
 export const GROUNDED_CTX = 256
+
+/**
+ * Format de conversation : le format du chat. Chaque exemple est un bloc
+ *   `H: <dernier échange>`   (facultatif, mémoire courte de la conversation)
+ *   `Q: <message utilisateur>`
+ *   `C: <passage de savoir>` (facultatif, contenu fourni par la recherche)
+ *   `R: <réponse de NEXUS>`
+ *
+ * Le modèle apprend à RÉDIGER une réponse à partir du contenu qui lui est donné :
+ * la recherche apporte les faits, le transformeur apporte la formulation — c'est
+ * ce qui rend un petit modèle utile en conversation au lieu de le laisser inventer.
+ *
+ * POURQUOI `C:` EST PLACÉ JUSTE AVANT `R:` (mesuré, pas esthétique) :
+ * la tâche est une copie — `C:` et `R:` contiennent le même texte. Avec l'ordre
+ * historique `C:` puis `Q:` puis `R:`, ~100 caractères séparaient le contenu de la
+ * réponse : il faut alors une tête d'induction (coucher précédente + correspondance
+ * de contexte) pour aller le rechercher. À 178 496 paramètres (dim 64, 3 couches,
+ * 4 têtes de 16 dimensions), après 400 pas et ~9 époques, la NLL forcée de la
+ * réponse restait à 2,6 nats/caractère avec 52-59 % des caractères dans le top-3,
+ * et le décodage glouton produisait « de de le e de » — le modèle avait appris le
+ * RYTHME du français (consonne, voyelle, espace à 33-43 %) mais pas QUEL caractère
+ * prendre. Le même modèle sur-apprend pourtant une fenêtre figée à 0,578 en 80 pas,
+ * donc ni la boucle d'apprentissage ni la capacité ne sont en cause : c'est la
+ * distance de copie. Placer le contenu en dernière position avant la réponse en
+ * fait une tâche à courte portée, à la portée de ce modèle.
+ */
+export const CHAT_FORMAT = 'chat-v1'
+/**
+ * Contexte du chat, en CARACTÈRES : H: (3+34) + Q: (3+60) + C: (3+90)
+ * + R: (3+130) + 3 sauts de ligne = 329, donc 352 laisse la marge.
+ *
+ * Pourquoi le tokenizer caractère et pas les sous-mots BPE — mesuré, pas deviné :
+ * le BPE du dépôt (`tokenizer-merges.json`, vocabulaire 2049) a été entraîné sur
+ * 5 Mo de romans ; sur un corpus de conversation de 200 ko il reste ~62 tokens
+ * d'apprentissage par entrée de vocabulaire. Après 550 pas d'entraînement la
+ * distribution après « R: » était encore PLATE (meilleur candidat à 2,4 %) et
+ * les tokens de contenu pointaient aux rangs 96 à 308 sur 2049 : le modèle
+ * apprenait les espaces et la ponctuation, pas la tâche. En caractère, le
+ * vocabulaire tombe à ~85 symboles, soit ~2 400 caractères d'apprentissage par
+ * embedding — 40 fois plus de données par paramètre. Le BPE redevient pertinent
+ * si le corpus dépasse quelques Mo (`cfg.tokenizer = 'bpe'` reste pris en charge
+ * de bout en bout : entraînement, inférence, garde-fous).
+ */
+export const CHAT_CTX = 352
+/** Configuration du modèle de conversation. */
+export const CHAT_CONFIG: Omit<LmConfig, 'vocab' | 'lexicon'> = {
+  ctx: CHAT_CTX,
+  dim: 64,
+  heads: 4,
+  layers: 3,
+  format: CHAT_FORMAT,
+  tokenizer: 'char',
+}
 
 export const DEFAULT_CONFIG: Omit<LmConfig, 'vocab'> = { ctx: GROUNDED_CTX, dim: 64, heads: 4, layers: 2 }
 

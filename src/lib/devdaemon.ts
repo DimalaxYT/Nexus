@@ -5,7 +5,7 @@
 // process (ou deux onglets de build) de lancer le même cycle.
 
 import { getDevUserId } from './dev-seed'
-import { getTrainerConfig, runTrainingCycle, type CycleReport, type TrainerConfig } from './devtrainer'
+import { DEFAULT_TRAINER_CONFIG, getTrainerConfig, runTrainingCycle, type CycleReport, type TrainerConfig } from './devtrainer'
 
 const TICK_MS = 60_000
 const LOCK_TTL_MS = 6 * 60_000
@@ -203,11 +203,22 @@ export function startDevDaemon(): void {
   }, TICK_MS)
   // Ne retient pas le process : le serveur HTTP le maintient en vie.
   if (typeof s.timer.unref === 'function') s.timer.unref()
-  console.log('[dev-daemon] entraînement de NEXUS armé (cycles automatiques)')
-  // Premier cycle peu après le démarrage, si la cadence l'autorise.
-  setTimeout(() => {
-    void tick().catch(() => {})
-  }, 20_000).unref?.()
+  // Le PREMIER cycle automatique respecte la cadence au lieu de partir 20 s après
+  // le démarrage. Un cycle fait un travail synchrone lourd (lecture de pages,
+  // extraction de savoir, sondage du modèle) : mesuré à ~37 s de boucle
+  // d'événements bloquée, donc 37 s d'attente pour la première réponse du chat
+  // sur un déploiement neuf. La fonction première du site est de parler avec
+  // l'IA : elle passe devant l'entretien automatique, qui reste disponible à la
+  // cadence configurée et via le bouton « Forcer un cycle ».
+  s.state.nextRunAt = computeNextRun(DEFAULT_TRAINER_CONFIG, s.state)
+  void getTrainerConfig()
+    .then((config) => {
+      const st = slot().state
+      if (!st.lastRunAt) st.nextRunAt = computeNextRun(config, st)
+    })
+    .catch(() => {})
+  const nextMin = Math.round(Math.max(0, (s.state.nextRunAt ?? Date.now()) - Date.now()) / 60_000)
+  console.log(`[dev-daemon] entraînement de NEXUS armé (cycles automatiques · premier cycle dans ~${nextMin} min)`)
 }
 
 export function stopDevDaemon(): void {

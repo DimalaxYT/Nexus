@@ -73,3 +73,6 @@ server.log
 /llm/data/corpus.txt
 /llm/data/external/
 /llm/**/__pycache__/
+
+# Brouillons d'exécution de l'agent (jamais livrés)
+.scratch/

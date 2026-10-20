@@ -129,6 +129,12 @@ export async function gatherPassages(userId?: string | null): Promise<Passage[]>
       const title = String(n.title ?? '').slice(0, 40)
       for (const p of passagesOf(String(n.content ?? ''))) out.push({ text: p, source: `tes notes : ${title}` })
     }
+    // Mémoires longues (prénom, projets, préférences) : c'est ce qui permet au
+    // modèle de répondre « comme il te connaît » sans rien inventer.
+    const memories = await db.memory.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 120 }).catch(() => [])
+    for (const m of memories ?? []) {
+      for (const p of passagesOf(String(m.content ?? ''))) out.push({ text: p, source: 'ta mémoire' })
+    }
   }
   cache = { key, at: Date.now(), passages: out }
   return out

@@ -29,7 +29,7 @@ import { extractKeySentences, synthesizePages, buildSearchQuery, type PageConten
 import { extractMemories, extractExplicitRetention, autoTitle } from './memory-rules'
 import * as R from './responder'
 import { stems } from './text'
-import { llmComplete, llmStream, extractJson, type LlmMessage } from '@/lib/llm'
+import { llmComplete, llmStream, extractJson, type ChatProvenance, type LlmMessage } from '@/lib/llm'
 import { triageEmails, triageMarkdown, triageFactsBlock } from '@/lib/mail-triage'
 
 /** Nombre de mails lus pour une vérification / un tri (au lieu de 6). */
@@ -92,6 +92,8 @@ interface Ctx {
   excludeTools?: Set<string>
   /** Compte propriétaire de la conversation (cloisonnement des données). */
   userId?: string | null
+  /** Prénom retenu (mémoire) ou configuré sur le compte : personnalisation. */
+  userName?: string
   /** Personnalisation du compte (injectée dans le prompt système). */
   profile?: UserProfile
   /** Consignes système additionnelles (chatbot / blueprint). */
@@ -1307,6 +1309,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   const nameMatch = memories.find((m) => /s'appelle/i.test(m))?.match(/s'appelle\s+([\p{L}-]+)/iu)
   // PERSONNALISATION : à défaut de souvenir, on utilise le prénom du compte.
   const userName = nameMatch?.[1] ?? (ctx.profile?.displayName?.trim() || undefined)
+  ctx.userName = userName
 
   // ── Discussion ciblée (sélecteur du chat) : agent seul ou table ronde ──────
   // Les missions (« MISSION : … ») restent gérées par NEXUS : c'est son rôle.
@@ -1386,19 +1389,17 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     send({ type: 'step', ...analysisStep, detail: 'compte TikTok relié → lecture du profil public', status: 'done' })
     finalText = await skillTiktokAccount(ctx)
     handled = true
-  } else if (['greeting', 'farewell', 'thanks', 'howareyou', 'identity', 'capabilities'].includes(classification.intent)) {
-    send({ type: 'step', ...analysisStep, detail: `conversation simple → réponse immédiate (${classification.intent})`, status: 'done' })
-    switch (classification.intent) {
-      case 'greeting':
-        finalText = ctx.profile?.greeting?.trim() ? ctx.profile.greeting.trim() : R.greeting(userName)
-        break
-      case 'farewell': finalText = R.farewell(); break
-      case 'thanks': finalText = R.thanks(); break
-      case 'howareyou': finalText = R.howAreYou(); break
-      case 'identity': finalText = R.identity(); break
-      case 'capabilities': finalText = R.capabilities(); break
-    }
+  } else if (classification.intent === 'greeting' && ctx.profile?.greeting?.trim()) {
+    // Une salutation écrite par l'utilisateur sur son compte prime sur le modèle :
+    // c'est sa phrase, pas celle de NEXUS.
+    send({ type: 'step', ...analysisStep, detail: 'salutation personnalisée du compte', status: 'done' })
+    finalText = ctx.profile.greeting.trim()
     handled = true
+    // Les autres échanges simples (« bonjour », « qui es-tu ? », « merci »,
+    // « ça va ? », « que sais-tu faire ? ») ne sont PLUS des gabarits : ils
+    // descendent vers le modèle de langue local, qui retrouve le contenu dans la
+    // banque de dialogue et rédige la réponse. Les gabarits restent disponibles
+    // en dernier recours (voir `localFallback`).
   } else if (classification.intent === 'task') {
     send({ type: 'step', ...analysisStep, detail: 'suivi de mission → base de données', status: 'done' })
     finalText = await skillTask(ctx)
@@ -1469,6 +1470,27 @@ async function runLlmPipeline(
     })
   }
 
+  // Contexte du moteur local : compte (savoir cloisonné), demande effective,
+  // historique court, et nature de la tâche. La provenance de la réponse
+  // (rédigée par le modèle ou retrouvée dans le savoir) est annoncée à
+  // l'utilisateur : on ne fait jamais passer un repli pour une génération.
+  const chatContext = {
+    userId: ctx.userId ?? null,
+    lastUser: ctx.effectiveUser,
+    history: historyMsgs
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-6)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    onProvenance: (info: ChatProvenance) => {
+      ctx.send({
+        type: 'thought',
+        text: info.generated
+          ? `Réponse rédigée par le modèle de langue local — ${info.tokens} token(s) générés, confiance ${Math.round(info.confidence * 100)} %${info.source ? `, appuyée sur : ${info.source}` : ''}.`
+          : `Réponse reprise du savoir local retrouvé${info.source ? ` (${info.source})` : ''} : la génération du modèle n'a pas passé les garde-fous de qualité.`,
+      })
+    },
+  }
+
   let usedLlm = false
 
   if (wantsAction) {
@@ -1478,7 +1500,7 @@ async function runLlmPipeline(
         { role: 'system', content: `${system}\n\n${protocol}\n\nL'utilisateur vient de faire une demande d'ACTION. Réponds UNIQUEMENT avec l'objet JSON de l'outil à utiliser — AUCUN texte avant ou après, aucun préambule, pas de bloc de code markdown.\nMÉMOIRE DE CHAT : les messages précédents sont fournis. Si la demande y fait référence (« fais-le », « réalise-le », « continue »), choisis l'outil qui correspond au SUJET PRÉCÉDENT de la conversation, pas au mot à mot de la demande.` },
         ...historyMsgs,
       ],
-      { temperature: 0.2, maxTokens: 200, timeoutMs: 18_000, thinking: false }
+      { temperature: 0.2, maxTokens: 200, timeoutMs: 18_000, thinking: false, context: { ...chatContext, purpose: 'tool-decision' } }
     )
     const call = decision ? extractJson<ToolCall>(decision) : null
     if (call && call.tool && call.tool !== 'none') {
@@ -1528,7 +1550,7 @@ async function runLlmPipeline(
         ctx.send({ type: 'token', content: buf2 })
         emitted2 += buf2.length
         buf2 = ''
-      }, { timeoutMs: 60_000 })
+      }, { timeoutMs: 60_000, context: { ...chatContext, purpose: 'tool-result' } })
       const reAction = action2 as ToolCall | null
       if (reAction && reAction.tool) {
         const sameTool = reAction.tool === call.tool
@@ -1538,12 +1560,18 @@ async function runLlmPipeline(
           { role: 'system', content: `${system}\n\nRÉSULTAT D'OUTIL :\n${exec2.result.slice(0, 9000)}\n\nRédige ta réponse finale en markdown pour l'utilisateur — INTERDIT d'écrire un objet JSON (aucun {...}), INTERDIT de répéter la décision d'outil. Reste concis et termine tes phrases.` },
           { role: 'user', content: ctx.effectiveUser.slice(0, 2400) },
         ]
-        const second = await llmStream(msgs2, (chunk) => ctx.send({ type: 'token', content: chunk }), { timeoutMs: 60_000 })
+        const second = await llmStream(msgs2, (chunk) => ctx.send({ type: 'token', content: chunk }), { timeoutMs: 60_000, context: { ...chatContext, purpose: 'tool-result' } })
         if (!second || !second.trim()) await localFallback(ctx, classification, true)
         else if (!sameTool && (exec2.artifact === 'code' || exec2.artifact === 'webpage')) {
           const artifact = extractCodeArtifact(second, exec2.artifact === 'webpage')
           if (artifact) emitCodeArtifact(ctx, artifact, second.slice(0, 500))
         }
+      } else if (!streamed && emitted2 === 0) {
+        // Le moteur local ne rédige pas à partir d'un résultat d'outil : la
+        // sortie de la compétence est déjà mise en forme, on l'affiche telle
+        // quelle (surtout pas de ré-exécution — l'image/la vidéo est déjà faite).
+        const raw = String(exec.result ?? '').trim()
+        ctx.send({ type: 'token', content: raw.slice(0, 4000) || 'Action terminée.' })
       } else if (streamed && emitted2 === 0) {
         // Rien affiché et pas de JSON : réponse vide → repli local
         await localFallback(ctx, classification, true)
@@ -1562,10 +1590,25 @@ async function runLlmPipeline(
           ctx.send({ type: 'token', content: `\n\n${fallback}` })
         }
       }
+    } else {
+      // Aucune décision d'outil exploitable. Le modèle local (300 k paramètres)
+      // ne produit pas de JSON d'action fiable : ce sont les compétences
+      // déterministes qui agissent — recherche web réelle, code, image, scène 3D,
+      // page web, vidéo, lecture de page. On ne passe PAS par la route
+      // conversation, sinon une simple phrase générée remplacerait l'action.
+      await localFallback(ctx, classification, false)
+      return
     }
   }
 
   if (!usedLlm) {
+    if (ctx.agentName) {
+      // Agent personnalisé : sa personnalité est écrite dans son prompt, qu'un
+      // petit modèle local n'incarne pas. On garde le chemin déterministe plutôt
+      // que de répondre hors personnage.
+      await localFallback(ctx, classification, false)
+      return
+    }
     // Route CONVERSATION : streaming direct avec double garde anti-JSON :
     // (a) réponse commençant par un JSON d'action, (b) JSON d'action qui
     // apparaît APRÈS un préambule de texte (cas réel observé : le LLM annonce
@@ -1653,7 +1696,7 @@ async function runLlmPipeline(
           buffer = ''
         }
       },
-      { timeoutMs: 45_000 }
+      { timeoutMs: 45_000, context: { ...chatContext, purpose: 'chat' } }
     )
 
     // État final du détecteur (rempli par le callback ci-dessus) — l'annotation
@@ -1680,7 +1723,7 @@ async function runLlmPipeline(
           { role: 'system', content: `${system}\n\nRÉSULTAT D'OUTIL :\n${exec.result.slice(0, 9000)}\n\nRédige ta réponse finale en markdown, sans JSON, et termine tes phrases.` },
           { role: 'user', content: ctx.effectiveUser.slice(0, 2400) },
         ]
-        const second = await llmStream(finalMsgs, (chunk) => ctx.send({ type: 'token', content: chunk }), { timeoutMs: 60_000 })
+        const second = await llmStream(finalMsgs, (chunk) => ctx.send({ type: 'token', content: chunk }), { timeoutMs: 60_000, context: { ...chatContext, purpose: 'tool-result' } })
         if (!second || !second.trim()) await localFallback(ctx, classification, true)
         else if (exec.artifact === 'code' || exec.artifact === 'webpage') {
           const artifact = extractCodeArtifact(second, exec.artifact === 'webpage')
@@ -1967,6 +2010,16 @@ async function localFallback(ctx: Ctx, classification: Classification, midStream
     case 'readpage':
       text = `Pour lire une page, donne-moi l'adresse complète (https://…). Exemple : *« lis https://create.roblox.com/docs »* — je la lirai, la capturerai et te la résumerai.`
       break
+    // Conversation simple : dernier recours si le modèle local ET la banque de
+    // dialogue n'ont rien pu produire (aucun modèle entraîné, message hors sujet).
+    case 'greeting':
+      text = ctx.profile?.greeting?.trim() ? ctx.profile.greeting.trim() : R.greeting(ctx.userName)
+      break
+    case 'farewell': text = R.farewell(); break
+    case 'thanks': text = R.thanks(); break
+    case 'howareyou': text = R.howAreYou(); break
+    case 'identity': text = R.identity(); break
+    case 'capabilities': text = R.capabilities(); break
     default:
       text = await handleGeneral(ctx, classification)
   }

@@ -8,8 +8,11 @@
 // Sinon, NEXUS retombe sur son cerveau à règles — le modèle ne « bluffe » pas.
 
 import { db } from '@/lib/db'
-import { decodeIds, deserializeWeights, encodeText, forward, lexiconCoverage, makeRng, type LmConfig, type LmParams, type Vocab } from './model'
-import { noGrad } from './tensor'
+import { CHAT_FORMAT, deserializeWeights, lexiconCoverage, type LmConfig, type LmParams, type Vocab } from './model'
+import { isBpe } from './tokenize'
+import { sample } from './generate'
+import { loadSeedModel } from './seed'
+import { answerChat } from './dialogue'
 import {
   GROUNDED_FORMAT,
   MIN_GROUNDING,
@@ -31,11 +34,14 @@ export interface LoadedModel {
   corpusInfo: Record<string, number>
   createdAt: number
   updatedAt: number
+  /** Mots appris par le modèle : garde-fou anti-charabia. */
+  lexicon: Set<string>
+  /** Vrai si ce sont les poids livrés dans le dépôt (non entraînés ici). */
+  seeded: boolean
 }
 
 let cache: LoadedModel | null = null
 let cacheKey = ''
-let lexicon = new Set<string>()
 
 /** Oublie le modèle en mémoire (appelé après chaque entraînement). */
 export function invalidateModelCache(): void {
@@ -47,6 +53,15 @@ export function invalidateModelCache(): void {
 export async function loadActiveModel(): Promise<LoadedModel | null> {
   const meta = await db.llmModel.findFirst({ where: { active: true }, orderBy: { updatedAt: 'desc' }, select: { id: true, updatedAt: true } }).catch(() => null)
   if (!meta) {
+    // Aucun modèle entraîné sur cette instance : on utilise le point de contrôle
+    // livré dans le dépôt (entraîné hors ligne), pour que le chat fonctionne dès
+    // le premier démarrage — y compris sans base accessible.
+    const seed = loadSeedModel()
+    if (seed) {
+      cache = seed
+      cacheKey = `seed:${seed.updatedAt}`
+      return cache
+    }
     invalidateModelCache()
     return null
   }
@@ -56,9 +71,8 @@ export async function loadActiveModel(): Promise<LoadedModel | null> {
   const row = await db.llmModel.findUnique({ where: { id: String(meta.id) } }).catch(() => null)
   if (!row || !row.weights) return null
   const cfg = JSON.parse(String(row.config)) as LmConfig
-  const vocab: Vocab = { itos: JSON.parse(String(row.vocab)) as string[] }
+  const vocab: Vocab = isBpe(cfg) ? { itos: [] } : { itos: JSON.parse(String(row.vocab ?? '[]')) as string[] }
   const params = deserializeWeights(cfg, String(row.weights))
-  lexicon = new Set(cfg.lexicon ?? [])
   cache = {
     id: String(row.id),
     cfg,
@@ -70,6 +84,8 @@ export async function loadActiveModel(): Promise<LoadedModel | null> {
     corpusInfo: safeJson(String(row.corpusInfo ?? '{}')),
     createdAt: new Date(row.createdAt as Date).getTime(),
     updatedAt: new Date(row.updatedAt as Date).getTime(),
+    lexicon: new Set(cfg.lexicon ?? []),
+    seeded: false,
   }
   cacheKey = key
   return cache
@@ -100,101 +116,31 @@ export interface GenResult {
   /** Log-vraisemblance négative moyenne (en nats) selon le modèle : plus bas = plus sûr. */
   avgNll: number
   ms: number
-  stop: 'blank' | 'max' | 'eos'
+  stop: 'blank' | 'max' | 'eos' | 'line' | 'seq'
 }
 
-/** Génère une suite de texte à partir de `prompt`. */
+/**
+ * Génère la suite de `prompt`.
+ * Délégué à l'échantillonneur sur cache clé/valeur (`./generate`) : même
+ * comportement qu'avant (température, top-k, pénalité de répétition, arrêts),
+ * mais une seule passe par token au lieu d'une passe complète par caractère —
+ * mesuré à ~40× plus rapide, ce qui rend la conversation fluide.
+ */
 export function generateWith(model: LoadedModel, prompt: string, opts: GenOptions = {}): GenResult {
-  const { cfg, vocab, params } = model
-  const maxTokens = Math.max(1, Math.min(400, opts.maxTokens ?? 160))
-  const temperature = Math.max(0.05, opts.temperature ?? 0.8)
-  const topK = Math.max(1, opts.topK ?? 10)
-  const rng = makeRng(opts.seed ?? 42)
-  const V = cfg.vocab
-  const ids: number[] = Array.from(encodeText(vocab, prompt))
-  if (ids.length === 0) ids.push(1)
-  const out: number[] = []
-  let nll = 0
-  let stop: GenResult['stop'] = 'max'
-  const t0 = Date.now()
-
-  noGrad(() => {
-    for (let i = 0; i < maxTokens; i++) {
-      const window = ids.slice(-cfg.ctx)
-      const T = window.length
-      const logits = forward(cfg, params, Int32Array.from(window), 1, T).data
-      const off = (T - 1) * V
-
-      // Probabilités brutes (pour la confiance) et distribution d'échantillonnage.
-      let max = -Infinity
-      for (let j = 0; j < V; j++) if (logits[off + j] > max) max = logits[off + j]
-      let sum = 0
-      const probs = new Float64Array(V)
-      for (let j = 0; j < V; j++) {
-        probs[j] = Math.exp(logits[off + j] - max)
-        sum += probs[j]
-      }
-
-      // Pénalité de répétition sur les 24 derniers tokens, puis température + top-k.
-      const adjusted = new Float64Array(V)
-      const recent = new Set(out.slice(-24))
-      for (let j = 0; j < V; j++) {
-        let l = logits[off + j] / temperature
-        if (recent.has(j)) l = l > 0 ? l / 1.15 : l * 1.15
-        adjusted[j] = j === 0 ? -Infinity : l // jamais le caractère inconnu
-      }
-      const candidates = Array.from({ length: V }, (_, j) => j)
-        .filter((j) => Number.isFinite(adjusted[j]))
-        .sort((a, b) => adjusted[b] - adjusted[a])
-        .slice(0, topK)
-      let amax = -Infinity
-      for (const j of candidates) if (adjusted[j] > amax) amax = adjusted[j]
-      let z = 0
-      const weights = candidates.map((j) => {
-        const w = Math.exp(adjusted[j] - amax)
-        z += w
-        return w
-      })
-      let r = rng() * z
-      let chosen = candidates[candidates.length - 1]
-      for (let k = 0; k < candidates.length; k++) {
-        r -= weights[k]
-        if (r <= 0) {
-          chosen = candidates[k]
-          break
-        }
-      }
-
-      nll += -Math.log(Math.max(probs[chosen] / sum, 1e-12))
-      out.push(chosen)
-      ids.push(chosen)
-
-      const soFar = decodeIds(vocab, out)
-      if (opts.stopAtBlank !== false && soFar.includes('\n\n')) {
-        stop = 'blank'
-        break
-      }
-      if (opts.stopAtLine && soFar.includes('\n')) {
-        stop = 'blank'
-        break
-      }
-      if (/\nQ:/.test(soFar)) {
-        stop = 'blank'
-        break
-      }
-    }
+  const res = sample(model, prompt, {
+    maxTokens: opts.maxTokens,
+    temperature: opts.temperature,
+    topK: opts.topK,
+    seed: opts.seed,
+    stopAtLine: opts.stopAtLine,
+    stopAtBlank: opts.stopAtBlank,
   })
-
-  const text = decodeIds(vocab, out)
-    .split(opts.stopAtLine ? /\n/ : /\n\s*\n|\nQ:/)[0]
-    .replace(/^\s+/, '')
-    .trimEnd()
   return {
-    text,
-    tokens: out.length,
-    avgNll: out.length ? nll / out.length : Infinity,
-    ms: Date.now() - t0,
-    stop,
+    text: res.text,
+    tokens: res.tokens,
+    avgNll: res.avgNll,
+    ms: res.ms,
+    stop: res.stop === 'line' || res.stop === 'seq' ? 'blank' : res.stop,
   }
 }
 
@@ -225,6 +171,21 @@ export async function answerWithLocalModel(question: string, userId?: string | n
   const q = question.trim().slice(0, 600)
   if (!q) return { ok: false, reason: 'question vide' }
   if (model.cfg.format === GROUNDED_FORMAT) return answerGrounded(model, q, userId ?? null)
+  if (model.cfg.format === CHAT_FORMAT) {
+    // Modèle de conversation : la couche dialogue fait le retrieval, la
+    // rédaction et les garde-fous (avec repli sur le texte retrouvé).
+    const answer = await answerChat({ message: q, userId: userId ?? null, model })
+    if (!answer.ok) return { ok: false, reason: answer.reason, avgNll: answer.avgNll, text: answer.text }
+    return {
+      ok: true,
+      text: answer.text,
+      avgNll: answer.avgNll,
+      ms: answer.ms,
+      confidence: answer.confidence,
+      grounded: answer.grounded,
+      source: answer.source ?? undefined,
+    }
+  }
   const seed = hash(q)
   const res = generateWith(model, `Q: ${q}\nR: `, { maxTokens: 180, temperature: 0.6, topK: 6, seed })
   if (res.text.length < 16) return { ok: false, reason: 'réponse trop courte', avgNll: res.avgNll, text: res.text }
@@ -233,7 +194,7 @@ export async function answerWithLocalModel(question: string, userId?: string | n
   const uniq = new Set(words).size / Math.max(1, words.length)
   if (words.length > 12 && uniq < 0.45) return { ok: false, reason: 'réponse répétitive', avgNll: res.avgNll, text: res.text }
   // Anti-charabia : la réponse doit être faite de mots que le modèle a réellement appris.
-  const coverage = lexiconCoverage(res.text, lexicon)
+  const coverage = lexiconCoverage(res.text, model.lexicon)
   if (coverage < MIN_LEXICON_COVERAGE) return { ok: false, reason: 'mots inconnus', avgNll: res.avgNll, text: res.text }
   return {
     ok: true,
@@ -286,7 +247,7 @@ export async function warmUpLocalModel(): Promise<{ trained: boolean; ms: number
   const t0 = Date.now()
   const model = await loadActiveModel()
   if (!model) return { trained: false, ms: Date.now() - t0 }
-  generateWith(model, 'Q: Bonjour\nR: ', { maxTokens: 4, temperature: 0.8, seed: 1 })
+  generateWith(model, isBpe(model.cfg) ? 'Q: bonjour\nR: ' : 'Q: Bonjour\nR: ', { maxTokens: 4, temperature: 0.8, seed: 1 })
   return { trained: true, ms: Date.now() - t0 }
 }
 

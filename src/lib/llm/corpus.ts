@@ -14,6 +14,8 @@ import { evaluateConversation, loadFilterRules, parseMessages } from '@/lib/conv
 import { groundedDocsFor } from './grounding'
 
 export interface CorpusSources {
+  /** Entrées de la banque de dialogue (corpus de conversation `chat-v1`). */
+  dialogue?: number
   nexusKnowledge: number
   knowledge: number
   trainingItems: number

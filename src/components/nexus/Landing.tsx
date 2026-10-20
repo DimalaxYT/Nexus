@@ -31,18 +31,23 @@ import { Button } from '@/components/ui/button'
 const FEATURES = [
   {
     icon: Bot,
-    title: 'Agent autonome',
-    desc: 'Un cerveau à réseau de neurones embarqué qui raisonne, cherche sur le web et exécute des missions même quand vous êtes absent.',
+    title: 'Une vraie conversation',
+    desc: 'Le site tient d’abord en une chose : parler avec NEXUS. Un modèle de langage transformeur écrit à la main, entraîné ici, qui rédige ses réponses token par token — pas un arbre de phrases toutes faites.',
   },
   {
     icon: Brain,
-    title: 'Cerveau Jarvis 3D',
-    desc: 'Le centre neural animé en temps réel : impulsions d’énergie entre les agents, hologramme gyroscopique, vue éclatée.',
+    title: 'Cerveau 100 % local',
+    desc: 'Tokenizer BPE, attention multi-têtes, entraînement AdamW, décodage avec cache clé/valeur : tout est codé dans ce dépôt. Aucune API, aucune clé, aucun service d’IA tiers — vos phrases ne quittent pas votre serveur.',
   },
   {
     icon: Workflow,
-    title: 'Blueprints',
-    desc: 'Dessinez le schéma de vos agents sur un canvas glisser-déposer : règles, conditions, outils, connaissances — testés en direct.',
+    title: 'Ancré, jamais inventé',
+    desc: 'Chaque réponse s’appuie sur un savoir retrouvé (vos notes, vos mémoires, la banque de connaissances) et passe des garde-fous de qualité. Si le modèle doute, il le dit et répond à partir du savoir plutôt que d’inventer.',
+  },
+  {
+    icon: Workflow,
+    title: 'Agent autonome',
+    desc: 'Au-delà de la discussion : recherche web réelle, missions en arrière-plan, schémas d’agents sur canvas — l’IA agit aussi quand vous n’êtes pas là.',
   },
   {
     icon: Boxes,
@@ -162,7 +167,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
             </span>
-            Cerveau IA 100 % local — aucune API externe
+            Modèle de langage maison — entraîné sur votre serveur
           </motion.div>
 
           <motion.h1
@@ -171,9 +176,9 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.55, delay: 0.08 }}
             className="max-w-4xl font-display text-5xl font-bold leading-[1.04] tracking-tight md:text-7xl"
           >
-            L&apos;agent IA qui vit
+            Parlez avec une IA
             <br />
-            <span className="text-gradient">chez vous.</span>
+            <span className="text-gradient">écrite de A à Z.</span>
           </motion.h1>
 
           <motion.p
@@ -182,9 +187,9 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.55, delay: 0.16 }}
             className="mt-6 max-w-2xl text-balance text-base leading-relaxed text-muted-foreground md:text-lg"
           >
-            Recherche web, missions autonomes, studios d&apos;images, de vidéos, de 3D et de code —
-            NEXUS orchestre une équipe d&apos;agents pour vous. Le cerveau tourne sur votre serveur :
-            vous gardez le contrôle de vos données.
+            NEXUS est un site dont le but est simple : discuter avec une intelligence
+            artificielle qui tourne entièrement chez vous. Le modèle de langage est codé
+            et entraîné dans ce dépôt — aucune API, aucun service externe, aucune clé.
           </motion.p>
 
           <motion.div
@@ -195,7 +200,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
           >
             <Button asChild size="lg" className="h-12 gap-2 rounded-xl bg-foreground px-7 text-base font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90">
               <Link href="/app">
-                {hasAccounts ? 'Accéder à mon espace' : 'Créer mon espace'}
+                {hasAccounts ? 'Parler à NEXUS' : 'Créer mon espace et parler à NEXUS'}
                 <ArrowRight className="h-4.5 w-4.5" />
               </Link>
             </Button>
@@ -215,8 +220,8 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
           >
             {[
               ['100 %', 'local & privé'],
-              ['8', 'studios intégrés'],
-              ['<50 ms', 'par réflexion'],
+              ['0', 'API ou clé externe'],
+              ['~0,4 s', 'par réponse'],
             ].map(([value, label]) => (
               <div key={label} className="glass edge-glow rounded-xl px-4 py-3.5">
                 <dt className="sr-only">{label}</dt>

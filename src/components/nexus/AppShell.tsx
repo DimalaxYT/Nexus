@@ -8,6 +8,7 @@ import {
   Bot,
   Boxes,
   Brain,
+  ChevronDown,
   Clapperboard,
   Code2,
   Home,
@@ -71,23 +72,33 @@ function StudioLoading({ label }: { label: string }) {
   )
 }
 
+type NavItem = { id: ViewId; label: string; icon: typeof Home; hint: string }
+
 /** Entrée réservée au compte Dev : dashboard, site, code et agent Dev. */
-const DEV_NAV_ITEM: { id: ViewId; label: string; icon: typeof Home; hint: string } = {
+const DEV_NAV_ITEM: NavItem = {
   id: 'dev',
   label: 'Espace Dev',
   icon: Terminal,
   hint: 'Dashboard & code',
 }
 
-const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Home; hint: string }[] = [
+// Le site sert d'abord à UNE chose : parler avec NEXUS. La navigation met donc
+// la discussion en tête, avec le strict utile autour (comptes connectés, qui
+// donnent à l'IA ses capacités réelles, et le compte). Tout le reste — ateliers
+// de création, blueprints, clés API, dashboard — reste accessible mais replié
+// dans un groupe secondaire : rien n'est supprimé, rien ne gêne la conversation.
+const NAV_PRIMARY: NavItem[] = [
+  { id: 'agent', label: 'Discussion', icon: Bot, hint: 'Parler à NEXUS' },
+  { id: 'connexions', label: 'Connexions', icon: Link2, hint: 'Gmail, GitHub, TikTok' },
+  { id: 'compte', label: 'Mon compte', icon: UserIcon, hint: 'Profil et sécurité' },
+]
+
+const NAV_MORE: NavItem[] = [
   { id: 'hub', label: 'Accueil', icon: Home, hint: 'Centre de contrôle' },
-  { id: 'agent', label: 'Agent IA', icon: Bot, hint: 'Agent autonome' },
-  { id: 'cerveaux', label: 'Cerveau Jarvis', icon: Brain, hint: 'Le cerveau central en direct' },
+  { id: 'cerveaux', label: 'Cerveau Jarvis', icon: Brain, hint: 'Le cerveau en direct' },
   { id: 'studios', label: 'Studios', icon: Layers, hint: '3D · Image · Vidéo · Code' },
   { id: 'blueprints', label: 'Blueprints', icon: Workflow, hint: 'Schémas d\u2019agents' },
   { id: 'cles', label: 'Clés API', icon: KeyRound, hint: 'Chatbots à vendre' },
-  { id: 'connexions', label: 'Connexions', icon: Link2, hint: 'Gmail, GitHub, Discord' },
-  { id: 'compte', label: 'Mon compte', icon: UserIcon, hint: 'Profil et sécurité' },
 ]
 
 function Logo() {
@@ -111,44 +122,71 @@ function Logo() {
   )
 }
 
-function NavList({ onNavigate }: { onNavigate?: () => void }) {
+function NavButton({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const { view, setView } = useNexusStore()
+  const Icon = item.icon
+  const active = view === item.id
+  return (
+    <button
+      onClick={() => {
+        setView(item.id)
+        onNavigate?.()
+      }}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all',
+        active
+          ? 'bg-primary/10 text-primary'
+          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+      )}
+    >
+      {active && (
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground/70" aria-hidden />
+      )}
+      <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground/80')} />
+      <span className="flex-1">{item.label}</span>
+      <span className={cn('hidden font-mono text-[9px] uppercase tracking-wider lg:block', active ? 'text-primary/70' : 'text-muted-foreground/50 group-hover:text-muted-foreground')}>{item.hint}</span>
+    </button>
+  )
+}
+
+function NavList({ onNavigate }: { onNavigate?: () => void }) {
+  const { view } = useNexusStore()
   const { user } = useAuth()
   const isDev = user?.role === 'dev'
-
-  const items = isDev
-    ? [...NAV_ITEMS.slice(0, 1), DEV_NAV_ITEM, ...NAV_ITEMS.slice(1)]
-    : NAV_ITEMS
+  const more = isDev ? [...NAV_MORE, DEV_NAV_ITEM] : NAV_MORE
+  const inMore = more.some((item) => item.id === view)
+  // Le groupe secondaire est ouvert quand on s'y trouve déjà (lien direct,
+  // retour depuis un atelier), sinon replié : la discussion domine. L'état local
+  // ne sert qu'à mémoriser un clic — il est initialisé à `null` (« automatique »)
+  // et ne déclenche donc aucun effet de bord au montage.
+  const [moreOverride, setMoreOverride] = useState<boolean | null>(null)
+  const moreOpen = moreOverride ?? inMore
 
   return (
-    <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Navigation principale">
-      {items.map((item) => {
-        const Icon = item.icon
-        const active = view === item.id
-        return (
-          <button
-            key={item.id}
-            onClick={() => {
-              setView(item.id)
-              onNavigate?.()
-            }}
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all',
-              active
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-            )}
-          >
-            {active && (
-              <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground/70" aria-hidden />
-            )}
-            <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground/80')} />
-            <span className="flex-1">{item.label}</span>
-            <span className={cn('hidden font-mono text-[9px] uppercase tracking-wider lg:block', active ? 'text-primary/70' : 'text-muted-foreground/50 group-hover:text-muted-foreground')}>{item.hint}</span>
-          </button>
-        )
-      })}
+    <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Navigation principale">
+      {NAV_PRIMARY.map((item) => (
+        <NavButton key={item.id} item={item} onNavigate={onNavigate} />
+      ))}
+
+      <div className="mt-3 border-t border-border/60 pt-2">
+        <button
+          onClick={() => setMoreOverride(!moreOpen)}
+          aria-expanded={moreOpen}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
+        >
+          <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', moreOpen && 'rotate-180')} />
+          <span className="flex-1">Ateliers &amp; outils</span>
+          <span className="font-mono text-[9px] normal-case tracking-normal text-muted-foreground/50">{more.length}</span>
+        </button>
+        {moreOpen && (
+          <div className="mt-1 flex flex-col gap-1">
+            {more.map((item) => (
+              <NavButton key={item.id} item={item} onNavigate={onNavigate} />
+            ))}
+          </div>
+        )}
+      </div>
     </nav>
   )
 }
