@@ -42,14 +42,15 @@ export function buildKnowledgePatch(input: {
   } catch {
     return null
   }
+  // L'ancre est la LIGNE DE DÉCLARATION elle-même, pas la fin du tableau :
+  // ainsi plusieurs correctifs de connaissance peuvent être appliqués à la
+  // suite (« Tout appliquer ») sans que l'ancre du suivant disparaisse.
   const marker = 'export const NEXUS_KNOWLEDGE: KnowledgeEntry[] = ['
   const start = raw.indexOf(marker)
   if (start < 0) return null
-  const close = raw.indexOf('\n]\n', start)
-  if (close < 0) return null
+  if (raw.indexOf('\n]', start) < 0) return null // tableau non refermé
 
-  const anchorStart = Math.max(start + marker.length, close - 400)
-  const before = raw.slice(anchorStart, close) + '\n]'
+  const before = marker
   const entry = [
     '  {',
     `    keywords: [${input.keywords.map((k) => `'${tsSingleQuote(k)}'`).join(', ')}],`,
@@ -57,7 +58,7 @@ export function buildKnowledgePatch(input: {
     '    answer: `' + tsTemplateLiteral(input.answer) + '`,',
     '  },',
   ].join('\n')
-  const after = raw.slice(anchorStart, close) + '\n' + entry + '\n]'
+  const after = `${marker}\n${entry}`
 
   if (raw.split(before).length !== 2) return null // ancre non unique : on s'abstient
   return {

@@ -9,11 +9,12 @@
 
 import { db } from './db'
 import { browsePage, searchWeb, type DevPageRecord } from './devbrowser'
-import { readFile, safePath, backupFile, writeGuarded, listTree } from './devfs'
+import { readFile, listTree } from './devfs'
 import { extractKeySentences } from './brain/synthesize'
 import { searchKnowledgeBank } from './brain/knowledge-bank'
 import { stems } from './brain/text'
 import { buildKnowledgePatch } from './devknowledge'
+import { applyPatchToDisk } from './devpatch'
 import { maybeRetrainModel, probeModel, validQuestions } from './devmodel'
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -980,29 +981,23 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
           .catch(() => null)
 
         if (patchRow && config.autonomy === 'auto') {
-          // Mode autonome : l'agent applique lui-même, après sauvegarde.
+          // Mode autonome : l'agent applique lui-même, avec la même mécanique
+          // (et les mêmes garde-fous) que l'onglet Correctifs.
           try {
-            const abs = safePath(patch.filePath)
-            const { readFileSync, writeFileSync, existsSync } = await import('fs')
-            if (existsSync(abs)) {
-              const current = readFileSync(abs, 'utf8')
-              if (current.split(patch.before).length === 2) {
-                const { backupFile, writeGuarded } = await import('./devfs')
-                backupFile(patch.filePath)
-                writeGuarded(patch.filePath, current.replace(patch.before, () => patch.after))
-                await db.devPatch
-                  .update({ where: { id: String(patchRow.id) }, data: { status: 'applique', appliedAt: new Date() } })
-                  .catch(() => {})
-                await db.trainingItem
-                  .update({ where: { id: itemId }, data: { status: 'valide', appliedAt: new Date() } })
-                  .catch(() => {})
-                step('Autonomie', 'Correctif appliqué automatiquement (sauvegarde faite)', 'ok')
-              } else {
-                step('Autonomie', 'Ancre introuvable : le correctif reste à valider à la main', 'warn')
-              }
-            }
+            const applied = applyPatchToDisk(patch)
+            await db.devPatch
+              .update({ where: { id: String(patchRow.id) }, data: { status: 'applique', appliedAt: new Date() } })
+              .catch(() => {})
+            await db.trainingItem
+              .update({ where: { id: itemId }, data: { status: 'valide', appliedAt: new Date() } })
+              .catch(() => {})
+            step('Autonomie', `Correctif appliqué automatiquement (sauvegarde : ${applied.backup})`, 'ok')
           } catch (e) {
-            step('Autonomie', `Application impossible : ${e instanceof Error ? e.message : 'erreur'}`, 'warn')
+            step(
+              'Autonomie',
+              `Application impossible (le correctif reste à valider) : ${e instanceof Error ? e.message : 'erreur'}`,
+              'warn'
+            )
           }
         } else if (patchRow) {
           step('Correctif', 'Correctif déposé dans l’onglet Correctifs, en attente de validation', 'ok')

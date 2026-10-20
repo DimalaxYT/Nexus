@@ -647,23 +647,28 @@ interface Patch {
   rationale: string
   status: string
   origin: string
+  createdAt: string | number | null
   appliedAt: string | null
+  beforeBytes: number
+  afterBytes: number
+  hasContent: boolean
 }
 
 function PatchesTab() {
   const json = useJson()
   const [patches, setPatches] = useState<Patch[]>([])
+  const [details, setDetails] = useState<Record<string, Patch>>({})
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const d = await json<{ patches: Patch[] }>('/api/dev/patches')
+    const d = await json<{ patches: Patch[] }>('/api/dev/patches?light=1')
     if (d) setPatches(d.patches)
   }, [json])
 
   useEffect(() => {
     let alive = true
-    json<{ patches: Patch[] }>('/api/dev/patches').then((d) => {
+    json<{ patches: Patch[] }>('/api/dev/patches?light=1').then((d) => {
       if (!alive) return
       if (d) setPatches(d.patches)
     })
@@ -674,14 +679,41 @@ function PatchesTab() {
 
   const apply = async (id: string) => {
     setBusy(id)
-    const d = await json<{ ok: boolean; backup: string }>('/api/dev/patches', {
+    const d = await json<{ ok: boolean; backup?: string }>('/api/dev/patches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'apply', id }),
     })
     setBusy(null)
     if (d) {
-      toast.success(`Correctif appliqué — sauvegarde : ${d.backup}`)
+      toast.success(`Correctif appliqué${d.backup ? ` — sauvegarde : ${d.backup}` : ''}`)
+      setOpen(null)
+      setDetails((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      await load()
+    }
+  }
+
+  const applyAll = async () => {
+    const pending = patches.filter((p) => p.status === 'propose')
+    if (!pending.length) return
+    setBusy('all')
+    const d = await json<{ applied: number; failed: number; results?: { title: string; error?: string }[] }>('/api/dev/patches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'applyAll' }),
+    })
+    setBusy(null)
+    if (d) {
+      if (d.applied) toast.success(`${d.applied} correctif(s) appliqué(s) — sauvegarde automatique`)
+      for (const r of (d.results ?? []).filter((x) => x.error)) {
+        toast.error(`${r.title} : ${r.error}`)
+      }
+      setOpen(null)
+      setDetails({})
       await load()
     }
   }
@@ -701,29 +733,65 @@ function PatchesTab() {
     setBusy(id)
     await json(`/api/dev/patches?id=${id}`, { method: 'DELETE' })
     setBusy(null)
+    if (open === id) setOpen(null)
+    setDetails((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     await load()
   }
 
+  const toggle = async (patch: Patch) => {
+    if (open === patch.id) {
+      setOpen(null)
+      return
+    }
+    setOpen(patch.id)
+    if (patch.hasContent && !details[patch.id]) {
+      const d = await json<{ patch: Patch }>(`/api/dev/patches?id=${encodeURIComponent(patch.id)}`)
+      if (d?.patch) setDetails((prev) => ({ ...prev, [patch.id]: d.patch }))
+    }
+  }
+
+  const pending = patches.filter((p) => p.status === 'propose')
+
   return (
     <div className="space-y-3 p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           Chaque correctif est appliqué par remplacement d’une ancre exacte, après sauvegarde automatique du fichier.
+          Une demande peut produire plusieurs correctifs (un par fichier).
         </p>
-        <Button variant="ghost" size="sm" onClick={() => void load()}>
-          <RefreshCw className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {pending.length > 0 ? (
+            <Button
+              size="sm"
+              className="bg-neutral-600 hover:bg-neutral-500"
+              onClick={() => void applyAll()}
+              disabled={busy === 'all'}
+            >
+              {busy === 'all' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
+              Tout appliquer ({pending.length})
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={() => void load()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {!patches.length ? (
         <p className="rounded-xl border border-dashed border-border/70 p-8 text-center text-xs text-muted-foreground">
-          Aucun correctif. Demande à l’agent Dev, par exemple « apprends à NEXUS que… ».
+          Aucun correctif. Demande à l’agent Dev, par exemple « remplace "ancien" par "nouveau" dans src/lib/fichier.ts »
+          ou « apprends à NEXUS que… ».
         </p>
       ) : null}
 
       {patches.map((p) => {
         const expanded = open === p.id
-        const diff = splitDiff(p.before, p.after)
+        const full = details[p.id]
+        const diff = full ? splitDiff(full.before, full.after) : null
         return (
           <article key={p.id} className="rounded-xl border border-border/70 bg-card/60">
             <header className="flex items-start gap-3 p-4">
@@ -733,18 +801,29 @@ function PatchesTab() {
                   <Badge variant="outline" className={cn(
                     p.status === 'applique' && 'border-neutral-500/40 text-neutral-300',
                     p.status === 'propose' && 'border-neutral-300/40 text-amber-300',
-                    p.status === 'refuse' && 'border-border text-muted-foreground'
+                    (p.status === 'refuse' || p.status === 'obsolete') && 'border-border text-muted-foreground'
                   )}>
-                    {p.status === 'applique' ? 'appliqué' : p.status === 'refuse' ? 'refusé' : 'à valider'}
+                    {p.status === 'applique'
+                      ? 'appliqué'
+                      : p.status === 'refuse'
+                        ? 'refusé'
+                        : p.status === 'obsolete'
+                          ? 'périmé'
+                          : 'à valider'}
                   </Badge>
                   <Badge variant="outline" className="text-[10px]">{p.origin}</Badge>
+                  <span className="text-[10px] text-muted-foreground">
+                    {p.beforeBytes || p.afterBytes
+                      ? `${Math.max(1, Math.round((p.beforeBytes + p.afterBytes) / 1024))} Ko`
+                      : ''}
+                  </span>
                 </div>
                 <p className="mt-1 font-mono text-[11px] text-muted-foreground">{p.filePath}</p>
                 {p.rationale ? <p className="mt-1 text-[11px] text-foreground/70">{p.rationale}</p> : null}
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 {p.status === 'propose' ? (
-                  <Button size="sm" className="bg-neutral-600 hover:bg-neutral-500" onClick={() => void apply(p.id)} disabled={busy === p.id}>
+                  <Button size="sm" className="bg-neutral-600 hover:bg-neutral-500" onClick={() => void apply(p.id)} disabled={busy === p.id || busy === 'all'}>
                     {busy === p.id ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
                     Appliquer
                   </Button>
@@ -754,11 +833,16 @@ function PatchesTab() {
                     <Undo2 className="mr-1.5 h-3 w-3" /> Rouvrir
                   </Button>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={() => void setStatus(p.id, p.status === 'refuse' ? 'propose' : 'refuse')} disabled={busy === p.id}>
-                    {p.status === 'refuse' ? 'Restaurer' : 'Refuser'}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void setStatus(p.id, p.status === 'propose' ? 'refuse' : 'propose')}
+                    disabled={busy === p.id}
+                  >
+                    {p.status === 'propose' ? 'Refuser' : 'Restaurer'}
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setOpen(expanded ? null : p.id)}>
+                <Button size="sm" variant="ghost" onClick={() => void toggle(p)}>
                   {expanded ? 'Masquer' : 'Voir le diff'}
                 </Button>
                 <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => void remove(p.id)} aria-label="Supprimer">
@@ -769,22 +853,30 @@ function PatchesTab() {
 
             {expanded ? (
               <div className="grid gap-3 border-t border-border/60 p-4 lg:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-rose-300">Avant</p>
-                  <pre className="max-h-64 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[10px] leading-relaxed">
-                    <span className="text-muted-foreground">{diff.prefix}</span>
-                    <span className="bg-rose-500/20 text-rose-200">{diff.removed || '(vide)'}</span>
-                    <span className="text-muted-foreground">{diff.suffix}</span>
-                  </pre>
-                </div>
-                <div>
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-neutral-300">Après</p>
-                  <pre className="max-h-64 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[10px] leading-relaxed">
-                    <span className="text-muted-foreground">{diff.prefix}</span>
-                    <span className="bg-neutral-500/20 text-neutral-200">{diff.added || '(vide)'}</span>
-                    <span className="text-muted-foreground">{diff.suffix}</span>
-                  </pre>
-                </div>
+                {!diff ? (
+                  <p className="text-xs text-muted-foreground lg:col-span-2">
+                    {p.hasContent ? 'Chargement du diff…' : 'Ce correctif ne contient pas de contenu comparable.'}
+                  </p>
+                ) : (
+                  <>
+                    <div>
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-rose-300">Avant</p>
+                      <pre className="max-h-64 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[10px] leading-relaxed">
+                        <span className="text-muted-foreground">{diff.prefix}</span>
+                        <span className="bg-rose-500/20 text-rose-200">{diff.removed || '(vide)'}</span>
+                        <span className="text-muted-foreground">{diff.suffix}</span>
+                      </pre>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-neutral-300">Après</p>
+                      <pre className="max-h-64 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[10px] leading-relaxed">
+                        <span className="text-muted-foreground">{diff.prefix}</span>
+                        <span className="bg-neutral-500/20 text-neutral-200">{diff.added || '(vide)'}</span>
+                        <span className="text-muted-foreground">{diff.suffix}</span>
+                      </pre>
+                    </div>
+                  </>
+                )}
               </div>
             ) : null}
           </article>

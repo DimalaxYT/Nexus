@@ -1,67 +1,37 @@
 // ─── Dashboard Dev — correctifs proposés ─────────────────────────────────────
-// GET    → liste des correctifs
-// POST   → { action: 'apply', id }   applique un correctif (sauvegarde d'abord)
-//          { action: 'create', ... } dépose un correctif à la main
-// PATCH  → { id, status }            propose / applique / refuse
-// DELETE → ?id=                      supprime
+// GET    → liste des correctifs. `?light=1` = résumés (sans le contenu),
+//          `?id=…` = un correctif complet (utilisé pour afficher son diff).
+// POST   → { action: 'apply', id }            applique un correctif (sauvegarde d'abord)
+//          { action: 'apply', ids: [...] }     applique une sélection, dans l'ordre
+//          { action: 'applyAll' }              applique tous les correctifs en attente
+//          { action: 'create', ... }           dépose un correctif à la main
+// PATCH  → { id, status }                       propose / applique / refuse
+// DELETE → ?id=                                 supprime
 
-import fs from 'fs'
 import { devGuard } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { DevFsError, safePath, writeGuarded } from '@/lib/devfs'
+import { DevFsError, safePath } from '@/lib/devfs'
+import { applyAllProposed, applyPatchIds, shapePatch } from '@/lib/devpatch'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
-function shape(row: any) {
-  return {
-    id: String(row?.id ?? ''),
-    title: String(row?.title ?? ''),
-    filePath: String(row?.filePath ?? ''),
-    before: String(row?.before ?? ''),
-    after: String(row?.after ?? ''),
-    rationale: String(row?.rationale ?? ''),
-    status: String(row?.status ?? 'propose'),
-    origin: String(row?.origin ?? 'agent'),
-    createdAt: row?.createdAt,
-    appliedAt: row?.appliedAt ?? null,
-  }
-}
-
-/** Remplace l'ancre par son nouveau contenu, après sauvegarde. */
-async function applyPatch(patch: any): Promise<{ backup: string; bytes: number }> {
-  const filePath = String(patch?.filePath ?? '')
-  const before = String(patch?.before ?? '')
-  const after = String(patch?.after ?? '')
-  if (!filePath) throw new DevFsError('Correctif sans fichier cible.')
-
-  const abs = safePath(filePath)
-  if (!fs.existsSync(abs)) throw new DevFsError(`Le fichier ${filePath} n'existe pas.`)
-  const current = fs.readFileSync(abs, 'utf8')
-
-  let next: string
-  if (before.trim()) {
-    const occurrences = current.split(before).length - 1
-    if (occurrences === 0) {
-      throw new DevFsError('L’ancre n’existe plus dans le fichier : le code a changé depuis la proposition.')
-    }
-    if (occurrences > 1) {
-      throw new DevFsError(`L’ancre apparaît ${occurrences} fois : application refusée par prudence.`)
-    }
-    // Fonction de remplacement : évite toute interprétation des motifs `$&`.
-    next = current.replace(before, () => after)
-  } else {
-    next = current.replace(/\s*$/, '') + '\n' + after + '\n'
-  }
-
-  return writeGuarded(filePath, next)
-}
-
-export async function GET() {
+export async function GET(req: Request) {
   const guard = await devGuard()
   if (!guard.ok) return guard.response
-  const rows = await db.devPatch.findMany({ orderBy: { createdAt: 'desc' }, take: 60 })
-  return Response.json({ patches: (rows ?? []).map(shape) })
+
+  const url = new URL(req.url)
+  const id = url.searchParams.get('id')
+  if (id) {
+    const row = await db.devPatch.findUnique({ where: { id } })
+    if (!row) return Response.json({ error: 'Correctif introuvable.' }, { status: 404 })
+    return Response.json({ patch: shapePatch(row) })
+  }
+
+  const light = ['1', 'true', 'light'].includes(String(url.searchParams.get('light') ?? ''))
+  const rows = await db.devPatch.findMany({ orderBy: { createdAt: 'desc' }, take: 80 })
+  return Response.json({ patches: (rows ?? []).map((row: Parameters<typeof shapePatch>[0]) => shapePatch(row, { light })) })
 }
 
 export async function POST(req: Request) {
@@ -70,24 +40,50 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null)
 
   if (body?.action === 'apply') {
-    const id = String(body?.id ?? '')
-    if (!id) return Response.json({ error: 'Identifiant requis.' }, { status: 400 })
-    const patch = await db.devPatch.findUnique({ where: { id } })
-    if (!patch) return Response.json({ error: 'Correctif introuvable.' }, { status: 404 })
-    if (String(patch.status) === 'applique') {
-      return Response.json({ error: 'Ce correctif a déjà été appliqué.' }, { status: 409 })
-    }
-    try {
-      const { backup, bytes } = await applyPatch(patch)
-      const updated = await db.devPatch.update({
-        where: { id },
-        data: { status: 'applique', appliedAt: new Date() },
+    const ids: string[] = Array.isArray(body?.ids)
+      ? body.ids.map((v: unknown) => String(v ?? '')).filter(Boolean)
+      : body?.id
+        ? [String(body.id)]
+        : []
+    if (!ids.length) return Response.json({ error: 'Identifiant(s) requis.' }, { status: 400 })
+
+    const results = await applyPatchIds(ids)
+    const applied = results.filter((r) => r.ok)
+    const failed = results.filter((r) => !r.ok)
+
+    // Compatibilité avec l'ancien contrat mono-correctif.
+    if (ids.length === 1 && results[0]) {
+      const only = results[0]
+      if (!only.ok) return Response.json({ error: only.error ?? 'Application impossible' }, { status: 400 })
+      const row = await db.devPatch.findUnique({ where: { id: only.id } }).catch(() => null)
+      return Response.json({
+        ok: true,
+        patch: row ? shapePatch(row) : null,
+        backup: only.backup,
+        bytes: only.bytes,
+        created: only.created,
       })
-      return Response.json({ ok: true, patch: shape(updated), backup, bytes })
-    } catch (err) {
-      const message = err instanceof DevFsError ? err.message : err instanceof Error ? err.message : 'Application impossible'
-      return Response.json({ error: message }, { status: 400 })
     }
+
+    return Response.json({
+      ok: failed.length === 0,
+      applied: applied.length,
+      failed: failed.length,
+      results,
+    })
+  }
+
+  if (body?.action === 'applyAll') {
+    const { outcomes, total } = await applyAllProposed()
+    const applied = outcomes.filter((r) => r.ok)
+    const failed = outcomes.filter((r) => !r.ok)
+    return Response.json({
+      ok: failed.length === 0,
+      total,
+      applied: applied.length,
+      failed: failed.length,
+      results: outcomes,
+    })
   }
 
   if (body?.action === 'create') {
@@ -117,7 +113,7 @@ export async function POST(req: Request) {
         appliedAt: null,
       },
     })
-    return Response.json({ ok: true, patch: shape(row) })
+    return Response.json({ ok: true, patch: shapePatch(row) })
   }
 
   return Response.json({ error: 'Action inconnue.' }, { status: 400 })
@@ -136,7 +132,7 @@ export async function PATCH(req: Request) {
     where: { id },
     data: { status, ...(status === 'applique' ? { appliedAt: new Date() } : {}) },
   })
-  return Response.json({ ok: true, patch: shape(row) })
+  return Response.json({ ok: true, patch: shapePatch(row) })
 }
 
 export async function DELETE(req: Request) {
