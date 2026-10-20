@@ -1,13 +1,56 @@
 // ─── NEXUS — Moteur de synthèse textuelle 100 % local (Zéro API externe) ─────
 // NEXUS est une IA entièrement codée de A à Z, sans clé API ni service LLM
-// externe. Ce module fournit les utilitaires d'extraction JSON et de synthèse
-// locale utilisés par le runner de missions et le pipeline interne.
+// externe. Ce module est la porte d'entrée du cerveau : il relie le pipeline de
+// discussion (`brain.ts`) au transformeur maison (`llm/`) — tokenizer BPE,
+// décodage avec cache clé/valeur, retrieval dans le savoir local et garde-fous
+// de qualité — et fournit la synthèse locale des rapports de missions.
+//
+// Règle de répartition, assumée et documentée :
+//   · la CONVERSATION passe par le modèle de langue (texte réellement généré),
+//   · les ACTIONS (recherche, code, image, vidéo…) restent déterministes : un
+//     modèle de 300 k paramètres ne décide pas d'un appel d'outil de façon
+//     fiable, et les compétences locales produisent déjà un résultat exact.
+// Quand le modèle n'est pas assez sûr de lui, on ne « bluffe » pas : la réponse
+// revient au savoir retrouvé (banque de dialogue, connaissances, notes).
 
 import { extractKeySentences } from './brain/synthesize'
+import { answerChat, streamChat, type ChatTurn } from './llm/dialogue'
+import { loadActiveModel } from './llm/engine'
 
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+}
+
+/** Ce que le moteur local a besoin de savoir sur la conversation en cours. */
+export interface ChatContext {
+  /** Compte propriétaire (cloisonnement du savoir retrouvé). */
+  userId?: string | null
+  /** Demande effective de l'utilisateur (enrichie du contexte de suivi). */
+  lastUser?: string
+  /** Échanges précédents (mémoire courte de la conversation). */
+  history?: ChatTurn[]
+  /**
+   * Nature de la demande faite au moteur :
+   *   · `chat`          — conversation libre : le modèle rédige la réponse,
+   *   · `tool-decision` — décision d'outil attendue en JSON : non prise en
+   *                       charge par le modèle local (repli déterministe),
+   *   · `tool-result`   — rédaction à partir d'un résultat d'outil : idem, les
+   *                       compétences locales mettent déjà en forme leur sortie.
+   */
+  purpose?: 'chat' | 'tool-decision' | 'tool-result'
+  /** Informé de la provenance de la réponse (générée ou retrouvée). */
+  onProvenance?: (info: ChatProvenance) => void
+}
+
+export interface ChatProvenance {
+  /** true = rédigé par le transformeur, false = texte du savoir local retrouvé. */
+  generated: boolean
+  source: string | null
+  confidence: number
+  avgNll: number
+  tokens: number
+  ms: number
 }
 
 export interface CompleteOptions {
@@ -15,6 +58,8 @@ export interface CompleteOptions {
   maxTokens?: number
   timeoutMs?: number
   thinking?: boolean
+  /** Contexte de conversation (compte, historique, nature de la demande). */
+  context?: ChatContext
 }
 
 export function llmBlockedFor(): number {
@@ -35,39 +80,127 @@ export function llmStatus(): {
   }
 }
 
+/**
+ * Demande-t-on au moteur une décision d'outil ou une rédaction sur résultat
+ * d'outil ? Dans les deux cas le modèle local passe la main : ces tâches
+ * demandent un suivi d'instructions qu'un petit modèle n'assure pas, et le
+ * cerveau déterministe les traite déjà correctement.
+ */
+function isToolTask(messages: LlmMessage[], purpose?: ChatContext['purpose']): boolean {
+  if (purpose === 'tool-decision' || purpose === 'tool-result') return true
+  const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n')
+  if (!system) return false
+  if (/R[ÉE]SULTAT D'OUTIL/i.test(system)) return true
+  if (/R[ée]ponds UNIQUEMENT avec l'objet JSON/.test(system)) return true
+  return false
+}
+
+/** Extrait le message utilisateur et l'historique utiles au modèle local. */
+function chatInput(messages: LlmMessage[], context?: ChatContext): { message: string; history: ChatTurn[] } {
+  const message = (context?.lastUser ?? messages.findLast((m) => m.role === 'user')?.content ?? '').trim()
+  const history: ChatTurn[] = (context?.history ?? [])
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content && m.content.trim())
+    .slice(-6)
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  // L'historique fourni contient la demande courante : elle ne doit pas être
+  // comptée comme un échange précédent (sinon la ligne `H:` dupliquerait `Q:`).
+  while (history.length > 0) {
+    const last = history[history.length - 1]
+    if (last.role === 'user' && last.content.trim() === message.trim()) history.pop()
+    else break
+  }
+  return { message, history }
+}
+
+/** Informe l'appelant de la provenance de la réponse (journal, interface). */
+function reportProvenance(context: ChatContext | undefined, answer: { generated: boolean; source: string | null; confidence: number; avgNll: number; tokens: number; ms: number }): void {
+  context?.onProvenance?.({
+    generated: answer.generated,
+    source: answer.source,
+    confidence: answer.confidence,
+    avgNll: Number.isFinite(answer.avgNll) ? Number(answer.avgNll.toFixed(3)) : -1,
+    tokens: answer.tokens,
+    ms: answer.ms,
+  })
+}
+
 export function resetLlmCircuit(): void {
   // No-op : le moteur est 100 % local et toujours disponible
 }
 
 /**
- * Synthèse locale autonome pour les rapports de missions lorsqu'un corpus
- * de sources est fourni dans les messages, sinon renvoie `null` pour laisser
- * le cerveau neuronal et analytique local (`brain.ts`) piloter directement.
+ * Complétion non diffusée. Trois cas :
+ *   1. rapport de mission (corpus de sources collectées) → synthèse locale
+ *      déterministe, qui croise les sources et cite les domaines,
+ *   2. décision d'outil / rédaction sur résultat d'outil → `null`, le cerveau
+ *      déterministe prend le relais (compétences locales),
+ *   3. conversation → réponse du modèle local (retrieval + rédaction + garde-fous).
  */
 export async function llmComplete(
   messages: LlmMessage[],
-  _opts: CompleteOptions = {}
+  opts: CompleteOptions = {}
 ): Promise<string | null> {
   const userMsg = messages.findLast((m) => m.role === 'user')?.content ?? ''
 
-  // Si c'est une synthèse de rapport de mission (CONTENUS COLLECTÉS présents)
+  // 1. Synthèse de rapport de mission (CONTENUS COLLECTÉS présents)
   if (userMsg.includes('CONTENUS COLLECTÉS') && userMsg.includes('Mission :')) {
     return synthesizeMissionReportLocal(userMsg)
   }
 
-  return null
+  // 2. Tâche d'outil : hors du champ du modèle local.
+  if (isToolTask(messages, opts.context?.purpose)) return null
+
+  // 3. Conversation : le transformeur maison rédige.
+  const { message, history } = chatInput(messages, opts.context)
+  if (!message) return null
+  const model = await loadActiveModel().catch(() => null)
+  const answer = await answerChat({
+    message,
+    history,
+    userId: opts.context?.userId ?? null,
+    model,
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+  })
+  if (!answer.ok) return null
+  reportProvenance(opts.context, answer)
+  return answer.text
 }
 
 /**
- * Le streaming passe directement par le cerveau neuronal & analytique local
- * (`brain.ts` / `deep-reasoner.ts` / `ensemble.ts`).
+ * Réponse de conversation diffusée au fil de l'eau (SSE).
+ *
+ * Le texte est d'abord généré EN ENTIER puis validé (confiance du modèle,
+ * mots appris, répétition, ancrage dans le savoir retrouvé) avant le premier
+ * morceau envoyé : on n'affiche jamais un début de charabia qu'il faudrait
+ * reprendre. La génération elle-même ne coûte que ~150 ms (cache clé/valeur),
+ * donc la diffusion progressive reste immédiate pour l'utilisateur.
+ *
+ * Renvoie le texte complet, ou `null` quand rien d'utilisable n'a pu être
+ * produit (l'appelant retombe alors sur son repli local).
  */
 export async function llmStream(
-  _messages: LlmMessage[],
-  _onDelta: (chunk: string) => void,
-  _opts: CompleteOptions = {}
+  messages: LlmMessage[],
+  onDelta: (chunk: string) => void,
+  opts: CompleteOptions = {}
 ): Promise<string | null> {
-  return null
+  if (isToolTask(messages, opts.context?.purpose)) return null
+  const { message, history } = chatInput(messages, opts.context)
+  if (!message) return null
+
+  const model = await loadActiveModel().catch(() => null)
+  const answer = await streamChat({
+    message,
+    history,
+    userId: opts.context?.userId ?? null,
+    model,
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+    onDelta,
+  })
+  if (!answer.ok) return null
+  reportProvenance(opts.context, answer)
+  return answer.text
 }
 
 /**

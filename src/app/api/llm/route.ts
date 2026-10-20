@@ -1,21 +1,65 @@
-// ─── NEXUS — API du vrai modèle de langue local (llm/) ───────────────────────
-// GET  /api/llm : le modèle entraîné de zéro est-il en ligne ? (étape, pertes)
-// POST /api/llm : { prompt, maxTokens?, temperature?, topK?, topP?, seed? }
-//                 -> { text, model } généré par le GPT NumPy local.
-// Le modèle tourne dans le serveur d'inférence local (python -m
-// nexus_llm.serve) : aucun Ollama, aucune API externe. S'il est éteint,
-// GET répond available:false et POST renvoie une 503 explicite.
+// ─── NEXUS — API du modèle de langue local (100 % TypeScript) ─────────────────
+// GET  /api/llm : état réel du modèle (poids livrés ou entraînés ici, étapes,
+//                 perte, configuration, vocabulaire, options d'échantillonnage).
+// POST /api/llm : { prompt, maxTokens?, temperature?, topK?, seed?, … }
+//                 -> { text, tokens, avgNll, ms, stop, model }
+//
+// Le modèle tourne DANS ce process (`src/lib/llm`) : transformateur, cache
+// clé/valeur, tokenizer et échantillonnage écrits à la main. Aucun Ollama, aucune
+// API externe, et aucun process annexe à lancer.
+//
+// Cette route pointait auparavant vers le prototype NumPy (`llm/`, serveur
+// `python -m nexus_llm.serve`) et répondait 503 « lancez python … » dès que ce
+// process n'était pas là — exactement la dépendance externe que le projet
+// s'interdit. Le prototype reste dans `llm/` comme référence historique.
 
-import { generateWithLocalLlm, getLocalLlmStatus } from '@/lib/brain/llm-local'
+import { loadActiveModel } from '@/lib/llm/engine'
+import { sample } from '@/lib/llm/generate'
+import { countParams } from '@/lib/llm/model'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+/** Réglages réellement implémentés par l'échantillonneur local. */
+const SUPPORTED = ['prompt', 'maxTokens', 'temperature', 'topK', 'seed', 'repeatPenalty', 'repetitionPenalty', 'repeatWindow', 'stopAtLine', 'stopAtBlank', 'stopSequences'] as const
+/** Réglages demandés par d'anciens clients mais NON implémentés par
+ *  l'échantillonneur local (`generate.ts` ne fait que temperature + top-k +
+ *  pénalité de répétition) : on refuse plutôt que de faire croire qu'ils ont été
+ *  appliqués. */
+const NOT_IMPLEMENTED = ['topP', 'minP', 'beamWidth'] as const
+
 export async function GET() {
-  const status = await getLocalLlmStatus()
+  const model = await loadActiveModel().catch(() => null)
+  if (!model) {
+    return Response.json({
+      available: false,
+      model: null,
+      hint: 'Aucun poids trouvé : entraînez avec `node --import tsx scripts/train-chat.ts` ou remettez public/models/nexus-chat-v1.{bin,json}.',
+    })
+  }
+  const { cfg } = model
   return Response.json({
-    model: 'nexus-llm (GPT NumPy entraîné de zéro, voir llm/)',
-    ...status,
+    available: true,
+    provider: 'nexus-local-engine',
+    model: {
+      id: model.id,
+      format: cfg.format,
+      tokenizer: cfg.tokenizer ?? 'char',
+      vocab: cfg.vocab,
+      ctx: cfg.ctx,
+      dim: cfg.dim,
+      heads: cfg.heads,
+      layers: cfg.layers,
+      params: countParams(model.params),
+      steps: model.steps,
+      loss: Number(Number(model.loss).toFixed(4)),
+      corpusChars: model.corpusChars,
+      lexicon: model.lexicon.size,
+      // `seeded` = poids livrés dans le dépôt (un déploiement neuf discute tout de
+      // suite) ; `false` = modèle entraîné sur cette instance.
+      seeded: model.seeded,
+    },
+    sampling: { supported: SUPPORTED, notImplemented: NOT_IMPLEMENTED },
   })
 }
 
@@ -27,30 +71,47 @@ export async function POST(req: Request) {
     return Response.json({ error: 'corps JSON invalide' }, { status: 400 })
   }
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
-  if (!prompt) {
-    return Response.json({ error: 'prompt manquant' }, { status: 400 })
-  }
-  const num = (v: unknown, fallback: number) =>
-    typeof v === 'number' && Number.isFinite(v) ? v : fallback
+  if (!prompt) return Response.json({ error: 'prompt manquant' }, { status: 400 })
 
-  const text = await generateWithLocalLlm(prompt, {
-    maxTokens: num(body.maxTokens, 120),
-    temperature: num(body.temperature, 0.9),
-    topK: num(body.topK, 40),
-    topP: num(body.topP, 0.95),
-    repetitionPenalty: num(body.repetitionPenalty, 1.1),
-    minP: num(body.minP, 0),
-    beamWidth: num(body.beamWidth, 1),
-    seed: typeof body.seed === 'number' ? body.seed : undefined,
-  })
-  if (text === null) {
+  const refused = NOT_IMPLEMENTED.filter((k) => body[k] !== undefined)
+  if (refused.length) {
     return Response.json(
-      {
-        error:
-          'Modèle local indisponible : lancez `python -m nexus_llm.serve` dans le dossier llm/ (voir llm/README.md).',
-      },
-      { status: 503 },
+      { error: `Réglage(s) non implémenté(s) par l'échantillonneur local : ${refused.join(', ')}. Retirez-les — rien ne serait appliqué.`, supported: SUPPORTED },
+      { status: 400 }
     )
   }
-  return Response.json({ text, model: 'nexus-llm' })
+
+  const model = await loadActiveModel().catch(() => null)
+  if (!model) {
+    return Response.json(
+      {
+        error: 'Aucun modèle local chargé : entraînez avec `node --import tsx scripts/train-chat.ts`, ou remettez les poids livrés dans public/models/.',
+      },
+      { status: 503 }
+    )
+  }
+
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  const repeat = body.repeatPenalty !== undefined ? body.repeatPenalty : body.repetitionPenalty
+  const res = sample(model, prompt, {
+    maxTokens: Math.max(1, Math.min(1024, num(body.maxTokens, 120))),
+    temperature: Math.max(0, num(body.temperature, 0.9)),
+    topK: Math.max(1, num(body.topK, 40)),
+    seed: typeof body.seed === 'number' ? body.seed : undefined,
+    repeatPenalty: num(repeat, 1.1),
+    repeatWindow: num(body.repeatWindow, 28),
+    stopAtLine: body.stopAtLine === true,
+    stopAtBlank: body.stopAtBlank === true,
+    stopSequences: Array.isArray(body.stopSequences) ? body.stopSequences.filter((s): s is string => typeof s === 'string') : undefined,
+  })
+
+  return Response.json({
+    text: res.text,
+    tokens: res.tokens,
+    promptTokens: res.promptTokens,
+    avgNll: Number(res.avgNll.toFixed(3)),
+    ms: res.ms,
+    stop: res.stop,
+    model: { id: model.id, format: model.cfg.format, tokenizer: model.cfg.tokenizer ?? 'char', seeded: model.seeded, steps: model.steps },
+  })
 }

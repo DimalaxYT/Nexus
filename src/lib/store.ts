@@ -135,7 +135,8 @@ function convDelete(id: string) {
 export const useNexusStore = create<NexusState>()(
   persist(
     (set, get) => ({
-      view: 'hub',
+      // Vue par défaut : la discussion. Le site sert d'abord à parler à NEXUS.
+      view: 'agent',
       setView: (v) => set({ view: v, sidebarOpen: false }),
       sidebarOpen: false,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),

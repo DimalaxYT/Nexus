@@ -1,13 +1,14 @@
 # NEXUS — Système d'agents IA 100 % local
 
-Application web Next.js : agents IA autonomes, **comptes utilisateurs**, **blueprints** (schémas d'agents
-dessinés à la main), **clés API pour vendre des chatbots**, cerveau Jarvis 3D, Bureau multi-agents,
-base de connaissances, génération d'images/vidéos, connexions de comptes (Gmail, GitHub, Discord) et plus.
+Application web Next.js dont le but est **une chose : parler avec une IA**. Autour de la discussion,
+le strict utile : agents IA autonomes, comptes utilisateurs, base de connaissances et mémoire,
+connexions de comptes (Gmail, GitHub, TikTok), génération d'images/vidéos/3D — le reste de la
+navigation est regroupé dans un bloc repliable « Ateliers & outils ».
 
 > **Aucune dépendance à un service d'IA externe.** NEXUS n'appelle ni OpenAI, ni Ollama, ni aucun
-> « géant » : le cerveau (`src/lib/brain`) est entièrement codé à la main (réseau de neurones embarqué,
-> moteur mathématique, moteurs de recherche, générateurs d'images/3D/vidéos, synthèse locale).
-> Le build et l'exécution fonctionnent **hors ligne**.
+> « géant », et ne demande **aucune clé d'API** : le cerveau (`src/lib/brain`) et le modèle de langue
+> (`src/lib/llm`) sont entièrement codés à la main — transformer, cache clé/valeur, tokenizer,
+> échantillonnage, entraînement et poids inclus. Le build et l'exécution fonctionnent **hors ligne**.
 
 ## Installation
 
@@ -272,6 +273,7 @@ src/
   lib/             → Cerveau IA local, orchestrateur multi-agents, auth, blueprints, connecteurs
                      + espace Dev : devbrain.ts (agent), devfs.ts (accès code), site-settings.ts
   lib/brain/       → Le cerveau : classifieur, neurones, moteurs (maths, code, image, 3D, vidéo…)
+  lib/llm/         → Le modèle de langue : transformer, cache KV, tokenizer, entraînement, retrieval
   hooks/           → Hooks React
 prisma/            → Schéma de base de données
 db/                → Base SQLite
@@ -281,6 +283,7 @@ scripts/           → Scripts utilitaires
 
 ## Modules principaux
 
+- **Discussion avec NEXUS** — le cœur du site : modèle de langue local + retrieval + garde-fous
 - **Cerveau IA local** — raisonnement, mémoire, base de connaissances (aucun appel externe)
 - **Comptes** — connexion, historique et personnalisation par utilisateur
 - **Espace Dev** — dashboard, personnalisation du site depuis le web, agent Dev qui lit et améliore
@@ -290,6 +293,85 @@ scripts/           → Scripts utilitaires
 - **Bureau** — délibérations multi-agents
 - **Cerveau Jarvis 3D** — visualisation animée connectant les agents
 - **Studios** — 3D, images, vidéo, code (20 langages)
+
+## Le modèle de langue : un transformer écrit à la main
+
+`src/lib/llm` est un modèle de langue complet, sans aucune bibliothèque d'IA :
+
+| Élément | Fichier | Ce que c'est |
+|---|---|---|
+| Transformer | `model.ts` | attention multi-têtes, LayerNorm, MLP GELU, tête de sortie liée à l'embedding |
+| Cache clé/valeur | `kv.ts` | `prefill` + `stepToken` : le prompt n'est recalculé qu'une fois |
+| Tokenizer | `tokenize.ts`, `bpe.ts` | caractère (utilisé) ou BPE byte-level, commutable via `config.tokenizer` |
+| Échantillonnage | `generate.ts` | température, top-k, pénalité de répétition, arrêt de ligne, graine déterministe |
+| Entraînement | `train.ts`, `scripts/train-chat.ts` | Adam écrit à la main, rétropropagation, warmup + décroissance cosine, points de contrôle |
+| Retrieval | `grounding.ts`, `dialogue.ts` | le contenu retrouvé (connaissances, mémoire, banque de dialogue) est injecté dans le prompt |
+| Poids | `seed.ts`, `public/models/` | export binaire Float32 + méta JSON, chargés au démarrage |
+
+**Modèle livré** : 178 496 paramètres — dim 64, 3 couches, 4 têtes, contexte 352, vocabulaire
+caractère 104. Corpus d'entraînement : 398 exemples / 84 112 caractères, au format `chat-v1` :
+
+```
+H: <dernier échange, 34 car. max>      ← facultatif
+Q: <message de l'utilisateur, 60>
+C: <contenu retrouvé, 90 car. max>     ← ce dont la réponse doit parler
+R: <réponse, 130>
+```
+
+Le contenu retrouvé est placé **juste avant** la réponse : la tâche du modèle est
+une copie à courte portée. Avec `C:` en tête de bloc (~100 caractères plus loin),
+il fallait une tête d'induction que 178 k paramètres n'ont pas acquise en 400 pas
+— mesuré : NLL forcée figée à 2,6 nats/caractère, 52-59 % des caractères dans le
+top-3, décodage glouton « de de le e de » (le rythme du français, pas son contenu),
+alors que le même modèle sur-apprend une fenêtre figée à 0,578 en 80 pas.
+
+Le modèle apprend donc une tâche précise : **lire le contenu retrouvé et rédiger la réponse**, pas
+inventer des faits. C'est ce qui rend un modèle de cette taille honnête et utile.
+
+À l'entraînement, les exemples sont emballés dans des blocs de longueur exactement `ctx` sans jamais
+en couper un (`packChatBlocks`) : une fenêtre tirée au hasard dans le flux concaténé amputerait la
+ligne `C:` ou la fin de `R:`. Le bourrage restant est du saut de ligne, trivial à prédire, donc la
+perte affichée est **dilutionnée** (un bloc rempli à 76 % affiche ~0,35 nat de moins que la réalité) :
+le chiffre honnête est la NLL de validation mesurée sur des exemples complets, que
+`scripts/train-chat.ts` journalise à chaque point de contrôle.
+
+**Mesures** (2 CPU, `scripts/` reproductibles) : cache KV identique au forward naïf à 2,4×10⁻⁷ près
+et 38× plus rapide (40 tokens en 21 ms contre 800 ms) ; échantillonnage 2,5 ms/token ; une réponse
+de chat arrive en ~400 ms, tokens diffusés en SSE.
+
+**Garde-fous** (`verdictOn` dans `dialogue.ts`) : une génération n'est servie que si elle passe des
+seuils **mesurés** sur le savoir local (≥ 3 mots de contenu, couverture lexicale ≥ 0,55, ancrage
+≥ 0,42, ≥ 16 caractères et 4 mots, NLL ≤ 3,5 nats/caractère, unicité ≥ 0,5). Sinon NEXUS répond avec
+le contenu retrouvé et **le dit** dans le fil de pensée — jamais de charabia présenté comme une
+réponse, jamais de silence trompeur. Sans contenu retrouvé, le modèle ne génère pas du tout.
+
+**Reproduire l'entraînement** :
+
+```bash
+node --import tsx scripts/train-chat.ts --steps 680 --batch 6   # entraîne + exporte les poids
+node --import tsx scripts/check-chat-model.ts                    # ce que le modèle a vraiment appris
+node --import tsx scripts/calibrate-chat.ts                      # mesure des garde-fous
+node --import tsx scripts/check-kv.ts && node --import tsx scripts/check-bpe.ts   # non-régression
+node scripts/check-chat-e2e.mjs                                  # latence réelle du chat (serveur lancé)
+```
+
+**Deux façons d'entraîner**, selon qui s'en occupe :
+
+| | Où | Impact sur le chat |
+|---|---|---|
+| **Hors ligne** (recommandé) | `scripts/train-chat.ts`, process dédié | aucun : pleine vitesse, le serveur n'est pas concerné |
+| **En arrière-plan** (agent Dev) | espace Dev → Entraîneur → « Modèle de langue », ou `NEXUS_AUTO_TRAIN=1` | atténué : le pas d'entraînement partage la boucle d'événements (rapport cyclique 1), une réponse passe de ~0,4 s à quelques secondes pendant le run |
+
+Désactivé par défaut, parce que la fonction première du site est de parler avec
+l'IA : un pas d'entraînement coûte plusieurs secondes de calcul synchrone. Le
+rapport cyclique (`dutyCycle` dans `trainSteps`) borne la dégradation au lieu de
+la supprimer — mesuré sans lui : 71 s pour diffuser 20 morceaux d'une réponse.
+
+> Lecture honnête : un modèle de 178 k paramètres entraîné quelques heures sur 2 CPU n'est pas un
+> concurrent de ChatGPT — `llm/RESULTS.md` documente les mêmes limites pour le prototype NumPy à
+> 5,3 M de paramètres. L'intérêt ici est ailleurs : **tout est lisible, local et mesurable**, et
+> l'architecture retrieval + garde-fous fait que la réponse servie est toujours du vrai français
+> utile, générée par le modèle quand il est assez confiant, reprise du savoir local sinon.
 
 ## Corrections de bugs (v2.1)
 
