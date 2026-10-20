@@ -170,6 +170,12 @@ export interface StartOptions {
   format?: 'chat' | 'grounded'
   /** Taille du lot (4 par défaut en conversation : le contexte est plus long). */
   batchSize?: number
+  /**
+   * Rapport cyclique (voir `TrainCoreOptions.dutyCycle`). Par défaut 1 : cet
+   * entraînement tourne dans le process du serveur, il doit laisser la moitié de
+   * la boucle d'événements au chat. Mettre 0 pour un process dédié.
+   */
+  dutyCycle?: number
 }
 
 /** Démarre un entraînement. Renvoie aussitôt ; la boucle tourne en arrière-plan. */
@@ -317,7 +323,7 @@ export async function startTraining(opts: StartOptions): Promise<TrainJob> {
   if (replacedNote) pushLog(job, replacedNote)
   if (resumeNote) pushLog(job, resumeNote)
 
-  void runLoop(job, { cfg, vocab, params, data, steps, baseSteps, seed: opts.seed ?? 7, resumed: Boolean(active), sources: report.sources, batchSize, blocks: packed?.blocks })
+  void runLoop(job, { cfg, vocab, params, data, steps, baseSteps, seed: opts.seed ?? 7, resumed: Boolean(active), sources: report.sources, batchSize, blocks: packed?.blocks, dutyCycle: opts.dutyCycle ?? 1 })
   return job
 }
 
@@ -340,6 +346,17 @@ export interface TrainCoreOptions {
    * à 0,578 en 80 pas.
    */
   blocks?: number
+  /**
+   * Rapport cyclique : durée de pause après chaque pas, en multiple de la durée
+   * du pas (0 = pleine vitesse, un simple rendement à la file des timers).
+   *
+   * À 1, l'entraînement occupe la boucle d'événements la moitié du temps : une
+   * requête de chat attend au pire la fin d'un pas (~4 s) au lieu d'attendre
+   * chaque morceau du flux. Indispensable quand l'entraînement tourne DANS le
+   * process du serveur (daemon Dev) ; inutile dans un process dédié
+   * (`scripts/train-chat.ts`), qui passe 0 pour aller au plus vite.
+   */
+  dutyCycle?: number
 }
 
 export interface TrainHooks {
@@ -404,10 +421,12 @@ export async function trainSteps(
       }
     }
     for (const p of list) if (p.grad) p.grad.fill(0)
+    const computeStart = Date.now()
     const loss = batchLoss(cfg, params, x, y, B, T)
     backward(loss)
     clipGradients(list, 1.0)
     adamStep(list, m, v, lr, step)
+    const computeMs = Date.now() - computeStart
 
     const value = loss.data[0]
     ema = step === 1 ? value : 0.95 * ema + 0.05 * value
@@ -417,8 +436,11 @@ export async function trainSteps(
     // rendement, un entraînement lancé dans le process du serveur empêche tout
     // `setTimeout` de partir — mesuré sur le flux SSE d'une réponse de chat :
     // 71 s pour 20 morceaux (3,5 s d'attente par morceau) au lieu de 180 ms.
-    // Le coût est un tick de timer par pas, négligeable devant le pas lui-même.
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    // Avec un rapport cyclique > 0, la pause est proportionnelle au pas : le
+    // serveur garde une part de la boucle pour répondre pendant l'entraînement.
+    const duty = Math.max(0, opts.dutyCycle ?? 0)
+    const pauseMs = duty > 0 && computeMs > 0 ? Math.round(computeMs * duty) : 0
+    await new Promise<void>((resolve) => setTimeout(resolve, pauseMs))
     await hooks.onStep?.({ step, totalSteps: baseSteps + step, loss: ema, lr })
     if (step - lastCheckpoint >= checkpointEvery || step === steps) {
       lastCheckpoint = step
@@ -483,7 +505,7 @@ export function packChatBlocks(
 
 async function runLoop(
   job: TrainJob,
-  ctx: { cfg: LmConfig; vocab: Vocab; params: LmParams; data: Int32Array; steps: number; baseSteps: number; seed: number; resumed: boolean; sources: CorpusSources; batchSize?: number; blocks?: number }
+  ctx: { cfg: LmConfig; vocab: Vocab; params: LmParams; data: Int32Array; steps: number; baseSteps: number; seed: number; resumed: boolean; sources: CorpusSources; batchSize?: number; blocks?: number; dutyCycle?: number }
 ): Promise<void> {
   const { cfg, params, data, steps, baseSteps, vocab } = ctx
   const B = ctx.batchSize ?? 8
@@ -499,7 +521,7 @@ async function runLoop(
       params,
       cfg,
       data,
-      { steps, baseSteps, seed: ctx.seed, resumed: ctx.resumed, batchSize: B, checkpointEvery: 150, blocks: ctx.blocks },
+      { steps, baseSteps, seed: ctx.seed, resumed: ctx.resumed, batchSize: B, checkpointEvery: 150, blocks: ctx.blocks, dutyCycle: ctx.dutyCycle },
       {
         shouldStop: () => job.stopRequested,
         onStep: ({ step, totalSteps, loss, lr }) => {

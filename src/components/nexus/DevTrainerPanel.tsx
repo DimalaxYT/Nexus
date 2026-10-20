@@ -358,6 +358,30 @@ export function DevTrainerPanel() {
           </p>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-border/50 pt-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Modèle de langue</span>
+          <Switch
+            checked={config.llmTraining}
+            onCheckedChange={(v) => void act({ action: 'config', config: { llmTraining: v } }, 'cfg')}
+            aria-label="Ré-entraîner le modèle de langue pendant les cycles"
+          />
+          <div className="min-w-[16rem] flex-1">
+            <p className="text-xs font-medium">
+              {config.llmTraining
+                ? 'Les cycles ré-entraînent aussi le transformeur maison.'
+                : 'Les cycles enrichissent le savoir sans toucher au modèle.'}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Désactivé par défaut : l&apos;entraînement tourne dans le process du serveur et un pas
+              coûte plusieurs secondes de calcul. Même en partageant la boucle d&apos;événements, une
+              réponse passe d&apos;environ 0,4 s à quelques secondes pendant toute la durée du run
+              (400 pas ≈ 30 min, 1500 pas ≈ 1 h). À activer de préférence en heures creuses — ou,
+              pour un entraînement à pleine vitesse sans aucun impact sur le chat :{' '}
+              <code className="font-mono text-[10px]">node --import tsx scripts/train-chat.ts</code>.
+            </p>
+          </div>
+        </div>
+
         <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border/50 pt-3">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Heures creuses</span>
           <Input

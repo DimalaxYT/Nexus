@@ -104,11 +104,15 @@ export interface RetrainOutcome {
  * Relance l'entraînement en arrière-plan si assez de savoir nouveau existe.
  * Ne bloque jamais : startTraining rend la main dès que la boucle tourne.
  */
-export async function maybeRetrainModel(): Promise<RetrainOutcome> {
-  if (!autoTrainEnabled()) {
+export async function maybeRetrainModel(opts: { allowed?: boolean } = {}): Promise<RetrainOutcome> {
+  // Deux façons d'autoriser l'entraînement en arrière-plan : le réglage persisté
+  // de l'espace Dev (`llmTraining`, pilotable par l'agent Dev lui-même) ou la
+  // variable d'environnement au démarrage. Ni l'un ni l'autre = on ne lance rien,
+  // le chat garde toute la machine.
+  if (!opts.allowed && !autoTrainEnabled()) {
     return {
       started: false,
-      reason: "entraînement automatique désactivé (NEXUS_AUTO_TRAIN=1 pour l'activer) — le chat reste prioritaire",
+      reason: "entraînement du modèle désactivé — réglage « Modèle de langue » de l'espace Dev ou NEXUS_AUTO_TRAIN=1 (le chat reste prioritaire)",
       steps: 0,
     }
   }

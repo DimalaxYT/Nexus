@@ -164,7 +164,10 @@ async function main() {
       params,
       cfg,
       data,
-      { steps, baseSteps, seed: 7, batchSize, resumed: baseSteps > 0, maxLr: lr, checkpointEvery, blocks: packed.blocks },
+      // dutyCycle 0 : ce script est un process DÉDIÉ à l'entraînement, il n'a pas
+      // à partager la boucle d'événements avec un serveur (le daemon Dev, lui,
+      // passe par startTraining() qui applique un rapport cyclique de 1).
+      { steps, baseSteps, seed: 7, batchSize, resumed: baseSteps > 0, maxLr: lr, checkpointEvery, blocks: packed.blocks, dutyCycle: 0 },
       {
         onStep: ({ step, totalSteps, loss, lr: currentLr }) => {
           if (step - lastLog < 25 && step !== steps) return

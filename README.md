@@ -352,7 +352,20 @@ node --import tsx scripts/train-chat.ts --steps 680 --batch 6   # entraîne + ex
 node --import tsx scripts/check-chat-model.ts                    # ce que le modèle a vraiment appris
 node --import tsx scripts/calibrate-chat.ts                      # mesure des garde-fous
 node --import tsx scripts/check-kv.ts && node --import tsx scripts/check-bpe.ts   # non-régression
+node scripts/check-chat-e2e.mjs                                  # latence réelle du chat (serveur lancé)
 ```
+
+**Deux façons d'entraîner**, selon qui s'en occupe :
+
+| | Où | Impact sur le chat |
+|---|---|---|
+| **Hors ligne** (recommandé) | `scripts/train-chat.ts`, process dédié | aucun : pleine vitesse, le serveur n'est pas concerné |
+| **En arrière-plan** (agent Dev) | espace Dev → Entraîneur → « Modèle de langue », ou `NEXUS_AUTO_TRAIN=1` | atténué : le pas d'entraînement partage la boucle d'événements (rapport cyclique 1), une réponse passe de ~0,4 s à quelques secondes pendant le run |
+
+Désactivé par défaut, parce que la fonction première du site est de parler avec
+l'IA : un pas d'entraînement coûte plusieurs secondes de calcul synchrone. Le
+rapport cyclique (`dutyCycle` dans `trainSteps`) borne la dégradation au lieu de
+la supprimer — mesuré sans lui : 71 s pour diffuser 20 morceaux d'une réponse.
 
 > Lecture honnête : un modèle de 178 k paramètres entraîné quelques heures sur 2 CPU n'est pas un
 > concurrent de ChatGPT — `llm/RESULTS.md` documente les mêmes limites pour le prototype NumPy à

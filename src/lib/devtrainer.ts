@@ -35,6 +35,19 @@ export interface TrainerConfig {
   quietFrom: number
   quietTo: number
   sources: { web: boolean; local: boolean }
+  /**
+   * Le cycle ré-entraîne-t-il aussi le MODÈLE DE LANGUE maison ?
+   *
+   * Désactivé par défaut : cet entraînement tourne dans le process du serveur et
+   * un pas coûte plusieurs secondes de calcul. Même avec le rapport cyclique qui
+   * laisse la moitié de la boucle d'événements au chat (voir `trainSteps`), une
+   * réponse passe de ~0,4 s à quelques secondes pendant toute la durée du run
+   * (400 pas ≈ 30 min, 1500 pas ≈ 1 h). La fonction première du site est de
+   * parler avec l'IA : c'est donc un choix explicite de l'opérateur, à activer
+   * ici ou via `NEXUS_AUTO_TRAIN=1`. Pour un entraînement à pleine vitesse sans
+   * aucun impact sur le chat : `node --import tsx scripts/train-chat.ts`.
+   */
+  llmTraining: boolean
 }
 
 export const DEFAULT_TRAINER_CONFIG: TrainerConfig = {
@@ -47,6 +60,7 @@ export const DEFAULT_TRAINER_CONFIG: TrainerConfig = {
   quietFrom: 2,
   quietTo: 6,
   sources: { web: true, local: true },
+  llmTraining: false,
 }
 
 const CONFIG_KEY = 'dev.training'
@@ -999,8 +1013,9 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
       await bumpAttempts(objective.id, { status: 'fait', lastScore: score })
 
       // 6 bis. Le modèle maison apprend ce savoir : relance en arrière-plan si
-      // assez de nouveautés se sont accumulées.
-      const retrain = await maybeRetrainModel().catch((e) => ({
+      // assez de nouveautés se sont accumulées — et si l'opérateur l'a autorisé
+      // (réglage « Modèle de langue » ci-dessous, ou NEXUS_AUTO_TRAIN=1).
+      const retrain = await maybeRetrainModel({ allowed: config.llmTraining }).catch((e) => ({
         started: false,
         reason: e instanceof Error ? e.message : 'erreur',
         steps: 0,

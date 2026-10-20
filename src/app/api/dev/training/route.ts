@@ -53,6 +53,9 @@ export async function POST(req: Request) {
         ...(Number(patch.maxCyclesPerDay) > 0 ? { maxCyclesPerDay: Math.min(200, Math.max(1, Number(patch.maxCyclesPerDay))) } : {}),
         ...(Number.isInteger(Number(patch.quietFrom)) ? { quietFrom: Math.min(23, Math.max(0, Number(patch.quietFrom))) } : {}),
         ...(Number.isInteger(Number(patch.quietTo)) ? { quietTo: Math.min(23, Math.max(0, Number(patch.quietTo))) } : {}),
+        // Booléen explicite : `llmTraining` pilote le ré-entraînement du modèle
+        // de langue pendant les cycles (désactivé par défaut, voir TrainerConfig).
+        ...(typeof patch.llmTraining === 'boolean' ? { llmTraining: patch.llmTraining } : {}),
         ...(patch.sources && typeof patch.sources === 'object'
           ? {
               sources: {
