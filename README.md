@@ -201,7 +201,7 @@ L'espace développeur (**Espace Dev**, dans la barre latérale) réunit sept ong
 | **Site** | Personnalisation du site depuis le web : nom, slogan, emoji du logo, deux couleurs d'accent, textes de connexion et d'accueil, pied de page, visibilité des tuiles de l'accueil, **CSS libre** — avec aperçu en direct |
 | **Agent Dev** | Discuter avec l'agent qui lit le code |
 | **Code** | Explorateur de fichiers + recherche dans tout le projet (avec numéros de ligne) |
-| **Correctifs** | Les propositions de l'agent Dev, à relire et à appliquer d'un clic |
+| **Correctifs** | Les propositions de l'agent Dev, à relire et à appliquer une par une **ou toutes d'un coup** (sauvegarde automatique) |
 | **Améliorations** | File de tâches alimentée par l'agent Dev et par vous |
 | **Journal** | Derniers appels d'API, état des clés, sessions actives révocables |
 
@@ -224,21 +224,52 @@ ligne). Il sait :
 - **Chercher / expliquer** — « où est gérée l'authentification ? », « explique-moi les blueprints ».
 - **Diagnostiquer** — classement des fichiers suspects par densité de correspondances.
 - **Optimiser** — fichiers les plus lourds, fonctions démesurées, `any`, `console.log`, `catch` vides.
+- **Modifier le code** — il fabrique de vrais correctifs ancrés sur le contenu du disque :
+  - « remplace `"ancien"` par `"nouveau"` dans src/lib/fichier.ts » ;
+  - « remplace la ligne contenant `"…"` par `"…"` » ;
+  - « renomme `oldName` en `newName` » → **un correctif par fichier concerné** ;
+  - « supprime la ligne contenant `"…"` », « supprime la fonction `nom` » ;
+  - « ajoute `"…"` après `"…"` », « ajoute `"…"` à la fin de src/lib/fichier.ts » ;
+  - « crée src/lib/ma-feature.ts » suivi d'un bloc de code ;
+  - « mets à jour src/lib/ma-feature.ts avec : ```…``` » (réécriture complète à partir d'un bloc fourni) ;
+  - « nettoie les console.log dans tout le projet ».
+- **Réparer sans connaître l'ancre** — « corrige les imports inutilisés dans src/lib/devfs.ts »,
+  « améliore `safePath` », « sécurise les liens target=\"_blank\" », « corrige
+  l'accessibilité des images dans AppShell.tsx ». Il résout le fichier (chemin, symbole ou module),
+  puis corrige les défauts **réels et vérifiables** qu'il y trouve : `console.log`/`debugger`
+  résiduels, imports nommés jamais utilisés, `parseInt` sans base, `target="_blank"` sans
+  `rel="noopener noreferrer"`, `<img>` sans `alt`. S'il ne trouve rien de sûr à corriger, il ne
+  fabrique pas de faux correctif : il explique ce qu'il a contrôlé et demande l'ancre exacte.
+
+Une même demande peut donc produire **plusieurs correctifs** : plusieurs instructions
+(« remplace … dans a.ts **puis** supprime … dans a.ts **et** crée b.md ») sont découpées et
+planifiées séparément. Les modifications d'un même fichier sont **fusionnées en une écriture
+atomique** ; les autres fichiers donnent un correctif chacun. Ajoutez « **et applique** » pour qu'il
+écrive lui-même les fichiers (sauvegarde horodatée avant chaque écriture). Sans cette mention, rien
+n'est écrit : les correctifs attendent votre validation.
 
 Il fonctionne aussi bien dans l'onglet **Agent Dev** que dans le chat normal (sélectionnez l'agent
 **🛠️ Dev**), et en passant par `POST /api/dev/agent`.
 
 ### Correctifs : rien n'est écrit sans validation
 
-L'agent ne modifie jamais un fichier de lui-même. Chaque proposition :
+L'agent ne modifie jamais un fichier sans votre accord explicite (« Appliquer », « Tout appliquer »
+ou « et applique » dans la demande). Chaque proposition :
 
 1. est enregistrée avec son **ancre exacte** (un extrait réel du fichier, assez long pour être unique),
 2. s'affiche en **diff avant/après** dans l'onglet Correctifs,
-3. ne s'écrit qu'après votre clic sur **Appliquer** — avec une **sauvegarde horodatée** du fichier
-   dans `.arena/dev-backups/` avant l'écriture.
+3. ne s'écrit qu'après votre clic sur **Appliquer** — ou sur **Tout appliquer** pour une sélection
+   entière — avec une **sauvegarde horodatée** du fichier dans `.arena/dev-backups/` avant chaque
+   écriture.
+
+Depuis le chat, « **applique** » applique le correctif le plus récent, « **applique le 2e** » un
+correctif précis, et « **applique tout** » toute la file. Le résultat de chaque application (succès,
+échec, sauvegarde) est renvoyé dans la conversation.
 
 Si le code a changé entre la proposition et l'application, l'ancre n'est plus trouvée et
-l'application est **refusée** plutôt que d'écrire au mauvais endroit.
+l'application est **refusée** plutôt que d'écrire au mauvais endroit. Les autres correctifs en
+attente sur le même fichier dont l'ancre a disparu passent automatiquement en **« périmé »** : ils
+ne bloquent plus « Tout appliquer ».
 
 ### Sécurité de l'espace Dev
 
@@ -271,7 +302,8 @@ src/
   app/api/         → Routes API (auth, blueprints, clés, v1 publique, outils…)
   components/      → Composants UI (Bureau, Jarvis Brain, IDE, Hub, Blueprints, Clés API…)
   lib/             → Cerveau IA local, orchestrateur multi-agents, auth, blueprints, connecteurs
-                     + espace Dev : devbrain.ts (agent), devfs.ts (accès code), site-settings.ts
+                     + espace Dev : devbrain.ts (agent), devcode.ts (édition), devpatch.ts (application),
+                       devfs.ts (accès code), site-settings.ts
   lib/brain/       → Le cerveau : classifieur, neurones, moteurs (maths, code, image, 3D, vidéo…)
   lib/llm/         → Le modèle de langue : transformer, cache KV, tokenizer, entraînement, retrieval
   hooks/           → Hooks React
@@ -287,7 +319,7 @@ scripts/           → Scripts utilitaires
 - **Cerveau IA local** — raisonnement, mémoire, base de connaissances (aucun appel externe)
 - **Comptes** — connexion, historique et personnalisation par utilisateur
 - **Espace Dev** — dashboard, personnalisation du site depuis le web, agent Dev qui lit et améliore
-  le code (`src/lib/devbrain.ts`, `src/lib/devfs.ts`, `src/lib/dev-seed.ts`)
+  le code (`src/lib/devbrain.ts`, `src/lib/devcode.ts`, `src/lib/devpatch.ts`, `src/lib/devfs.ts`, `src/lib/dev-seed.ts`)
 - **Blueprints** — schémas d'agents construits visuellement
 - **Clés API** — chatbots configurables et revendables (API publique v1)
 - **Bureau** — délibérations multi-agents

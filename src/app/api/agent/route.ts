@@ -161,7 +161,15 @@ export async function POST(req: NextRequest) {
           for (let i = 0; i < text.length; i += 60) {
             send({ type: 'token', content: text.slice(i, i + 60) })
           }
-          send({ type: 'meta', title: result.patch ? 'Correctif proposé' : undefined })
+          const patchCount = result.patches?.length ?? (result.patch ? 1 : 0)
+          send({
+            type: 'meta',
+            title: patchCount
+              ? patchCount > 1
+                ? `${patchCount} correctifs proposés`
+                : 'Correctif proposé'
+              : undefined,
+          })
           send({ type: 'done' })
           close()
           return

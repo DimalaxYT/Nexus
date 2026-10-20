@@ -4,14 +4,16 @@
 // Le seul agent qui a accès au code. Il lit les vrais fichiers, diagnostique,
 // et dépose des correctifs à valider dans l'onglet Correctifs.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
   Bot,
+  Check,
   Cpu,
   FileCode2,
   Lightbulb,
   Loader2,
+  Play,
   Search,
   Sparkles,
   Terminal,
@@ -23,12 +25,31 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { Markdown } from '@/components/nexus/Markdown'
 
+interface ChatPatch {
+  id?: string
+  title: string
+  filePath: string
+  rationale?: string
+}
+
+interface AppliedPatch {
+  id: string
+  title: string
+  filePath: string
+  ok: boolean
+  backup?: string
+  created?: boolean
+  error?: string
+}
+
 interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
   thoughts?: string[]
   files?: { path: string; note?: string }[]
-  patch?: { id?: string; title: string; filePath: string }
+  patch?: ChatPatch
+  patches?: ChatPatch[]
+  applied?: AppliedPatch[]
   tasks?: { id?: string; title: string }[]
   intent?: string
 }
@@ -38,7 +59,8 @@ const SUGGESTIONS = [
   { icon: Sparkles, label: 'Améliore l’intelligence', text: 'comment améliorer l’intelligence de NEXUS ?' },
   { icon: Terminal, label: 'Où est gérée l’authentification ?', text: 'où est gérée l’authentification ?' },
   { icon: Cpu, label: 'Optimise les performances', text: 'optimise les performances du projet' },
-  { icon: Wrench, label: 'Explique le fonctionnement du cerveau', text: 'explique-moi comment fonctionne le cerveau' },
+  { icon: Wrench, label: 'Répare les imports inutilisés du projet', text: 'corrige les imports inutilisés dans src/' },
+  { icon: Wrench, label: 'Que sais-tu faire sur le code ?', text: 'que peux-tu faire ?' },
 ]
 
 export function DevAgentPanel() {
@@ -46,13 +68,37 @@ export function DevAgentPanel() {
     {
       role: 'assistant',
       content:
-        '**Dev, l’ingénieur interne de NEXUS.** Je lis le code réel du projet, je diagnostique et je te propose des correctifs à valider.\n\n' +
-        'Je suis le seul agent à avoir accès aux sources — et uniquement depuis ce compte. Dis-moi ce que tu veux améliorer.',
+        '**Dev, l’ingénieur interne de NEXUS.** Je lis le code réel du projet et je le modifie sur ta demande.\n\n' +
+        'Écris une modification précise : « remplace "ancien" par "nouveau" dans src/lib/fichier.ts », ' +
+        '« renomme `oldName` en `newName` », « ajoute "…" après "…" », ou « nettoie les console.log dans tout le projet ».\n\n' +
+        'Tu peux aussi demander une **réparation** sans connaître l’ancre : « corrige les imports inutilisés dans src/lib/devfs.ts », ' +
+        '« améliore `safePath` », « sécurise les liens target=\"_blank\" ». J’inspecte la cible et je corrige les défauts réels que j’y trouve.\n\n' +
+        'Une demande peut contenir **plusieurs instructions** (« … puis … et … ») : je produis un correctif par fichier.\n\n' +
+        'Je peux produire **plusieurs correctifs** (un par fichier), les appliquer d’un bloc, ou les écrire directement si tu ajoutes **« et applique »**.',
     },
   ])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [applying, setApplying] = useState<string | null>(null)
+  const [appliedIds, setAppliedIds] = useState<Set<string>>(() => new Set())
   const scroller = useRef<HTMLDivElement | null>(null)
+
+  // Les correctifs déjà appliqués (depuis l'onglet Correctifs, une autre
+  // session ou un tour précédent) ne doivent pas proposer « Appliquer ».
+  useEffect(() => {
+    let alive = true
+    fetch('/api/dev/patches?light=1', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { patches?: { id: string; status: string }[] } | null) => {
+        if (!alive || !data?.patches) return
+        const applied = data.patches.filter((p) => p.status === 'applique').map((p) => p.id)
+        if (applied.length) setAppliedIds(new Set(applied))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => {
@@ -85,7 +131,9 @@ export function DevAgentPanel() {
           reply?: string
           thoughts?: string[]
           files?: { path: string; note?: string }[]
-          patch?: { id?: string; title: string; filePath: string }
+          patch?: ChatPatch
+          patches?: ChatPatch[]
+          applied?: AppliedPatch[]
           tasks?: { id?: string; title: string }[]
           intent?: string
         }
@@ -106,11 +154,25 @@ export function DevAgentPanel() {
             thoughts: data.thoughts ?? [],
             files: data.files ?? [],
             patch: data.patch,
+            patches: data.patches ?? (data.patch ? [data.patch] : []),
+            applied: data.applied ?? [],
             tasks: data.tasks ?? [],
             intent: data.intent,
           },
         ])
-        if (data.patch) toast.success('Correctif prêt — onglet Correctifs')
+        if (data.applied?.length) {
+          const ok = data.applied.filter((r) => r.ok).length
+          const failed = data.applied.length - ok
+          if (ok) toast.success(`${ok} correctif(s) appliqué(s) et sauvegardé(s)`)
+          if (failed) toast.error(`${failed} correctif(s) n’ont pas pu être appliqués`)
+          for (const r of data.applied) if (r.ok) setAppliedIds((prev) => new Set(prev).add(r.id))
+        } else if (data.patches?.length) {
+          toast.success(
+            data.patches.length > 1
+              ? `${data.patches.length} correctifs prêts — applique-les ici ou dans l’onglet Correctifs`
+              : 'Correctif prêt — applique-le ici ou dans l’onglet Correctifs'
+          )
+        }
       } catch {
         toast.error('Réseau indisponible')
       } finally {
@@ -121,8 +183,61 @@ export function DevAgentPanel() {
     [busy, messages, scrollDown]
   )
 
+  const applyPatches = useCallback(
+    async (patches: ChatPatch[]) => {
+      const ids = patches.map((p) => p.id).filter((id): id is string => Boolean(id))
+      if (!ids.length) {
+        toast.error('Ces correctifs n’ont pas d’identifiant : ils n’ont pas été enregistrés.')
+        return
+      }
+      const key = ids.join(',')
+      setApplying(key)
+      try {
+        const res = await fetch('/api/dev/patches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'apply', ids }),
+        })
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          applied?: number
+          failed?: number
+          results?: AppliedPatch[]
+          backup?: string
+        }
+        if (!res.ok || data.error) {
+          toast.error(data.error ?? 'Application impossible')
+          return
+        }
+        const results = data.results ?? []
+        const ok = results.filter((r) => r.ok)
+        const failed = results.filter((r) => !r.ok)
+        if (ok.length) {
+          setAppliedIds((prev) => {
+            const next = new Set(prev)
+            for (const r of ok) next.add(r.id)
+            return next
+          })
+          toast.success(`${ok.length} correctif(s) appliqué(s) — sauvegarde effectuée`)
+        }
+        for (const r of failed) toast.error(`${r.title || r.filePath} : ${r.error ?? 'échec'}`)
+        if (!results.length && data.ok) {
+          const only = patches[0]?.id
+          if (only) setAppliedIds((prev) => new Set(prev).add(only))
+          toast.success(`Correctif appliqué${data.backup ? ' — sauvegarde effectuée' : ''}`)
+        }
+      } catch {
+        toast.error('Réseau indisponible')
+      } finally {
+        setApplying(null)
+      }
+    },
+    []
+  )
+
   const stats = useMemo(() => {
-    const patches = messages.filter((m) => m.patch).length
+    const patches = messages.reduce((n, m) => n + (m.patches?.length ?? (m.patch ? 1 : 0)), 0)
     const files = new Set(messages.flatMap((m) => (m.files ?? []).map((f) => f.path))).size
     return { patches, files }
   }, [messages])
@@ -195,16 +310,96 @@ export function DevAgentPanel() {
                 </div>
               )}
 
-              {m.patch && (
-                <div className="mt-3 rounded-lg border border-neutral-500/30 bg-neutral-500/10 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
-                    Correctif à valider
+              {(() => {
+                const patches = m.patches ?? (m.patch ? [m.patch] : [])
+                if (!patches.length) return null
+                const pending = patches.filter((p) => !p.id || !appliedIds.has(p.id))
+                const key = pending.map((p) => p.id).filter(Boolean).join(',')
+                return (
+                  <div className="mt-3 space-y-2.5 rounded-lg border border-neutral-500/30 bg-neutral-500/10 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
+                        {patches.length > 1 ? `${patches.length} correctifs` : 'Correctif'} à valider
+                      </p>
+                      {pending.length > 1 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-neutral-500/40 text-[11px]"
+                          onClick={() => void applyPatches(pending)}
+                          disabled={applying === key}
+                        >
+                          {applying === key ? (
+                            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Play className="mr-1.5 h-3 w-3" />
+                          )}
+                          Tout appliquer
+                        </Button>
+                      ) : null}
+                    </div>
+                    {patches.map((p, j) => {
+                      const done = Boolean(p.id && appliedIds.has(p.id))
+                      return (
+                        <div
+                          key={p.id ?? `${p.filePath}-${j}`}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/30 px-2.5 py-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[12px] font-medium text-foreground">{p.title}</p>
+                            <p className="truncate font-mono text-[10px] text-muted-foreground">{p.filePath}</p>
+                          </div>
+                          {done ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-300">
+                              <Check className="h-3 w-3" /> appliqué
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="h-7 bg-neutral-600 text-[11px] hover:bg-neutral-500"
+                              onClick={() => void applyPatches([p])}
+                              disabled={applying === (p.id ?? key)}
+                            >
+                              {applying === (p.id ?? key) ? (
+                                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                              ) : (
+                                <Play className="mr-1.5 h-3 w-3" />
+                              )}
+                              Appliquer
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    <p className="text-[10px] text-muted-foreground">
+                      Sauvegarde automatique avant écriture · diff complet dans l’onglet{' '}
+                      <span className="text-neutral-300">Correctifs</span>.
+                    </p>
+                  </div>
+                )
+              })()}
+
+              {m.applied && m.applied.length > 0 && (
+                <div className="mt-3 space-y-1 border-t border-border/50 pt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Résultat de l’application
                   </p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{m.patch.title}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{m.patch.filePath}</p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    Ouvre l’onglet <span className="text-neutral-300">Correctifs</span> pour le relire et l’appliquer.
-                  </p>
+                  {m.applied.map((r, j) => (
+                    <p key={`${r.id}-${j}`} className="text-[11px] text-foreground/80">
+                      {r.ok ? (
+                        <span className="text-emerald-300">✓</span>
+                      ) : (
+                        <span className="text-rose-300">✕</span>
+                      )}{' '}
+                      {r.title || r.filePath}
+                      {r.ok && r.backup ? (
+                        <span className="text-muted-foreground">
+                          {' '}· sauvegarde <span className="font-mono text-[10px]">{r.backup}</span>
+                        </span>
+                      ) : null}
+                      {!r.ok && r.error ? <span className="text-rose-300"> · {r.error}</span> : null}
+                    </p>
+                  ))}
                 </div>
               )}
 
@@ -263,7 +458,7 @@ export function DevAgentPanel() {
                 void send(input)
               }
             }}
-            placeholder="« apprends à NEXUS que… », « où est géré… », « optimise… »"
+            placeholder={'« remplace "ancien" par "nouveau" dans src/lib/x.ts », « renomme old en new », « applique tout »…'}
             className="min-h-[52px] max-h-40 flex-1 resize-none"
             disabled={busy}
           />

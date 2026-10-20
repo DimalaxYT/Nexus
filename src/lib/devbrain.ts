@@ -8,6 +8,9 @@ import path from 'path'
 import { db } from './db'
 import { addObjective, trainerSnapshot } from './devtrainer'
 import { getDaemonState } from './devdaemon'
+import { patchExcerpt, planCodeEdits } from './devcode'
+import { planFixRequest } from './devfix'
+import { applyPatchIds, type ApplyOutcome } from './devpatch'
 import {
   TODO_RE,
   DevFsError,
@@ -31,6 +34,8 @@ export type DevIntent =
   | 'optimiser'
   | 'verifier'
   | 'entrainement'
+  | 'correctif'
+  | 'appliquer'
   | 'aide'
   | 'general'
 
@@ -66,8 +71,15 @@ export interface DevTurnResult {
   reply: string
   thoughts: string[]
   files: DevFileRef[]
+  /** Compatibilité : premier correctif de `patches`. */
   patch?: DevPatchDraft
+  /** Tous les correctifs fabriqués pendant le tour (un par fichier modifié). */
+  patches?: DevPatchDraft[]
   tasks: DevTaskDraft[]
+  /** Application directe demandée (« corrige et applique ») : traitée après persistance. */
+  autoApply?: boolean
+  /** Résultats d'application (auto ou via une commande « applique »). */
+  applied?: ApplyOutcome[]
 }
 
 interface DevMessage {
@@ -276,6 +288,7 @@ function findModule(message: string): { mod: ArchModule; score: number } | null 
 // ── Détection d'intention ────────────────────────────────────────────────────
 
 const INTENT_RULES: { intent: DevIntent; words: string[]; weight?: number }[] = [
+  { intent: 'appliquer', words: ['applique le correctif', 'applique les correctifs', 'applique tout', 'applique-les', 'applique-le', 'valide le correctif', 'valide les correctifs', 'applique les modifications'], weight: 9 },
   { intent: 'apprendre', words: ['apprends', 'apprend', 'enseigne', 'mémorise', 'retiens que', 'sache que'], weight: 6 },
   { intent: 'audit', words: ['audit', 'état des lieux', 'bilan', 'fais le point', 'analyse le projet', 'passe en revue'], weight: 5 },
   { intent: 'optimiser', words: ['optimise', 'optimiser', 'performance', 'lent', 'lenteur', 'refactor', 'refactorise', 'allège', 'accélère'], weight: 5 },
@@ -294,6 +307,17 @@ export function detectIntent(message: string): DevIntent {
   if (/^(salut|bonjour|hello|hey|coucou|yo|hi)\b/.test(m)) return 'aide'
   if (/^(aide|help|\?|que peux-tu faire|qui es-tu|tu fais quoi)/.test(m)) return 'aide'
 
+  // Commande d'application : « applique », « applique tout », « valide le 2e »…
+  // (une demande qui contient aussi une opération d'édition est interceptée
+  //  avant par `planCodeEdits`, avec application directe).
+  if (/^(applique|appliques|valide|approuve|accepte)\b/i.test(m)) return 'appliquer'
+  if (
+    /\b(?:correctifs?|patch(?:es)?)\b/i.test(m) &&
+    /\b(?:applique|appliques|appliquer|valide|valider|approuve|approuver)\b/i.test(m)
+  ) {
+    return 'appliquer'
+  }
+
   let best: { intent: DevIntent; score: number } | null = null
   for (const rule of INTENT_RULES) {
     let score = 0
@@ -309,6 +333,20 @@ export function detectIntent(message: string): DevIntent {
   return 'general'
 }
 
+/**
+ * Une demande d'application accompagne-t-elle une modification ?
+ * « corrige X et applique » → le correctif doit être écrit directement.
+ */
+function wantsDirectApply(message: string): boolean {
+  // « n'applique pas », « sans appliquer » : on reste en proposition.
+  if (/\b(?:n['’]applique\s+pas|ne\s+pas\s+appliquer|sans\s+appliquer|ne\s+l['’]applique\s+pas)\b/i.test(message)) {
+    return false
+  }
+  return /\b(?:applique(?:[- ]le|[- ]les|[- ]la|[- ]moi)?|appliques|valide|approuve|fais[- ]le|ex[ée]cute)\b/i.test(
+    message
+  )
+}
+
 // ── Utilitaires ──────────────────────────────────────────────────────────────
 
 function md(...blocks: string[]): string {
@@ -316,7 +354,11 @@ function md(...blocks: string[]): string {
 }
 
 function codeBlock(lang: string, content: string): string {
-  return `\`\`\`${lang}\n${content}\n\`\`\``
+  // Un contenu qui cite lui-même des triples backticks ne doit pas casser le
+  // bloc Markdown : on choisit une clôture plus longue que la plus longue série.
+  const longest = (content.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0)
+  const fence = '`'.repeat(Math.max(3, longest + 1))
+  return `${fence}${lang}\n${content}\n${fence}`
 }
 
 function fileLink(p: string, line?: number): string {
@@ -431,9 +473,20 @@ function handleHelp(): DevTurnResult {
     files: [],
     tasks: [],
     reply: md(
-      '**Dev, l’ingénieur interne de NEXUS.** Je lis le code réel du projet, je diagnostique, et je te propose des correctifs que tu valides.\n\n' +
+      '**Dev, l’ingénieur interne de NEXUS.** Je lis le code réel du projet, je le modifie sur ta demande, et je te propose des correctifs que tu valides.\n\n' +
         'Je suis le seul agent à avoir accès aux sources — et uniquement depuis ce compte.',
-      '### Ce que je sais faire\n' +
+      '### Modifier le code (je fabrique les correctifs)\n' +
+        '- ✏️ **Remplacer** — « remplace `"ancien texte"` par `"nouveau"` dans src/lib/x.ts »\n' +
+        '- 📏 **Remplacer une ligne** — « remplace la ligne contenant `"ownerGuard()"` par `"ownerGuard({ strict: true })"` »\n' +
+        '- 🏷️ **Renommer** — « renomme `oldName` en `newName` » (tous les fichiers, un correctif par fichier)\n' +
+        '- 🧹 **Supprimer** — « supprime la ligne contenant `"console.log"` », « supprime la fonction `oldHelper` »\n' +
+        '- ➕ **Insérer** — « ajoute `"// note"` après `"const x = 1"` dans src/lib/x.ts »\n' +
+        '- 📄 **Créer** — « crée src/lib/x.ts ```…``` » (bloc de code fourni)\n' +
+        '- 🧾 **Réécrire** — « mets à jour src/lib/x.ts avec : ```…``` » (contenu complet fourni)\n' +
+        '- 🧽 **Nettoyer** — « nettoie les console.log dans tout le projet »\n' +
+        '- 🩹 **Réparer** — « corrige les imports inutilisés dans src/lib/x.ts », « améliore `safePath` », « sécurise les liens target=_blank » (je cherche le défaut réel avant de proposer)\n' +
+        '- ⚡ **Appliquer directement** — ajoute « **et applique** » à la fin : je sauvegarde puis j’écris moi-même.',
+      '### Comprendre et diagnostiquer\n' +
         '- 🔍 **Auditer** — « fais un audit du projet », « état des lieux »\n' +
         '- 🧠 **Améliorer l’intelligence** — « améliore l’intelligence », « comment rendre NEXUS plus pertinent »\n' +
         '- 📚 **Apprendre un fait** — « apprends à NEXUS que notre support répond en 24 h »\n' +
@@ -441,12 +494,198 @@ function handleHelp(): DevTurnResult {
         '- 📖 **Expliquer** — « explique-moi le cerveau », « comment marchent les blueprints »\n' +
         '- 🐛 **Diagnostiquer** — « pourquoi les réponses sont génériques ? », « bug sur les clés API »\n' +
         '- ⚡ **Optimiser** — « optimise les performances », « quel fichier est trop lourd ? »\n' +
-        '- 🛠️ **Concevoir** — « ajoute un système de notifications »',
-        '- 🎓 **S’entraîner** — « où en est ton entraînement ? », « entraîne-toi sur les bases de SQLite »\n\n' +
-        'Je tourne **24 h/24** : entre deux cycles, mon daemon choisit un objectif, navigue avec **mon propre navigateur**, ' +
-        'extrait le savoir, le rédige, le note, et le dépose en correctif. Les trous que je mesure chez NEXUS deviennent ' +
-        'mes prochains objectifs — et chaque cycle m’apprend **quelles sources rapportent le plus**.',
-      'Chaque correctif que je propose apparaît dans l’onglet **Correctifs** : tu le relis, tu l’appliques d’un clic, et une sauvegarde automatique est faite avant l’écriture.'
+        '- 🎓 **S’entraîner** — « où en est ton entraînement ? », « entraîne-toi sur les bases de SQLite »',
+      '### Appliquer les correctifs\n' +
+        '- Un correctif par fichier modifié : une demande peut en produire **plusieurs**.\n' +
+        '- « **applique** » (le plus récent), « **applique tout** », « **applique le 2e** » : je les écris moi-même, avec sauvegarde horodatée dans `.arena/dev-backups/`.\n' +
+        '- Tu peux aussi tout relire et appliquer depuis l’onglet **Correctifs** (bouton « Tout appliquer »).'
+    ),
+  }
+}
+
+// ── Modifications réelles (atelier de code) ──────────────────────────────────
+
+/** Construit la réponse à partir d'un plan d'édition (multi-fichiers). */
+function buildCodeResult(message: string, plan: ReturnType<typeof planCodeEdits>): DevTurnResult {
+  const patches = plan.patches
+  const autoApply = wantsDirectApply(message)
+
+  const title = patches.length
+    ? `${patches.length > 1 ? `${patches.length} correctifs prêts` : 'Correctif prêt'} à valider`
+    : plan.operation === 'corriger-defaut'
+      ? 'Réparation impossible en l’état'
+      : 'Aucun correctif fabriqué'
+  const blocks: string[] = [
+    `## ${title}\n\n` + `**Demande comprise** : ${plan.summary || message.slice(0, 200)}.`,
+  ]
+
+  if (patches.length) {
+    blocks.push(
+      patches
+        .slice(0, 8)
+        .map((patch, i) => {
+          const diff = patchExcerpt(patch.before, patch.after, 220)
+          const removed = diff.removed.slice(0, 1200)
+          const added = diff.added.slice(0, 1200)
+          return (
+            `### ${i + 1}. ${patch.title}\n` +
+            `**Fichier** ${fileLink(patch.filePath)} — ${patch.rationale}\n\n` +
+            codeBlock(
+              'diff',
+              `${diff.prefix ? ` ${diff.prefix.replace(/\n/g, '\n ')}\n` : ''}` +
+                `${removed ? removed.split('\n').map((l) => `-${l}`).join('\n') : ''}\n` +
+                `${added ? added.split('\n').map((l) => `+${l}`).join('\n') : ''}\n` +
+                `${diff.suffix ? ` ${diff.suffix.replace(/\n/g, '\n ')}` : ''}`
+            )
+          )
+        })
+        .join('\n\n')
+    )
+    if (patches.length > 8) blocks.push(`_… et ${patches.length - 8} autre(s) correctif(s), visibles dans l’onglet **Correctifs**._`)
+    blocks.push(
+      autoApply
+        ? '> Application directe demandée : je sauvegarde chaque fichier puis j’applique les correctifs.'
+        : '> Rien n’est écrit sans ton accord. Applique-les un par un, d’un bloc avec **Tout appliquer**, ou dis-moi **« applique tout »**. ' +
+            'Chaque écriture est précédée d’une sauvegarde dans `.arena/dev-backups/`.'
+    )
+  }
+
+  if (plan.notes.length) {
+    blocks.push('### Points à préciser\n' + plan.notes.map((n) => `- ${n}`).join('\n'))
+  }
+
+  if (!patches.length) {
+    blocks.push(
+      'Je n’ai **rien modifié** : la demande ne permet pas encore de fabriquer une ancre fiable. ' +
+        'Donne-moi le fichier et le texte exact, par exemple :\n' +
+        '- « remplace `"ancien"` par `"nouveau"` dans src/lib/fichier.ts »\n' +
+        '- « ajoute `"// note"` après `"const x = 1"` dans src/lib/fichier.ts »\n' +
+        '- « renomme `oldName` en `newName` »'
+    )
+  }
+
+  return {
+    intent: 'correctif',
+    thoughts: [
+      plan.operation === 'corriger-defaut'
+        ? 'Demande de réparation : recherche des défauts réels dans la cible.'
+        : `Demande de modification reconnue : ${plan.operation ?? 'édition ciblée'}.`,
+      `Résolution des cibles : ${plan.targets.length ? plan.targets.slice(0, 5).join(', ') : 'recherche dans les sources'}.`,
+      plan.operation === 'corriger-defaut'
+        ? `Contrôle terminé : ${patches.length} correctif(s) vérifié(s).`
+        : `Vérification des ancres : ${patches.length} correctif(s) applicable(s).`,
+    ],
+    files: plan.targets.slice(0, 12).map((p) => ({ path: p, note: 'cible du correctif' })),
+    patches,
+    tasks: [],
+    autoApply: autoApply && patches.length > 0,
+    reply: md(...blocks),
+  }
+}
+
+/** « applique », « applique tout », « applique le 2e », « applique les 3 premiers ». */
+function parseApplySelection(message: string, total: number): { indexes: number[]; label: string } {
+  const m = message.toLowerCase()
+  const ordinal = (value: string): number | null => {
+    const v = value.trim()
+    if (/^(?:premier|1er|1ere|1re)$/.test(v)) return 1
+    if (/^(?:dernier|derniere|dernière)$/.test(v)) return total
+    const n = Number(v.replace(/[^\d]/g, ''))
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  const all = /\b(?:tout|tous|toutes|tous les correctifs|les correctifs|la totalit[ée])\b/i.test(m)
+  if (all && total > 0) {
+    return { indexes: Array.from({ length: total }, (_, i) => i), label: `les ${total} correctif(s) en attente` }
+  }
+
+  const range = m.match(/\bles?\s+(\d+)\s+premiers?\b/) ?? m.match(/\bles\s+(\d+)\s+correctifs?\b/)
+  if (range) {
+    const count = Math.min(Number(range[1]) || 1, total)
+    return { indexes: Array.from({ length: count }, (_, i) => i), label: `les ${count} premier(s) correctif(s)` }
+  }
+
+  const single =
+    m.match(/\b(?:le|la)\s+(\d+)\s*(?:e|er|ème|eme)?\b/) ??
+    m.match(/\bcorrectif\s+(?:n[°o]\s*)?(\d+)\b/) ??
+    m.match(/\b(?:le|la)\s+(premier|dernier)\b/)
+  if (single) {
+    const index = ordinal(single[1])
+    if (index && index <= total) {
+      return { indexes: [index - 1], label: `le correctif n°${index}` }
+    }
+    if (index && index > total) {
+      // Ne jamais retomber silencieusement sur le correctif le plus récent.
+      return { indexes: [], label: `le correctif n°${index} (hors liste)` }
+    }
+  }
+
+  return { indexes: [0], label: 'le correctif le plus récent' }
+}
+
+/** Commande « applique » : écrit réellement les correctifs en attente. */
+async function handleApply(message: string): Promise<DevTurnResult> {
+  const rows = (await db.devPatch.findMany({
+    where: { status: 'propose' },
+    orderBy: { createdAt: 'desc' },
+    take: 80,
+  })) as { id?: unknown; title?: unknown; filePath?: unknown }[]
+
+  if (!rows?.length) {
+    return {
+      intent: 'appliquer',
+      thoughts: ['Recherche des correctifs en attente…'],
+      files: [],
+      tasks: [],
+      reply: md(
+        '## Aucun correctif en attente',
+        'Demande-moi d’abord une modification : « remplace `"ancien"` par `"nouveau"` dans src/lib/fichier.ts », ' +
+          'ou « apprends à NEXUS que … ». Je fabriquerai le correctif, puis je pourrai l’appliquer.'
+      ),
+    }
+  }
+
+  const selection = parseApplySelection(message, rows.length)
+  const chosen = selection.indexes.map((i) => rows[i]).filter(Boolean)
+  if (!chosen.length) {
+    return {
+      intent: 'appliquer',
+      thoughts: ['Sélection hors des correctifs en attente.'],
+      files: [],
+      tasks: [],
+      reply: md(
+        `## Correctif introuvable`,
+        `Il y a **${rows.length} correctif(s) en attente**. Demande « applique le 1er » à « applique le ${rows.length}e », ou « applique tout ».`
+      ),
+    }
+  }
+
+  const applied = await applyPatchIds(chosen.map((r) => String(r.id ?? '')))
+  const ok = applied.filter((r) => r.ok)
+  const failed = applied.filter((r) => !r.ok)
+
+  return {
+    intent: 'appliquer',
+    thoughts: [
+      `Application de ${selection.label}…`,
+      `Sauvegarde puis écriture de ${chosen.length} fichier(s)…`,
+    ],
+    files: chosen.map((r) => ({ path: String(r.filePath ?? ''), note: 'écrit' })),
+    applied,
+    tasks: [],
+    reply: md(
+      ok.length
+        ? `## ${ok.length} correctif(s) appliqué(s)\n\n${ok
+            .map((r) => `- ✅ **${r.title}** — ${fileLink(r.filePath)}${r.created ? ' (fichier créé)' : ''}\n  Sauvegarde : \`${r.backup ?? '—'}\``)
+            .join('\n')}`
+        : '## Application impossible',
+      failed.length
+        ? `### ${failed.length} échec(s)\n` +
+          failed.map((r) => `- ❌ **${r.title}** — ${r.error ?? 'application impossible'}`).join('\n')
+        : '',
+      ok.length
+        ? '> Les fichiers ont été écrits après sauvegarde horodatée dans `.arena/dev-backups/`. Redémarre le serveur si tu as modifié du code serveur.'
+        : '> Rien n’a été écrit. Ouvre l’onglet **Correctifs** pour relire le diff ou corriger l’ancre.'
     ),
   }
 }
@@ -808,7 +1047,11 @@ function handleDebug(message: string): DevTurnResult {
         '1. Reproduis le symptôme et note le message exact.\n' +
         '2. Ouvre le premier fichier suspect et pose un point d’arrêt sur la ligne indiquée.\n' +
         '3. Remonte la chaîne d’appels jusqu’à la source de la valeur fautive.\n' +
-        '4. Dis-moi ce que tu trouves : je fabrique le correctif.'
+        '4. Donne-moi l’ancre et la correction : je fabrique **et** j’applique le correctif.\n\n' +
+        '**Formulations qui déclenchent un vrai correctif :**\n' +
+        '- « remplace `"ancien code"` par `"nouveau code"` dans ' + (ranked[0]?.path ? fileLink(ranked[0].path) : 'src/lib/fichier.ts') + ' »\n' +
+        '- « remplace la ligne contenant `"…"` par `"…"` dans ' + (ranked[0]?.path ? fileLink(ranked[0].path) : 'src/lib/fichier.ts') + ' »\n' +
+        '- ajoute « **et applique** » pour que je l’écrive directement (sauvegarde automatique).'
     ),
   }
 }
@@ -852,7 +1095,13 @@ function handleOptimiser(message: string): DevTurnResult {
       '### Priorités\n' +
         (tasks.length
           ? tasks.map((t, i) => `${i + 1}. **${t.title}** (${t.priority}) — ${t.detail}`).join('\n')
-          : 'Aucun fichier ne dépasse le seuil critique. Le projet est structuré correctement.')
+          : 'Aucun fichier ne dépasse le seuil critique. Le projet est structuré correctement.'),
+      '### Passer à l’action\n' +
+        'Dis-moi précisément quoi changer et je fabrique le correctif :\n' +
+        '- « nettoie les console.log dans tout le projet » ;\n' +
+        '- « supprime la ligne contenant `"…"` dans ' + (heavy[0] ? fileLink(heavy[0].path) : 'src/lib/fichier.ts') + ' » ;\n' +
+        '- « remplace `"…"` par `"…"` dans ' + (heavy[0] ? fileLink(heavy[0].path) : 'src/lib/fichier.ts') + ' » ;\n' +
+        'et ajoute « **et applique** » pour que je l’écrive directement.'
     ),
   }
 }
@@ -892,8 +1141,12 @@ function handleFonctionnalite(message: string): DevTurnResult {
         '4. **État** — ajouter les champs au store zustand `src/lib/store.ts`.\n' +
         '5. **Interface** — panneau dans `src/components/nexus/`, entrée dans `NAV_ITEMS` (AppShell) et tuile dans `Hub.tsx`.\n' +
         '6. **Vérification** — `npx tsc --noEmit` puis `npm run build`.',
-      '> Je ne fabrique pas de correctif pour une fonctionnalité entière : le risque d’écrire du code faux est trop grand. ' +
-        'Je te donne le plan exact et les fichiers ; pour une modification **ciblée** (ajouter une entrée, une règle, un cas), je génère le correctif complet.'
+      '### Passer du plan au correctif\n' +
+        'Je ne devine pas une fonctionnalité entière, mais je modifie le code dès que tu me donnes une ancre :\n' +
+        '- « ajoute `"<bloc>"` après `"<ligne existante>"` dans ' + (baseFiles[0] ? fileLink(baseFiles[0]) : 'src/lib/fichier.ts') + ' »\n' +
+        '- « remplace `"<ancien>"` par `"<nouveau>"` dans ' + (baseFiles[0] ? fileLink(baseFiles[0]) : 'src/lib/fichier.ts') + ' »\n' +
+        '- « crée src/lib/ma-feature.ts » suivi d’un bloc de code\n\n' +
+        'Une demande peut produire **plusieurs correctifs** (un par fichier), et tu peux les appliquer d’un bloc.'
     ),
   }
 }
@@ -1034,43 +1287,60 @@ export async function runDevTurn(
 
   let result: DevTurnResult
   try {
-    switch (intent) {
-      case 'aide':
-        result = handleHelp()
-        break
-      case 'audit':
-        result = handleAudit(counts)
-        break
-      case 'intelligence':
-        result = handleIntelligence(counts)
-        break
-      case 'apprendre':
-        result = handleApprendre(text)
-        break
-      case 'chercher':
-        result = handleChercher(text)
-        break
-      case 'expliquer':
-        result = handleExpliquer(text)
-        break
-      case 'debug':
-        result = handleDebug(text)
-        break
-      case 'optimiser':
-        result = handleOptimiser(text)
-        break
-      case 'verifier':
-        result = handleAudit(counts)
-        result.intent = 'verifier'
-        break
-      case 'entrainement':
-        result = await handleEntrainement(text, userId)
-        break
-      case 'fonctionnalite':
-        result = handleFonctionnalite(text)
-        break
-      default:
-        result = handleGeneral(text)
+    // 1. Une demande de modification concrète prime sur toute analyse : c'est
+    //    elle qui doit être respectée (« corrige… », « remplace… », « ajoute… »).
+    const plan = planCodeEdits(text)
+    // 2. Sinon, une demande de RÉPARATION (« corrige… », « améliore… ») est
+    //    confrontée aux défauts réels de la cible avant de retomber sur un
+    //    simple diagnostic : c'est ce qui permet d'obtenir un correctif sans
+    //    connaître l'ancre exacte.
+    const fix = plan.matched ? null : planFixRequest(text)
+    if (plan.matched) {
+      result = buildCodeResult(text, plan)
+    } else if (fix?.matched) {
+      result = buildCodeResult(text, fix)
+    } else {
+      switch (intent) {
+        case 'aide':
+          result = handleHelp()
+          break
+        case 'audit':
+          result = handleAudit(counts)
+          break
+        case 'intelligence':
+          result = handleIntelligence(counts)
+          break
+        case 'apprendre':
+          result = handleApprendre(text)
+          break
+        case 'chercher':
+          result = handleChercher(text)
+          break
+        case 'expliquer':
+          result = handleExpliquer(text)
+          break
+        case 'debug':
+          result = handleDebug(text)
+          break
+        case 'optimiser':
+          result = handleOptimiser(text)
+          break
+        case 'verifier':
+          result = handleAudit(counts)
+          result.intent = 'verifier'
+          break
+        case 'entrainement':
+          result = await handleEntrainement(text, userId)
+          break
+        case 'appliquer':
+          result = await handleApply(text)
+          break
+        case 'fonctionnalite':
+          result = handleFonctionnalite(text)
+          break
+        default:
+          result = handleGeneral(text)
+      }
     }
   } catch (err) {
     result = {
@@ -1091,26 +1361,79 @@ export async function runDevTurn(
     result.thoughts.push('Réponse produite en tenant compte du tour précédent.')
   }
 
-  // Persistance : correctif + tâches (pour l'onglet Correctifs / File d'améliorations)
-  if (result.patch) {
+  // Normalisation : un tour peut porter plusieurs correctifs (un par fichier).
+  const drafts: DevPatchDraft[] = result.patches?.length
+    ? result.patches
+    : result.patch
+      ? [result.patch]
+      : []
+
+  // Persistance de TOUS les correctifs, pour l'onglet Correctifs et l'application
+  // en lot. Les identifiants servent ensuite à l'application directe.
+  for (const draft of drafts) {
+    if (draft.id) continue
     try {
+      // Un correctif identique déjà en attente n'est pas dupliqué : il est
+      // réutilisé. Sans cela, redemander la même chose empile deux lignes et
+      // « Tout appliquer » tenterait d'écrire deux fois le même changement.
+      const existing = await db.devPatch
+        .findFirst({
+          where: {
+            userId,
+            filePath: draft.filePath,
+            before: draft.before,
+            after: draft.after,
+            status: 'propose',
+          },
+        })
+        .catch(() => null)
+      if (existing?.id) {
+        draft.id = String(existing.id)
+        continue
+      }
       const row = await db.devPatch.create({
         data: {
           userId,
-          title: result.patch.title,
-          filePath: result.patch.filePath,
-          before: result.patch.before,
-          after: result.patch.after,
-          rationale: result.patch.rationale,
+          title: draft.title,
+          filePath: draft.filePath,
+          before: draft.before,
+          after: draft.after,
+          rationale: draft.rationale,
           status: 'propose',
           origin: 'agent',
           appliedAt: null,
         },
       })
-      result.patch.id = row?.id ? String(row.id) : undefined
+      draft.id = row?.id ? String(row.id) : undefined
     } catch {
       /* la proposition reste affichée même si la persistance échoue */
     }
+  }
+  if (drafts.length) {
+    result.patches = drafts
+    result.patch = drafts[0]
+  }
+
+  // Application directe : « corrige… et applique ». On écrit après persistance
+  // pour que le statut des correctifs soit mis à jour correctement.
+  if (result.autoApply && drafts.length) {
+    const ids = drafts.map((d) => d.id).filter((id): id is string => Boolean(id))
+    const applied = await applyPatchIds(ids)
+    result.applied = applied
+    const ok = applied.filter((r) => r.ok)
+    const failed = applied.filter((r) => !r.ok)
+    result.reply = md(
+      result.reply,
+      '### Application directe\n' +
+        (ok.length
+          ? `**${ok.length} fichier(s) écrit(s)** après sauvegarde :\n` +
+            ok.map((r) => `- ✅ ${fileLink(r.filePath)} — sauvegarde \`${r.backup ?? '—'}\``).join('\n')
+          : '') +
+        (failed.length
+          ? `${ok.length ? '\n\n' : ''}**${failed.length} échec(s)** :\n` +
+            failed.map((r) => `- ❌ ${fileLink(r.filePath)} — ${r.error ?? 'application impossible'}`).join('\n')
+          : '')
+    )
   }
 
   for (const t of result.tasks) {
