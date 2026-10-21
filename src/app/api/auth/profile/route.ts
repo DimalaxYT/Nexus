@@ -56,6 +56,16 @@ export async function PATCH(req: NextRequest) {
   if (website !== undefined) next.website = website.trim()
   if (typeof body.avatarColor === 'string' && HEX.test(body.avatarColor)) next.avatarColor = body.avatarColor
   if (body.theme === 'dark' || body.theme === 'light') next.theme = body.theme
+  // Apparence du compte : mode, palette et accent (chaînes courtes validées
+  // côté client ; une valeur inconnue est ignorée à l'affichage).
+  if (body.appearance && typeof body.appearance === 'object') {
+    const raw = body.appearance as Record<string, unknown>
+    const clean: NonNullable<typeof next.appearance> = {}
+    if (raw.mode === 'light' || raw.mode === 'dark' || raw.mode === 'system') clean.mode = raw.mode
+    if (typeof raw.accent === 'string' && /^[a-z]{3,24}$/.test(raw.accent)) clean.accent = raw.accent
+    if (typeof raw.palette === 'string' && /^[a-z]{3,24}$/.test(raw.palette)) clean.palette = raw.palette
+    if (Object.keys(clean).length) next.appearance = clean
+  }
 
   patch.profile = JSON.stringify(next)
 

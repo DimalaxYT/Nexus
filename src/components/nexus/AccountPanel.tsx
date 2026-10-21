@@ -27,7 +27,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/lib/auth-client'
 import { useNexusStore } from '@/lib/store'
-import { ACCENTS, PALETTES, readableInk, useAppearance } from '@/lib/appearance'
+import {
+  ACCENTS,
+  DEFAULT_ACCENT,
+  DEFAULT_PALETTE,
+  PALETTES,
+  readableInk,
+  useAppearance,
+  type AccentId,
+  type PaletteId,
+} from '@/lib/appearance'
 
 const TONES = [
   { id: 'chaleureux', label: 'Chaleureux', hint: 'proche et encourageant' },
@@ -62,7 +71,20 @@ export function AccountPanel() {
   // Montage différé : `theme` n'est fiable qu'après hydratation.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setThemeMounted(true), [])
-  const currentMode = themeMounted ? (theme === 'light' || theme === 'dark' ? theme : 'system') : 'system'
+  const currentMode: 'light' | 'dark' | 'system' = themeMounted
+    ? theme === 'light' || theme === 'dark'
+      ? theme
+      : 'system'
+    : 'system'
+
+  // Chaque changement est aussi enregistré sur le compte (sans toast) : le
+  // choix suit l'utilisateur d'un appareil à l'autre.
+  function persistAppearance(patch: { accent?: AccentId; palette?: PaletteId; mode?: 'light' | 'dark' | 'system' }) {
+    void saveProfile(
+      { appearance: { accent: accent.id, palette: palette.id, mode: currentMode, ...patch } },
+      { silent: true }
+    )
+  }
   const conversations = useNexusStore((s) => s.conversations)
   const deleteAllConversations = useNexusStore((s) => s.deleteAllConversations)
 
@@ -131,6 +153,7 @@ export function AccountPanel() {
       company,
       website,
       avatarColor: color,
+      appearance: { accent: accent.id, palette: palette.id, mode: currentMode },
     })
     setSaving(false)
     if (ok) void loadStats()
@@ -178,7 +201,7 @@ export function AccountPanel() {
               <Palette className="h-4 w-4 text-muted-foreground" /> Apparence
             </CardTitle>
             <CardDescription className="text-xs">
-              Mode, palette et couleur d’accent : chaque choix s’applique immédiatement à toute l’application.
+              Mode, palette et couleur d’accent : chaque choix s’applique à toute l’application et est enregistré sur ce compte.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -192,7 +215,10 @@ export function AccountPanel() {
                     <button
                       key={option.id}
                       type="button"
-                      onClick={() => setTheme(option.id)}
+                      onClick={() => {
+                        setTheme(option.id)
+                        persistAppearance({ mode: option.id })
+                      }}
                       className={
                         'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ' +
                         (active
@@ -224,7 +250,10 @@ export function AccountPanel() {
                     <button
                       key={option.id}
                       type="button"
-                      onClick={() => setPalette(option.id)}
+                      onClick={() => {
+                        setPalette(option.id)
+                        persistAppearance({ palette: option.id })
+                      }}
                       className={
                         'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ' +
                         (active
@@ -259,7 +288,10 @@ export function AccountPanel() {
                     <button
                       key={option.id}
                       type="button"
-                      onClick={() => setAccent(option.id)}
+                      onClick={() => {
+                        setAccent(option.id)
+                        persistAppearance({ accent: option.id })
+                      }}
                       className={
                         'flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-colors ' +
                         (active
@@ -294,7 +326,7 @@ export function AccountPanel() {
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] text-muted-foreground">
-                Préférences mémorisées sur cet appareil. La barre latérale permet aussi de changer de mode.
+                Préférences enregistrées sur ce compte (et sur cet appareil). La barre latérale permet aussi de changer de mode.
               </p>
               <Button
                 variant="ghost"
@@ -303,6 +335,10 @@ export function AccountPanel() {
                 onClick={() => {
                   resetAppearance()
                   setTheme('system')
+                  void saveProfile(
+                    { appearance: { accent: DEFAULT_ACCENT, palette: DEFAULT_PALETTE, mode: 'system' } },
+                    { silent: true }
+                  )
                 }}
               >
                 <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser

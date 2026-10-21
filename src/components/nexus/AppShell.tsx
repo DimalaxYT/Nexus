@@ -27,6 +27,7 @@ import { useNexusStore } from '@/lib/store'
 import { AuthProvider, useAuth } from '@/lib/auth-client'
 import { SiteSettingsProvider, useSiteSettings } from '@/lib/site-settings-client'
 import { ThemeCycleButton } from '@/components/nexus/theme-cycle'
+import { AccountAppearanceSync } from '@/components/nexus/appearance-sync'
 import { readableInk } from '@/lib/appearance'
 import type { ViewId } from '@/lib/nexus-types'
 import { Button } from '@/components/ui/button'
@@ -322,6 +323,7 @@ function NexusApp() {
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
+      <AccountAppearanceSync />
       {/* Décor aurore discret derrière toute l'app */}
       <div className="pointer-events-none absolute inset-0 bg-aurora opacity-60" aria-hidden />
       {/* Sidebar desktop */}

@@ -109,8 +109,9 @@ Chaque compte possède ses propres données, sans aucun mélange :
 - **Apparence** (*Mon compte → Apparence*, ou bouton de la barre latérale) : **trois modes** (clair,
   sombre, **système**), **trois palettes** neutres (Neutre, Chaud, Froid) et **huit couleurs
   d'accent** (Ardoise, Indigo, Émeraude, Ambre, Terracotta, Rose, Cyan, Violet). Tout s'applique
-  instantanément, sans rechargement, et reste mémorisé sur l'appareil (`localStorage` : `theme`,
-  `nexus-palette`, `nexus-accent`). En mode système, `prefers-color-scheme` est respecté en direct.
+  instantanément, sans rechargement, et est enregistré **sur le compte** (le choix suit l'utilisateur
+  d'un appareil à l'autre) puis mémorisé sur l'appareil (`localStorage` : `theme`, `nexus-palette`,
+  `nexus-accent`). En mode système, `prefers-color-scheme` est respecté en direct.
 
 ### 🧩 Blueprints — construisez vous-même le schéma de vos agents
 

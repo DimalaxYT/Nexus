@@ -32,6 +32,12 @@ export interface UserProfile {
   avatarColor?: string
   /** Thème préféré du compte. */
   theme?: 'dark' | 'light'
+  /** Apparence choisie pour ce compte : mode, palette et accent. */
+  appearance?: {
+    mode?: 'light' | 'dark' | 'system'
+    accent?: string
+    palette?: string
+  }
   /** Entreprise / marque (utile pour revendre des chatbots). */
   company?: string
   /** Sites ou documents de référence. */
