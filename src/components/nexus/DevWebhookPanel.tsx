@@ -169,7 +169,9 @@ export function DevWebhookPanel() {
     // pendant qu'on regarde l'écran.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
-    const id = window.setInterval(() => void load(true), 15_000)
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load(true)
+    }, 15_000)
     return () => window.clearInterval(id)
   }, [load])
 

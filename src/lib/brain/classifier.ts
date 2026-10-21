@@ -2,8 +2,23 @@
 // Combine le réseau de neurones (généralisation) et un scoreur lexical
 // précis (mots déclencheurs pondérés). Le vainqueur l'emporte, avec repli.
 
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { INTENTS, buildDataset, type IntentLabel } from './dataset'
-import { predict, trainNetwork, type TrainedNet } from './neural'
+import {
+  NET_SPEC,
+  createTrainer,
+  deserializeNet,
+  netDims,
+  predict,
+  serializeNet,
+  vectorize,
+  type NetTrainer,
+  type TrainSample,
+  type TrainedNet,
+} from './neural'
 import { contentTokens, normalize, stem, hashString } from './text'
 
 // ── Scoreur lexical : motifs pondérés par intention ──────────────────────────
@@ -111,22 +126,238 @@ export interface Classification {
   topScores: { intent: IntentLabel; score: number }[]
 }
 
-// ── Singleton : réseau entraîné une seule fois par process ────────────────────
+// ── Réseau : poids livrés, sinon entraînement (une seule fois par process) ────
+// L'entraînement est déterministe (graine fixe) : le réseau est une fonction
+// pure du dataset, du vectoriseur et des hyperparamètres. Ses poids sont donc
+// livrés dans le dépôt (`public/models/nexus-intent-v1.*`, comme les modèles de
+// langue) et chargés en quelques millisecondes au démarrage — au lieu de 28 s
+// de calcul synchrone qui gelaient tout le serveur après chaque déploiement
+// (plusieurs minutes sur une instance à 0,1 CPU).
+//
+// Garde-fou : l'empreinte enregistrée avec les poids couvre les VECTEURS
+// d'entrée (donc le dataset ET le vectoriseur) et les hyperparamètres. Si l'un
+// d'eux change sans que les poids soient régénérés, l'empreinte diffère : le
+// réseau est réentraîné (par tranches, sans bloquer le serveur au démarrage),
+// puis mis en cache dans le dossier temporaire pour les redémarrages suivants.
+// Régénération : `npx tsx scripts/export-intent-net.ts`.
 
-const globalForBrain = globalThis as unknown as { __nexusNet?: TrainedNet }
+export const INTENT_NET_NAME = 'nexus-intent-v1'
+const FINGERPRINT_VERSION = 1
+
+interface IntentNetMeta {
+  name: string
+  fingerprint: string
+  labels: string[]
+  dims: number[]
+  accuracy: number
+  samples: number
+  sha256: string
+  exportedAt: string
+}
+
+type NetSource = 'livré' | 'cache' | 'entraîné'
+
+interface NetLoader {
+  phase: 'vectorize' | 'resolve' | 'train' | 'done'
+  samples: TrainSample[]
+  labels: string[]
+  vectors: Float32Array[]
+  next: number
+  fingerprint: string
+  trainer: NetTrainer | null
+  net: TrainedNet | null
+  source: NetSource | null
+  note: string
+}
+
+const globalForBrain = globalThis as unknown as { __nexusNet?: TrainedNet; __nexusNetLoader?: NetLoader }
+
+/** Dossier des poids livrés (à côté des modèles de langue). */
+function shippedDir(): string {
+  const candidates = [join(process.cwd(), 'public', 'models'), join(process.cwd(), '.next', 'standalone', 'public', 'models')]
+  for (const dir of candidates) if (existsSync(join(dir, `${INTENT_NET_NAME}.json`))) return dir
+  return candidates[0]
+}
+
+function cacheDir(): string {
+  return join(tmpdir(), 'nexus-cache')
+}
+
+/** Empreinte de ce que le réseau voit réellement : vecteurs d'entrée + étiquettes + hyperparamètres. */
+function fingerprintOf(samples: TrainSample[], vectors: Float32Array[], labels: string[]): string {
+  const h = createHash('sha256')
+  h.update(JSON.stringify({ v: FINGERPRINT_VERSION, spec: NET_SPEC, labels }))
+  for (let i = 0; i < samples.length; i++) {
+    h.update(`${samples[i].label}:`)
+    const v = vectors[i]
+    h.update(new Uint8Array(v.buffer, v.byteOffset, v.byteLength))
+  }
+  return h.digest('hex')
+}
+
+/** Lit un couple `<base>.json` + `<base>.bin` s'il correspond à l'empreinte attendue. */
+function readNetFiles(dir: string, base: string, fingerprint: string, labels: string[]): { net: TrainedNet | null; why: string } {
+  try {
+    const metaPath = join(dir, `${base}.json`)
+    if (!existsSync(metaPath)) return { net: null, why: 'absent' }
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as IntentNetMeta
+    if (meta.fingerprint !== fingerprint) return { net: null, why: 'empreinte différente (dataset, vectoriseur ou hyperparamètres modifiés)' }
+    if (JSON.stringify(meta.labels) !== JSON.stringify(labels)) return { net: null, why: 'intentions différentes' }
+    const bytes = readFileSync(join(dir, `${base}.bin`))
+    if (meta.sha256 && createHash('sha256').update(bytes).digest('hex') !== meta.sha256) return { net: null, why: 'fichier de poids altéré' }
+    return { net: deserializeNet(bytes, labels, Number(meta.accuracy) || 0), why: '' }
+  } catch (err) {
+    return { net: null, why: err instanceof Error ? err.message : 'illisible' }
+  }
+}
+
+/** Écrit les poids + métadonnées (écriture atomique : fichier temporaire puis renommage). */
+function writeNetFiles(dir: string, base: string, net: TrainedNet, fingerprint: string, samples: number): IntentNetMeta {
+  mkdirSync(dir, { recursive: true })
+  const bytes = serializeNet(net)
+  const meta: IntentNetMeta = {
+    name: INTENT_NET_NAME,
+    fingerprint,
+    labels: net.labels,
+    dims: netDims(net.labels.length),
+    accuracy: net.accuracy,
+    samples,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    exportedAt: new Date().toISOString(),
+  }
+  const binPath = join(dir, `${base}.bin`)
+  const metaPath = join(dir, `${base}.json`)
+  writeFileSync(`${binPath}.tmp`, bytes)
+  renameSync(`${binPath}.tmp`, binPath)
+  writeFileSync(`${metaPath}.tmp`, JSON.stringify(meta, null, 2) + '\n')
+  renameSync(`${metaPath}.tmp`, metaPath)
+  return meta
+}
+
+function createLoader(): NetLoader {
+  const samples = buildDataset()
+  return {
+    phase: 'vectorize',
+    samples,
+    labels: [...INTENTS],
+    vectors: new Array<Float32Array>(samples.length),
+    next: 0,
+    fingerprint: '',
+    trainer: null,
+    net: null,
+    source: null,
+    note: '',
+  }
+}
+
+/** Réseau prêt : on libère les vecteurs d'entraînement (≈ 2 Mo) devenus inutiles. */
+function finishLoader(l: NetLoader, net: TrainedNet, source: NetSource): void {
+  l.net = net
+  l.source = source
+  l.phase = 'done'
+  l.trainer = null
+  l.vectors = []
+  l.samples = []
+}
+
+/** Fait avancer le chargement pendant `budgetMs` au plus. Vrai quand le réseau est prêt. */
+function stepLoader(l: NetLoader, budgetMs: number): boolean {
+  const deadline = Date.now() + budgetMs
+  if (l.phase === 'vectorize') {
+    while (l.next < l.samples.length) {
+      l.vectors[l.next] = vectorize(l.samples[l.next].text)
+      l.next++
+      if ((l.next & 31) === 0 && Date.now() >= deadline) return false
+    }
+    l.fingerprint = fingerprintOf(l.samples, l.vectors, l.labels)
+    l.phase = 'resolve'
+  }
+  if (l.phase === 'resolve') {
+    const shipped = readNetFiles(shippedDir(), INTENT_NET_NAME, l.fingerprint, l.labels)
+    if (shipped.net) {
+      finishLoader(l, shipped.net, 'livré')
+      return true
+    }
+    const cached = readNetFiles(cacheDir(), `${INTENT_NET_NAME}-${l.fingerprint.slice(0, 16)}`, l.fingerprint, l.labels)
+    if (cached.net) {
+      finishLoader(l, cached.net, 'cache')
+      return true
+    }
+    l.note = `poids livrés inutilisables (${shipped.why}) : réentraînement du réseau — régénérez-les avec \`npx tsx scripts/export-intent-net.ts\``
+    console.warn(`[nexus] classifieur : ${l.note}`)
+    l.trainer = createTrainer(l.samples, l.labels, l.vectors)
+    l.phase = 'train'
+    if (Date.now() >= deadline) return false
+  }
+  if (l.phase === 'train' && l.trainer) {
+    if (!l.trainer.run(Math.max(1, deadline - Date.now()))) return false
+    const net = l.trainer.net
+    try {
+      writeNetFiles(cacheDir(), `${INTENT_NET_NAME}-${l.fingerprint.slice(0, 16)}`, net, l.fingerprint, l.samples.length)
+    } catch {
+      /* dossier temporaire en lecture seule : on réentraînera au prochain démarrage */
+    }
+    finishLoader(l, net, 'entraîné')
+  }
+  return l.phase === 'done'
+}
 
 function getNet(): TrainedNet {
-  if (!globalForBrain.__nexusNet) {
-    const dataset = buildDataset()
-    globalForBrain.__nexusNet = trainNetwork(dataset, [...INTENTS])
-  }
-  return globalForBrain.__nexusNet
+  const g = globalForBrain
+  if (g.__nexusNet) return g.__nexusNet
+  // Appel synchrone (requête de chat) : on termine d'un coup le chargement en
+  // cours — sans recommencer le travail déjà fait par le préchauffage.
+  const loader = (g.__nexusNetLoader ??= createLoader())
+  stepLoader(loader, Infinity)
+  g.__nexusNet = loader.net as TrainedNet
+  return g.__nexusNet
 }
 
 /** Prépare le réseau (peut être appelé au warm-up pour éviter la 1re latence). */
 export function warmUpClassifier(): number {
   const net = getNet()
   return net.accuracy
+}
+
+/**
+ * Préchauffage NON BLOQUANT (démarrage du serveur) : charge les poids livrés,
+ * ou réentraîne le réseau par tranches de `sliceMs` en rendant la main à la
+ * boucle d'événements entre deux tranches. Le serveur répond pendant ce temps.
+ */
+export async function prepareClassifier(sliceMs = 15): Promise<{ ms: number; source: NetSource; accuracy: number; note: string }> {
+  const g = globalForBrain
+  const t0 = Date.now()
+  if (!g.__nexusNet) {
+    const loader = (g.__nexusNetLoader ??= createLoader())
+    while (!g.__nexusNet && !stepLoader(loader, sliceMs)) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    if (!g.__nexusNet && loader.net) g.__nexusNet = loader.net
+  }
+  const loader = g.__nexusNetLoader
+  return {
+    ms: Date.now() - t0,
+    source: loader?.source ?? 'livré',
+    accuracy: (g.__nexusNet as TrainedNet).accuracy,
+    note: loader?.note ?? '',
+  }
+}
+
+/**
+ * Entraîne le réseau et écrit les poids livrés (`public/models/nexus-intent-v1.*`).
+ * Utilisé par `scripts/export-intent-net.ts` après une modification du dataset,
+ * du vectoriseur ou des hyperparamètres.
+ */
+export function exportIntentNet(dir = join(process.cwd(), 'public', 'models')): IntentNetMeta & { ms: number } {
+  const t0 = Date.now()
+  const samples = buildDataset()
+  const labels = [...INTENTS]
+  const vectors = samples.map((s) => vectorize(s.text))
+  const fingerprint = fingerprintOf(samples, vectors, labels)
+  const trainer = createTrainer(samples, labels, vectors)
+  trainer.run()
+  const meta = writeNetFiles(dir, INTENT_NET_NAME, trainer.net, fingerprint, samples.length)
+  return { ...meta, ms: Date.now() - t0 }
 }
 
 function lexicalScores(text: string): Map<IntentLabel, number> {

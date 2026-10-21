@@ -7,7 +7,7 @@
 // Aucun LLM, aucune API. Quand le réseau manque, l'entraîneur bascule sur le
 // corpus local (le code et la documentation de NEXUS lui-même).
 
-import { db } from './db'
+import { db, onTableWrite } from './db'
 import { browsePage, searchWeb, type DevPageRecord } from './devbrowser'
 import { readFile, listTree } from './devfs'
 import { extractKeySentences } from './brain/synthesize'
@@ -247,7 +247,32 @@ function lexicalHit(question: string, rows: { title: string; content: string }[]
  * intégrée ou les connaissances du compte savent répondre. C'est la note qui
  * pilote tout le reste — objectifs, leçons et mesure de progression.
  */
+// La note ne dépend que des fiches validées et des connaissances du compte :
+// elle est mémorisée (le tableau de bord la redemande toutes les 12 s) et
+// recalculée dès qu'une écriture touche l'une de ces deux tables.
+const PROBE_TTL_MS = 120_000
+const probeCache = new Map<string, { at: number; score: NexusScore }>()
+let probeGeneration = 0
+onTableWrite((table) => {
+  if (table === 'Knowledge' || table === 'TrainingItem') {
+    probeGeneration++
+    probeCache.clear()
+  }
+})
+
 export async function probeNexus(userId: string, probes?: string[]): Promise<NexusScore> {
+  const cacheable = !probes?.some(Boolean)
+  if (cacheable) {
+    const hit = probeCache.get(userId)
+    if (hit && Date.now() - hit.at < PROBE_TTL_MS) return { ...hit.score, misses: [...hit.score.misses] }
+  }
+  const generation = probeGeneration
+  const score = await computeNexusScore(userId, probes)
+  if (cacheable && generation === probeGeneration) probeCache.set(userId, { at: Date.now(), score: { ...score, misses: [...score.misses] } })
+  return score
+}
+
+async function computeNexusScore(userId: string, probes?: string[]): Promise<NexusScore> {
   let questions = probes?.filter(Boolean) ?? []
   if (!questions.length) {
     const items = await db.trainingItem
@@ -1179,7 +1204,8 @@ export async function trainerSnapshot(userId: string): Promise<TrainerSnapshot> 
     db.trainingObjective.findMany({ where: { userId }, orderBy: { priority: 'desc' }, take: 100 }).catch(() => []),
     db.trainingItem.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 60 }).catch(() => []),
     db.trainingRun.findMany({ where: { userId }, orderBy: { startedAt: 'desc' }, take: 15 }).catch(() => []),
-    db.devPage.findMany({ where: { userId }, take: 500 }).catch(() => []),
+    // Décompte seulement : le texte des pages n'est pas relu (dizaines de Ko chacune)
+    db.devPage.findMany({ where: { userId }, take: 500, select: { domain: true } }).catch(() => []),
     db.trainingLesson.findMany({ where: { userId }, take: 100 }).catch(() => []),
   ])
 

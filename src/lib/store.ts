@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware'
 import type { CodeFiles, CodeProposal, Conversation, SceneSpec, ViewId } from '@/lib/nexus-types'
 
 /** État d'activité d'UN cerveau (agent ou NEXUS) dans la salle des cerveaux 3D. */
@@ -130,6 +130,110 @@ function convDelete(id: string) {
   fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
 }
 
+// ── Persistance locale différée ──────────────────────────────────────────────
+// zustand/persist réécrivait TOUT l'historique dans le localStorage (sérialisation
+// JSON complète) à CHAQUE modification du store : à chaque paquet de texte
+// affiché pendant une réponse (toutes les 70 ms), à chaque étape, à chaque
+// changement d'activité des cerveaux… Avec un historique de quelques Mo, chaque
+// écriture bloquait l'onglet plusieurs dizaines de millisecondes : la réponse
+// saccadait et l'interface ramait d'autant plus que l'historique grandissait.
+// Désormais l'état est écrit au plus une fois par seconde (toujours le plus
+// récent), et immédiatement quand l'onglet est masqué ou fermé.
+
+type PersistedSlice = Pick<NexusState, 'conversations' | 'activeConversationId' | 'codeFiles'>
+
+/** Les images base64 restent en mémoire (runtimeImages) : on ne persiste que leur référence. */
+function stripImages(conversations: Conversation[]): Conversation[] {
+  return conversations.map((c) => ({
+    ...c,
+    messages: c.messages.map((m) =>
+      m.images.length === 0 ? m : { ...m, images: m.images.map((img) => ({ ...img, dataUrl: '' })) }
+    ),
+  }))
+}
+
+function deferredLocalStorage(delayMs: number): PersistStorage<PersistedSlice> | undefined {
+  if (typeof window === 'undefined') return undefined
+  let ls: Storage
+  try {
+    ls = window.localStorage
+  } catch {
+    return undefined
+  }
+  let pending: { name: string; value: StorageValue<PersistedSlice> } | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    const job = pending
+    pending = null
+    if (!job) return
+    try {
+      const { state, version } = job.value
+      ls.setItem(job.name, JSON.stringify({ state: { ...state, conversations: stripImages(state.conversations) }, version }))
+    } catch {
+      /* quota dépassé : la copie serveur reste la référence */
+    }
+  }
+  window.addEventListener('pagehide', flush)
+  window.addEventListener('beforeunload', flush)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush()
+  })
+  return {
+    getItem: (name) => {
+      const raw = ls.getItem(name)
+      if (!raw) return null
+      try {
+        return JSON.parse(raw) as StorageValue<PersistedSlice>
+      } catch {
+        return null
+      }
+    },
+    setItem: (name, value) => {
+      pending = { name, value }
+      if (!timer) timer = setTimeout(flush, delayMs)
+    },
+    removeItem: (name) => {
+      if (pending?.name === name) pending = null
+      ls.removeItem(name)
+    },
+  }
+}
+
+// ── Rapatriement de l'historique serveur ────────────────────────────────────
+
+type ServerConversation = Omit<Conversation, 'createdAt' | 'updatedAt'> & { createdAt: string | number; updatedAt: string | number }
+
+/**
+ * Contenu complet de plusieurs conversations, par lots de 25 (deux lots en vol).
+ * Avant : une requête PAR conversation, l'une après l'autre — une cinquantaine
+ * d'allers-retours successifs à chaque connexion avant que l'historique soit là.
+ */
+async function fetchConversationDetails(ids: string[]): Promise<ServerConversation[]> {
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += 25) chunks.push(ids.slice(i, i + 25))
+  const out: ServerConversation[] = []
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length) {
+      const chunk = chunks[next++]
+      try {
+        const res = await fetch(`/api/conversations?ids=${chunk.map(encodeURIComponent).join(',')}`)
+        if (!res.ok) continue
+        const data = (await res.json()) as { conversations?: ServerConversation[] }
+        for (const c of data.conversations ?? []) if (c && Array.isArray(c.messages)) out.push(c)
+      } catch {
+        /* lot illisible : on garde les versions locales */
+      }
+    }
+  }
+  await Promise.all([worker(), worker()])
+  return out
+}
+
 // ── Store ────────────────────────────────────────────────────────────────────
 
 export const useNexusStore = create<NexusState>()(
@@ -196,41 +300,35 @@ export const useNexusStore = create<NexusState>()(
           }
           if (!Array.isArray(conversations) || conversations.length === 0) return
 
-          // Fusion avec le local : la version la plus récente gagne (par id)
+          // Seules les conversations plus récentes côté serveur sont rapatriées
           const local = new Map(get().conversations.map((c) => [c.id, c]))
-          const merged = new Map(local)
+          const serverTs = new Map<string, number>()
           for (const meta of conversations) {
-            const localTs = local.get(meta.id)?.updatedAt ?? 0
-            const serverTs = new Date(meta.updatedAt).getTime()
-            if (serverTs > localTs) {
-              // Récupère le contenu complet côté serveur
-              try {
-                const detail = await fetch(`/api/conversations?id=${encodeURIComponent(meta.id)}`)
-                if (detail.ok) {
-                  const { conversation } = (await detail.json()) as { conversation: Conversation }
-                  if (conversation) {
-                    merged.set(meta.id, {
-                      ...conversation,
-                      createdAt: new Date(conversation.createdAt).getTime() || Date.now(),
-                      updatedAt: serverTs,
-                    })
-                  }
-                }
-              } catch {
-                /* conversation serveur illisible : on garde la version locale */
-              }
+            const ts = new Date(meta.updatedAt).getTime()
+            if (ts > (local.get(meta.id)?.updatedAt ?? 0)) serverTs.set(meta.id, ts)
+          }
+          if (serverTs.size === 0) return
+          const details = await fetchConversationDetails([...serverTs.keys()])
+          if (details.length === 0) return
+
+          // Fusion avec l'état COURANT (l'utilisateur a pu écrire pendant le
+          // chargement) : la version la plus récente gagne, par id.
+          set((s) => {
+            const current = new Map(s.conversations.map((c) => [c.id, c]))
+            for (const conversation of details) {
+              const ts = serverTs.get(conversation.id)
+              if (ts === undefined) continue
+              const mine = current.get(conversation.id)
+              if (mine && mine.updatedAt >= ts) continue
+              // Préserve la conversation active locale (jamais écrasée par une version vide)
+              if (mine && conversation.id === s.activeConversationId && conversation.messages.length === 0 && mine.messages.length > 0) continue
+              current.set(conversation.id, {
+                ...conversation,
+                createdAt: new Date(conversation.createdAt).getTime() || Date.now(),
+                updatedAt: ts,
+              })
             }
-          }
-
-          // Préserve la conversation active localement (jamais écrasée par une version vide)
-          const activeId = get().activeConversationId
-          const active = activeId ? merged.get(activeId) : null
-          if (active && active.messages.length === 0 && (local.get(activeId!)?.messages.length ?? 0) > 0) {
-            merged.set(activeId!, local.get(activeId!)!)
-          }
-
-          set({
-            conversations: Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt),
+            return { conversations: Array.from(current.values()).sort((a, b) => b.updatedAt - a.updatedAt) }
           })
         } catch {
           /* serveur injoignable : le localStorage reste la source */
@@ -309,16 +407,11 @@ export const useNexusStore = create<NexusState>()(
     }),
     {
       name: 'nexus-store',
+      storage: deferredLocalStorage(1000),
+      // Sélection seulement (pas de copie) : le nettoyage des images se fait à
+      // l'écriture différée, pas à chaque modification du store.
       partialize: (s) => ({
-        // Les images base64 restent en mémoire (runtimeImages) : on ne persiste que leur référence
-        conversations: s.conversations.map((c) => ({
-          ...c,
-          messages: c.messages.map((m) =>
-            m.images.length === 0
-              ? m
-              : { ...m, images: m.images.map((img) => ({ ...img, dataUrl: '' })) }
-          ),
-        })),
+        conversations: s.conversations,
         activeConversationId: s.activeConversationId,
         // Le code du Studio Code est persisté : les agents y accèdent d'une session à l'autre
         codeFiles: s.codeFiles,

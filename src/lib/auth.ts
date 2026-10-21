@@ -6,7 +6,7 @@
 
 import crypto from 'crypto'
 import { cookies } from 'next/headers'
-import { db } from '@/lib/db'
+import { db, onTableWrite } from '@/lib/db'
 
 export const SESSION_COOKIE = 'nexus_session'
 const SESSION_DAYS = 30
@@ -181,12 +181,53 @@ async function purgeExpiredSessions(): Promise<void> {
   }
 }
 
+// ── Cache court des sessions ─────────────────────────────────────────────────
+// Chaque route protégée identifiait l'utilisateur avec deux requêtes (session
+// puis compte) : l'ouverture du chat, qui lance une demi-douzaine d'appels en
+// parallèle, en payait une douzaine — autant d'allers-retours réseau avec une
+// base distante. Le résultat est gardé quelques secondes, et le cache est vidé
+// dès qu'une écriture touche les tables `Session` ou `User` (déconnexion,
+// révocation, changement de mot de passe ou de profil) : jamais de session
+// révoquée servie depuis la mémoire.
+
+const AUTH_TTL_MS = 15_000
+const AUTH_MAX_ENTRIES = 500
+
+interface CachedSession {
+  at: number
+  expiresAt: number
+  user: PublicUser
+}
+
+const authCache = new Map<string, CachedSession>()
+let accountsCache: { at: number; count: number } | null = null
+/** Incrémenté à chaque écriture sur Session/User : une lecture commencée avant n'est pas mise en cache. */
+let authGeneration = 0
+
+onTableWrite((table) => {
+  if (table === 'Session' || table === 'User') {
+    authGeneration++
+    authCache.clear()
+    if (table === 'User') accountsCache = null
+  }
+})
+
+/** Copie profonde : un appelant qui modifierait l'objet ne touche jamais au cache. */
+function cloneUser(user: PublicUser): PublicUser {
+  return structuredClone(user)
+}
+
 /** Utilisateur courant (depuis le cookie de session), ou null. */
 export async function getCurrentUser(): Promise<PublicUser | null> {
   try {
     const jar = await cookies()
     const token = jar.get(SESSION_COOKIE)?.value
     if (!token) return null
+    const now = Date.now()
+    const hit = authCache.get(token)
+    if (hit && now - hit.at < AUTH_TTL_MS && hit.expiresAt >= now) return cloneUser(hit.user)
+    const generation = authGeneration
+
     const session = await db.session.findUnique({ where: { id: token } })
     if (!session) return null
     const expiresAt = new Date(session.expiresAt as string | number | Date).getTime()
@@ -203,7 +244,12 @@ export async function getCurrentUser(): Promise<PublicUser | null> {
       await db.session.update({ where: { id: token }, data: { lastSeenAt: new Date() } }).catch(() => {})
       await db.user.update({ where: { id: String(user.id) }, data: { lastSeenAt: new Date() } }).catch(() => {})
     }
-    return toPublicUser(user)
+    const pub = toPublicUser(user)
+    if (generation === authGeneration) {
+      if (authCache.size >= AUTH_MAX_ENTRIES) authCache.clear()
+      authCache.set(token, { at: Date.now(), expiresAt, user: cloneUser(pub) })
+    }
+    return pub
   } catch {
     return null
   }
@@ -239,8 +285,14 @@ export const DEV_LOGIN = 'dev'
 
 /** Nombre de comptes existants (pour offrir le rôle admin au premier inscrit). */
 export async function countUsers(): Promise<number> {
+  // Même principe que les sessions : mémorisé, et oublié à la moindre écriture
+  // dans la table `User` (inscription, suppression…).
+  if (accountsCache && Date.now() - accountsCache.at < 60_000) return accountsCache.count
+  const generation = authGeneration
   try {
-    return await db.user.count()
+    const count = await db.user.count()
+    if (generation === authGeneration) accountsCache = { at: Date.now(), count }
+    return count
   } catch {
     return 0
   }
@@ -301,11 +353,13 @@ export async function ownerGuard(): Promise<
   | { ok: false; response: Response }
 > {
   const user = await getCurrentUser()
+  // Connecté : inutile de compter les comptes (une requête de moins par appel).
+  if (user) return { ok: true, userId: user.id, scope: ownerFilter(user.id) }
   const accounts = await countUsers()
-  if (!user && accounts > 0) {
+  if (accounts > 0) {
     return { ok: false, response: Response.json({ error: 'Non connecté — reconnectez-vous.' }, { status: 401 }) }
   }
-  return { ok: true, userId: user?.id ?? null, scope: ownerFilter(user?.id ?? null) }
+  return { ok: true, userId: null, scope: ownerFilter(null) }
 }
 
 /** Vrai si le compte dispose de l'espace développeur (rôle `dev`). */

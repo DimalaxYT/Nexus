@@ -10,10 +10,14 @@
 //   SMTP_PASS   mot de passe / mot de passe d'application
 //   MAIL_FROM   ex. "NEXUS <nexus@mondomaine.fr>"
 //
-// Si SMTP n'est pas configuré, le code de vérification est renvoyé dans la
-// réponse API (champ `devCode`) et journalisé côté serveur : l'application
-// reste utilisable en développement / preview, sans exposure en production
-// configurée.
+// Si SMTP n'est pas configuré, le code de vérification est journalisé côté
+// serveur ; il n'est renvoyé à l'écran (champ `devCode`) qu'EN DÉVELOPPEMENT.
+// En production, l'afficher permettrait à n'importe qui de réinitialiser
+// n'importe quel compte (dont « dev ») : il reste lisible dans les journaux
+// (Render → Logs), réservés à l'administrateur.
+//
+// Plan gratuit de Render : les ports 25, 465 et 587 sont bloqués en sortie —
+// utilisez le port 2525 d'un fournisseur qui le propose (Brevo, SendGrid, Mailgun…).
 
 import nodemailer from 'nodemailer'
 
@@ -31,8 +35,22 @@ function transport(): nodemailer.Transporter {
     port,
     secure: port === 465,
     auth: { user: String(process.env.SMTP_USER).trim(), pass: String(process.env.SMTP_PASS).trim() },
+    // Un port bloqué ne répond jamais : échouer vite plutôt qu'au bout de 2 minutes.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
   })
   return cachedTransport
+}
+
+/** Message d'erreur SMTP, avec la cause la plus probable sur Render (ports bloqués). */
+function smtpError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : 'envoi impossible'
+  const port = Number(process.env.SMTP_PORT?.trim() || '465')
+  if ([25, 465, 587].includes(port) && /timeout|ETIMEDOUT|ECONNREFUSED|ESOCKET|EHOSTUNREACH|ENETUNREACH/i.test(msg)) {
+    return `${msg} — le plan gratuit de Render bloque les ports 25, 465 et 587 : utilisez le port 2525 de votre fournisseur (Brevo, SendGrid, Mailgun…)`
+  }
+  return msg
 }
 
 export function mailFrom(): string {
@@ -85,8 +103,9 @@ export async function sendVerificationEmail(
     })
     return { sent: true }
   } catch (err) {
-    console.error('[nexus][mail] envoi SMTP impossible :', err instanceof Error ? err.message : err)
-    return { sent: false, error: err instanceof Error ? err.message : 'envoi impossible' }
+    const error = smtpError(err)
+    console.error('[nexus][mail] envoi SMTP impossible :', error)
+    return { sent: false, error }
   }
 }
 
@@ -101,6 +120,6 @@ export async function sendPlainMail(
     await transport().sendMail({ from: mailFrom(), to, subject, text })
     return { sent: true }
   } catch (err) {
-    return { sent: false, error: err instanceof Error ? err.message : 'envoi impossible' }
+    return { sent: false, error: smtpError(err) }
   }
 }

@@ -92,11 +92,15 @@ export function AuthGate() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
         })
-        const d = (await r.json()) as { ok?: boolean; devCode?: string; error?: string }
+        const d = (await r.json()) as { ok?: boolean; devCode?: string; logged?: boolean; error?: string }
         setBusy(false)
         if (!r.ok || !d.ok) return setError(d.error ?? 'Demande impossible.')
         setDevCode(d.devCode ?? null)
-        setInfo(`Si un compte existe pour ${email}, un code vient d'être envoyé${d.devCode ? ' (SMTP non configuré : code affiché ci-dessous).' : '.'}`)
+        setInfo(
+          d.logged
+            ? `Envoi d'e-mails non configuré (SMTP) : si un compte existe pour ${email}, le code a été écrit dans les journaux du serveur (Render → Logs), visibles seulement par l'administrateur.`
+            : `Si un compte existe pour ${email}, un code vient d'être envoyé${d.devCode ? ' (SMTP non configuré : code affiché ci-dessous).' : '.'}`
+        )
         setScreen('reset')
       } catch {
         setBusy(false)

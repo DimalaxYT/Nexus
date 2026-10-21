@@ -54,14 +54,60 @@ Variables d'environnement :
 | Variable | Valeur | Rôle |
 |---|---|---|
 | `NODE_VERSION` | `22.22.0` | **Obligatoire** : la base repose sur `node:sqlite` (Node ≥ 22.5) |
-| `DATABASE_URL` | `file:/var/data/custom.db` | Fichier SQLite, à placer sur un **Disk Render** monté sur `/var/data` (sinon les données sont réinitialisées à chaque déploiement) |
-| `NEXUS_SECRET_KEY` | une longue phrase secrète | Clé maîtresse du chiffrement AES-256-GCM des secrets (connexions Gmail/GitHub…) |
-| `NEXUS_DEV_PASSWORD` | votre mot de passe | Mot de passe du compte Dev (par défaut `dev2026`) — à définir AVANT le premier démarrage |
-| `SMTP_HOST` | `smtp.gmail.com` | **Recommandé** : serveur SMTP pour les codes de connexion (2FA) et la réinitialisation de mot de passe |
-| `SMTP_PORT` | `465` | Port SMTP (465 = TLS, 587 = STARTTLS) |
+| `TURSO_DATABASE_URL` | `libsql://nexus-<organisation>.turso.io` | **Recommandé** : base Turso qui garde les données (voir ci-dessous) |
+| `TURSO_AUTH_TOKEN` | le jeton de la base | Jeton d'accès Turso (`turso db tokens create …`) — jamais dans le dépôt |
+| `DATABASE_URL` | `file:/var/data/custom.db` | Fichier SQLite local (sans Turso). Sur un plan payant, à placer sur un **Disk Render** monté sur `/var/data` ; avec Turso, il ne sert qu'à l'import initial |
+| `NEXUS_SECRET_KEY` | une longue phrase secrète | **Obligatoire en production** : clé maîtresse du chiffrement AES-256-GCM des secrets (connexions, webhooks). À fixer une fois pour toutes — la changer rend illisibles les secrets enregistrés ; sans elle, la clé est générée dans un fichier que Render efface au redémarrage |
+| `NEXUS_DEV_PASSWORD` | votre mot de passe | **Fortement recommandé** : mot de passe du compte Dev. Remplace aussi le mot de passe public `dev2026` du compte livré avec la base (import Turso compris) ; un mot de passe changé depuis « Mon compte » n'est jamais écrasé |
+| `SMTP_HOST` | `smtp-relay.brevo.com` | Serveur SMTP pour les codes de réinitialisation de mot de passe et les notifications. **Plan gratuit Render : les ports 25, 465 et 587 sont bloqués** — prenez un fournisseur qui accepte le port 2525 (Brevo, SendGrid, Mailgun…) ; Gmail ne fonctionne que sur un plan payant |
+| `SMTP_PORT` | `2525` | `2525` sur le plan gratuit ; `465` (TLS) ou `587` (STARTTLS) sur un plan payant |
 | `SMTP_USER` | votre adresse d'envoi | Compte d'envoi (utilisez un **mot de passe d'application** Gmail) |
 | `SMTP_PASS` | le mot de passe d'application | Mot de passe du compte d'envoi |
 | `MAIL_FROM` | `NEXUS <vous@domaine.fr>` | Expéditeur affiché |
+
+### 🗄️ Base de données Turso (recommandée sur Render)
+
+Sur le plan gratuit, Render **efface le système de fichiers** à chaque redéploiement, redémarrage ou mise
+en veille, et n'accepte pas de disque persistant : une base SQLite locale y perd comptes, conversations et
+savoir. [Turso](https://turso.tech) (offre gratuite : 5 Go, 500 millions de lignes lues par mois) garde les
+données hors du serveur.
+
+1. **Créez une base libSQL** — sur le tableau de bord Turso (moteur *libSQL*, région européenne
+   comme *AWS EU West (Ireland)*, proche de Render Frankfurt) ou avec la CLI :
+
+   ```bash
+   turso db create nexus            # base libSQL (ne pas ajouter --tursodb)
+   turso db show nexus --url        # → TURSO_DATABASE_URL
+   turso db tokens create nexus     # → TURSO_AUTH_TOKEN
+   ```
+
+2. **Render → votre service → Environment** : ajoutez `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN`, puis
+   enregistrez (Render redéploie).
+3. **Premier démarrage** : si la base Turso est vide, NEXUS y recopie automatiquement la base locale
+   (le fichier de `DATABASE_URL` s'il existe, sinon `db/custom.db` livré avec le dépôt) — compte Dev,
+   agents, savoir, entraînement. Une base qui contient déjà des données n'est jamais touchée
+   (`TURSO_AUTO_IMPORT=0` désactive l'import). Pour garder plutôt les données **actuellement en ligne**,
+   faites d'abord *Dev → Réglages → Migrer les données vers Turso*, puis ajoutez les deux variables.
+4. **Vérifiez** dans *Dev → Réglages* : « Base active : Turso — réplique locale ». `/api/health` répond
+   aussi `"db": "turso (réplique locale)"`.
+
+**Pourquoi c'est aussi rapide qu'en local** : NEXUS garde une **réplique locale** de la base (un fichier
+dans le dossier temporaire, resynchronisé au démarrage). Les lectures — l'essentiel du trafic — se font
+sur place, sans aller-retour réseau ; les écritures partent directement à Turso, puis la réplique est
+resynchronisée avant de répondre, si bien qu'on relit toujours ce qu'on vient d'écrire. Si la réplique ne
+peut pas s'ouvrir, tout passe par Turso en direct (`TURSO_REPLICA=0` force ce mode). Mesures sur le build
+de production avec 25 ms de latence réseau simulée vers un serveur libSQL :
+
+| Mesure | Base locale | Turso direct | Turso + réplique |
+|---|---|---|---|
+| Panneaux et API (conversations, savoir, mémoire, agents, entraînement) | 2,7–5,4 ms | 32–105 ms | 2,4–5,9 ms |
+| Chat : premier mot / réponse complète (conversation en cours) | 10–18 / 40–64 ms | 127–134 / 160–181 ms | 12–15 / 45–61 ms |
+| Sauvegarde d'une conversation | 4 ms | 62 ms | 62 ms |
+| Démarrage → serveur prêt | 0,6 s | 2,3 s au premier démarrage (import compris) | 1,1 s (2,7 s au premier, import compris) |
+
+La configuration faite dans *Dev → Réglages* est enregistrée dans un fichier `nexus-db.json` à côté de la
+base locale : sur le plan gratuit de Render, il disparaît au redémarrage — préférez les variables
+d'environnement (le panneau le rappelle).
 
 ### 🛡️ Le Gardien (bot interne, anti-sommeil Render)
 
@@ -76,13 +122,61 @@ les vieux codes de la base. L'URL pingée est déduite de `RENDER_EXTERNAL_URL`
 
 La connexion est **en une seule étape** (e-mail + mot de passe). Le lien
 « Mot de passe oublié ? » envoie un code à 6 chiffres par e-mail (valable
-10 minutes) puis permet de choisir un nouveau mot de passe : sans SMTP configuré,
-le code est affiché dans un encart (mode développement) et journalisé côté
-serveur — configurez SMTP pour l'envoi réel.
+10 minutes) puis permet de choisir un nouveau mot de passe. Sans SMTP configuré,
+le code n'est affiché à l'écran qu'en développement ; en production, il est
+seulement écrit dans les journaux du serveur (Render → Logs) — sinon n'importe
+qui pourrait réinitialiser n'importe quel compte. Configurez SMTP pour l'envoi réel.
 
-> **Important** : NEXUS utilise **uniquement une base SQLite locale** (fichier).
-> Les variables `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` ne servent à rien — le code ne lit jamais
-> Turso. Et le cerveau IA étant 100 % local, **aucune clé d'API IA** n'est nécessaire.
+> **Important** : sans Turso, NEXUS utilise **une base SQLite locale** (le fichier de `DATABASE_URL`, ou
+> `db/custom.db`). Avec `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` (ou un réglage fait dans *Dev → Réglages*),
+> les données vivent sur Turso, lues depuis une réplique locale. Et le cerveau IA étant 100 % local,
+> **aucune clé d'API IA** n'est nécessaire.
+
+## ⚡ Performances
+
+Sur le plan gratuit de Render, l'instance dispose d'environ **0,1 CPU** : tout calcul y est ~10 fois plus
+lent que sur un poste de développement, et pendant un calcul synchrone le serveur ne répond à **personne**
+(chargement de la page, chat, panneaux). Les principales sources de lenteur ont été supprimées :
+
+- **Démarrage** — le classifieur d'intentions n'est plus réentraîné à chaque démarrage (le serveur restait
+  sourd ~22 s après chaque lancement, soit plusieurs minutes sur Render). Ses poids sont livrés dans `public/models/nexus-intent-v1.bin`
+  (+ `.json` : empreinte du corpus, intentions, précision) et chargés en ~0,3 s. Si le corpus, le
+  vectoriseur ou les hyperparamètres changent, l'empreinte ne correspond plus : le serveur réentraîne
+  alors **en arrière-plan, par tranches** (il continue de répondre) et garde le résultat en cache dans le
+  dossier temporaire. L'entraînement lui-même est 4× plus rapide, à poids identiques au bit près.
+- **Chat** — quand les rédactions du modèle de langue échouent 4 fois de suite aux garde-fous de qualité,
+  NEXUS répond directement avec le savoir local retrouvé, sans payer une génération qui serait jetée ; le
+  modèle est retenté tous les 12 messages et dès qu'il est réentraîné (le fil de pensée l'indique).
+- **Interface** — panneaux et vues chargés à la demande puis préchargés quand le navigateur est au repos
+  (sans le palier de 300 ms de `Suspense`), coloration syntaxique allégée chargée au premier bloc de
+  code, messages mémoïsés, sauvegarde locale regroupée (au plus une fois par seconde), historique
+  rapatrié par lots de 25 conversations (au lieu d'une requête par conversation), aucun
+  rafraîchissement automatique des panneaux Dev quand l'onglet est caché.
+- **Serveur et base** — sessions et nombre de comptes en cache (invalidés à chaque écriture), colonnes
+  ciblées, `RETURNING` (écriture + relecture en une requête), schéma vérifié en lot, listes allégées
+  (`/api/dev/browser` sans le texte des pages, `/api/knowledge?count=1`), et les cycles d'entraînement
+  Dev cèdent la main entre deux étapes.
+
+Mesures sur le build de production (machine de test à 2 vCPU — sur Render, compter ~10× pour le calcul) :
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Démarrage → premier `/api/health` | 22 s | 0,7–0,9 s |
+| Réentraînement du classifieur (corpus modifié) | 28,5 s, serveur bloqué | 6,5 s en arrière-plan (tranches de 20–30 ms) |
+| JavaScript initial du chat (`/app`) | 3,29 Mo (943 Ko gzip) | 1,14 Mo (325 Ko gzip), −66 % |
+| Chat : premier mot / réponse complète | 142–255 ms / 357–442 ms | 8–21 ms / 37–67 ms |
+| Pire attente d'une requête pendant un cycle d'entraînement Dev | 858–980 ms | 139–160 ms |
+| `/api/dev/browser` (liste des pages) | 1,24 Mo | 6–10 Ko |
+
+Les 4 premiers messages après un démarrage passent encore par le modèle (premier mot en 130–310 ms), le
+temps que le garde-fou constate ses refus.
+
+Après une modification de `src/lib/brain/dataset.ts`, du vectoriseur ou des hyperparamètres du
+classifieur, régénérez les poids livrés (sinon le serveur réentraîne lui-même au démarrage, en arrière-plan) :
+
+```bash
+npx tsx scripts/export-intent-net.ts
+```
 
 ## Nouveautés de la v2.1
 

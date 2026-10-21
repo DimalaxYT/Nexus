@@ -175,6 +175,11 @@ export async function probeModel(questions: string[]): Promise<ModelProbe | null
   const t0 = Date.now()
   let answered = 0
   for (const q of questions) {
+    // Rendre la main entre deux questions : la base locale répond de façon
+    // synchrone, donc sans cette pause les 6 générations (~150 ms chacune ici,
+    // plusieurs secondes sur une instance à 0,1 CPU) s'enchaînaient d'un bloc
+    // et gelaient tout le site pendant le cycle d'entraînement.
+    await new Promise<void>((resolve) => setImmediate(resolve))
     const r = await answerWithLocalModel(q).catch(() => null)
     if (r && r.ok) answered++
   }

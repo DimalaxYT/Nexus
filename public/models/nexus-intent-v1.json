@@ -1,0 +1,36 @@
+{
+  "name": "nexus-intent-v1",
+  "fingerprint": "377e32a27a2a08b053a63e238ff705cdd63d8e5b69703fdc273e9b8d981234b8",
+  "labels": [
+    "greeting",
+    "farewell",
+    "thanks",
+    "howareyou",
+    "identity",
+    "capabilities",
+    "search",
+    "readpage",
+    "code",
+    "image",
+    "scene3d",
+    "webpage",
+    "video",
+    "math",
+    "task",
+    "knowledge_save",
+    "knowledge_query",
+    "time",
+    "about_user",
+    "smalltalk"
+  ],
+  "dims": [
+    512,
+    96,
+    48,
+    20
+  ],
+  "accuracy": 0.9979445015416238,
+  "samples": 973,
+  "sha256": "debe446a5842947c82513247dc9a374dda9729524a5644804c6b02853d74f0f6",
+  "exportedAt": "2026-10-21T19:09:54.271Z"
+}

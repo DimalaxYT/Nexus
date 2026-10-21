@@ -15,11 +15,11 @@ function hashCode(email: string, code: string): string {
   return crypto.createHash('sha256').update(`${email.toLowerCase()}::${code}`).digest('hex')
 }
 
-/** Génère, stocke et envoie un code. Renvoie devCode si SMTP non configuré. */
+/** Génère, stocke et envoie un code. Sans SMTP : devCode en développement, journal seulement en production. */
 export async function issueVerificationCode(
   email: string,
   purpose: 'reset'
-): Promise<{ ok: boolean; sent?: boolean; devCode?: string; error?: string }> {
+): Promise<{ ok: boolean; sent?: boolean; devCode?: string; logged?: boolean; error?: string }> {
   // Anti-abus : 3 codes maximum par 10 minutes par e-mail + usage.
   const rl = checkRateLimit(`vcode:${purpose}:${email.toLowerCase()}`, 3, 10 * 60 * 1000)
   if (!rl.allowed) {
@@ -49,7 +49,11 @@ export async function issueVerificationCode(
   if (res.error) {
     return { ok: false, error: `Envoi de l'e-mail impossible (${res.error}). Vérifiez la configuration SMTP.` }
   }
-  return { ok: true, sent: res.sent, devCode: res.sent ? undefined : code }
+  // Sans SMTP, le code n'est montré à l'écran qu'en développement : en production,
+  // n'importe qui pourrait sinon réinitialiser n'importe quel compte (dont « dev »).
+  // Il reste lisible dans les journaux du serveur (Render → Logs).
+  const showCode = !res.sent && process.env.NODE_ENV !== 'production'
+  return { ok: true, sent: res.sent, devCode: showCode ? code : undefined, logged: !res.sent && !showCode }
 }
 
 /** Vérifie un code. Le consomme en cas de succès (single-use). */

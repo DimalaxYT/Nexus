@@ -1,13 +1,32 @@
 import crypto from 'crypto'
-import { createClient, type Client, type InValue, type ResultSet } from '@libsql/client'
-import { resolveSource, localSource, type DbMode, type DbSource } from '@/lib/db-source'
+import fs from 'fs'
+import path from 'path'
+import { createClient, type Client, type InValue, type InStatement, type ResultSet } from '@libsql/client'
+import {
+  importSourcePath,
+  localSource,
+  resolveSource,
+  tursoAutoImportEnabled,
+  type DbMode,
+  type DbSource,
+} from '@/lib/db-source'
 
 // ─── NEXUS — Couche de données (libSQL : fichier local OU Turso) ─────────────
 // Même API que l'ancien client (findMany / findUnique / create / update /
 // upsert / delete / deleteMany / count), désormais ASYNCHRONE : chaque appel
 // passe par une connexion libSQL. La cible (SQLite locale ou base Turso) se
-// règle depuis l'espace Dev → Réglages, sans redéploiement. Les données sont
-// migrables d'une cible à l'autre (copyDatabase).
+// règle par les variables TURSO_DATABASE_URL / TURSO_AUTH_TOKEN ou depuis
+// l'espace Dev → Réglages. Les données sont migrables d'une cible à l'autre
+// (copyDatabase), et une base Turso vide reçoit automatiquement la base locale.
+//
+// Avec Turso, deux connexions travaillent ensemble :
+//   • une RÉPLIQUE LOCALE (fichier synchronisé depuis Turso) sert toutes les
+//     lectures, sans aller-retour réseau — la vitesse d'une base locale ;
+//   • un client DIRECT (HTTP) envoie les écritures à Turso, puis la réplique est
+//     resynchronisée avant de rendre la main (on relit toujours ce qu'on vient
+//     d'écrire). Passer les écritures par la réplique elle-même bloquerait le
+//     serveur pendant chaque aller-retour (~3 par écriture, 20 lignes ≈ 1,7 s).
+// Si la réplique ne peut pas s'ouvrir, tout passe par le client direct.
 
 interface TableSpec {
   table: string
@@ -477,20 +496,44 @@ function buildOrderBy(orderBy: unknown): string {
 // ── Connexion courante (locale ou Turso) ─────────────────────────────────────
 
 interface Conn {
-  client: Client
   source: DbSource
-  /** Schéma prêt (promesse résolue) ; remise à null si l'initialisation échoue. */
+  /** Client des lectures : fichier local, réplique locale de Turso, ou Turso direct. */
+  client: Client | null
+  /** Turso : client direct (HTTP) — écritures, schéma, copies. Null en local. */
+  direct: Client | null
+  /** Vrai quand `client` est une réplique locale de Turso. */
+  replica: boolean
+  /** Fichier de la réplique ouverte. */
+  replicaFile: string
+  /** Réplique en retard (synchro impossible) : lectures envoyées à Turso en attendant. */
+  stale: boolean
+  /** Synchro de la réplique demandée (partagée par les écritures du même tour). */
+  pendingSync: Promise<void> | null
+  /** Connexion prête (schéma vérifié, réplique synchronisée) ; null si l'ouverture a échoué. */
   ready: Promise<void> | null
+  /** Remarque affichée dans l'espace Dev (repli, import automatique…). */
+  note: string
+  closed: boolean
 }
 
 const g = globalThis as unknown as { __nexusDbConn?: Conn }
 
+/** Synchro périodique de la réplique (secondes), pour les écritures faites ailleurs. */
+const REPLICA_SYNC_SEC = 60
+
 function makeConn(source: DbSource): Conn {
-  const client =
-    source.mode === 'local'
-      ? createClient({ url: `file:${source.url}` })
-      : createClient({ url: source.url, authToken: source.authToken })
-  return { client, source, ready: null }
+  return {
+    source,
+    client: null,
+    direct: null,
+    replica: false,
+    replicaFile: '',
+    stale: false,
+    pendingSync: null,
+    ready: null,
+    note: '',
+    closed: false,
+  }
 }
 
 function getConn(): Conn {
@@ -498,40 +541,301 @@ function getConn(): Conn {
   return g.__nexusDbConn
 }
 
-/** Schéma + migrations légères. Idempotent : sûr à relancer à chaque démarrage. */
+function closeQuietly(c: Client | null | undefined): void {
+  try {
+    c?.close()
+  } catch {
+    /* déjà fermé */
+  }
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** Client direct vers Turso (HTTP), sans réplique. */
+function directClient(source: DbSource): Client {
+  return createClient({ url: source.url, authToken: source.authToken })
+}
+
+/** Fichiers d'une réplique (base + métadonnées libSQL). */
+function removeReplicaFiles(file: string): void {
+  const dir = path.dirname(file)
+  const base = path.basename(file)
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === base || name.startsWith(`${base}-`)) fs.rmSync(path.join(dir, name), { force: true })
+    }
+  } catch {
+    /* dossier absent : rien à nettoyer */
+  }
+}
+
+/** Chemin libre pour une nouvelle réplique (deux connexions ne partagent jamais un fichier). */
+function freeReplicaFile(wanted: string): string {
+  const current = g.__nexusDbConn
+  if (!current || current.closed || current.replicaFile !== wanted) return wanted
+  return wanted.replace(/(\.db)?$/, `-${Date.now().toString(36)}.db`)
+}
+
+/**
+ * Ouvre la réplique locale et la synchronise une première fois (bloquant, une
+ * seule fois par démarrage : quelques centaines de ms pour quelques Mo). Une
+ * réplique restée d'une autre base au même chemin est effacée puis recréée.
+ */
+async function openReplica(source: DbSource): Promise<{ client: Client; file: string }> {
+  const file = freeReplicaFile(source.replicaPath ?? '')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const open = async (): Promise<Client> => {
+    const c = createClient({
+      url: `file:${file}`,
+      syncUrl: source.url,
+      authToken: source.authToken,
+      syncInterval: REPLICA_SYNC_SEC,
+    })
+    try {
+      await c.sync()
+      return c
+    } catch (err) {
+      closeQuietly(c)
+      throw err
+    }
+  }
+  try {
+    return { client: await open(), file }
+  } catch {
+    removeReplicaFiles(file)
+    return { client: await open(), file }
+  }
+}
+
+/** Ouvre la connexion : fichier local, ou Turso (schéma, import automatique, réplique). */
+async function openConn(conn: Conn, opts: { autoImport: boolean }): Promise<void> {
+  const { source } = conn
+  if (source.mode === 'local') {
+    const local = createClient({ url: `file:${source.url}` })
+    try {
+      await initSchema(local, 'local')
+    } catch (err) {
+      closeQuietly(local)
+      throw err
+    }
+    conn.client = local
+    return
+  }
+
+  const direct = directClient(source)
+  try {
+    await initSchema(direct, 'turso')
+  } catch (err) {
+    closeQuietly(direct)
+    const hint =
+      source.origin === 'env'
+        ? 'vérifiez TURSO_DATABASE_URL et TURSO_AUTH_TOKEN (base libSQL)'
+        : 'vérifiez l’adresse et le jeton dans Dev → Réglages'
+    throw new Error(`Turso injoignable ou refusé (${errorText(err)}) — ${hint}`)
+  }
+  if (opts.autoImport) {
+    // Un import interrompu bloque la connexion : il reprend à la requête suivante,
+    // avant toute écriture de l'application (rien ne peut être écrasé).
+    try {
+      const imported = await importIntoEmptyTurso(direct)
+      if (imported) conn.note = imported
+    } catch (err) {
+      closeQuietly(direct)
+      throw new Error(`import de la base locale dans Turso interrompu (${errorText(err)}) — reprise à la prochaine requête`)
+    }
+  }
+  conn.direct = direct
+  conn.client = direct
+  if (!source.replicaPath) return
+  try {
+    const t0 = Date.now()
+    const { client: replica, file } = await openReplica(source)
+    if (conn.closed) {
+      closeQuietly(replica)
+      return
+    }
+    conn.client = replica
+    conn.replica = true
+    conn.replicaFile = file
+    console.log(`[nexus] base Turso : réplique locale synchronisée en ${Date.now() - t0} ms (lectures sur place)`)
+  } catch (err) {
+    conn.note = `réplique locale indisponible (${errorText(err)}) : chaque requête va jusqu'à Turso`
+    console.warn(`[nexus] base Turso : ${conn.note}`)
+  }
+}
+
+function closeConn(conn: Conn): void {
+  conn.closed = true
+  if (conn.client && conn.client !== conn.direct) closeQuietly(conn.client)
+  closeQuietly(conn.direct)
+  // Réplique abandonnée (bascule depuis l'espace Dev) : le fichier ne servira plus.
+  if (conn.replicaFile && conn.replicaFile !== g.__nexusDbConn?.replicaFile) removeReplicaFiles(conn.replicaFile)
+}
+
+/** Connexion courante, ouverte au premier usage (et rouverte si l'ouverture a échoué). */
+async function readyConn(): Promise<Conn> {
+  const conn = getConn()
+  if (!conn.ready) {
+    const autoImport = conn.source.origin === 'env' && tursoAutoImportEnabled()
+    const ready: Promise<void> = openConn(conn, { autoImport }).catch((err: unknown) => {
+      if (conn.ready === ready) conn.ready = null
+      throw err
+    })
+    conn.ready = ready
+  }
+  await conn.ready
+  return conn
+}
+
+/**
+ * Resynchronise la réplique après une écriture faite sur Turso. Les écritures
+ * terminées dans le même tour de boucle partagent une seule synchro.
+ */
+function syncReplica(conn: Conn): Promise<void> {
+  if (!conn.pendingSync) {
+    conn.pendingSync = new Promise<void>((resolve) => {
+      setImmediate(() => {
+        // Une écriture qui se termine après ce point demandera sa propre synchro.
+        conn.pendingSync = null
+        void syncNow(conn).then(resolve)
+      })
+    })
+  }
+  return conn.pendingSync
+}
+
+async function syncNow(conn: Conn): Promise<void> {
+  if (conn.closed || !conn.replica || !conn.client) return
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await conn.client.sync()
+      if (conn.stale) {
+        conn.stale = false
+        console.log('[nexus] réplique Turso de nouveau à jour : lectures locales rétablies')
+      }
+      return
+    } catch (err) {
+      if (attempt === 0) continue
+      if (!conn.stale) {
+        console.warn(`[nexus] synchro de la réplique Turso impossible (${errorText(err)}) : lectures directes en attendant`)
+      }
+      conn.stale = true
+      const retry = setTimeout(() => void syncNow(conn), 10_000)
+      retry.unref?.()
+    }
+  }
+}
+
+const READ_SQL = /^\s*(SELECT|PRAGMA|EXPLAIN)\b/i
+
+/** Colonnes ajoutées après coup (bases existantes) : [table, colonne, définition]. */
+const LATE_COLUMNS: [string, string, string][] = [
+  ...USER_SCOPED_TABLES.map((t): [string, string, string] => [t, 'userId', '"userId" TEXT']),
+  ['AgentProfile', 'blueprintId', '"blueprintId" TEXT'],
+  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
+  // depuis un autre compte.
+  ['AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\''],
+  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
+  ['User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\''],
+  ['SiteSetting', 'createdAt', '"createdAt" DATETIME'],
+  ...['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson'].map(
+    (t): [string, string, string] => [t, 'createdAt', '"createdAt" DATETIME']
+  ),
+]
+
+/** Tables créées par BASE_DDL. */
+function schemaTables(): string[] {
+  return [...BASE_DDL.matchAll(/CREATE TABLE IF NOT EXISTS "(\w+)"/g)].map((m) => m[1])
+}
+
+/** Index créés à la fin de initSchema. */
+function indexStatements(): string[] {
+  return [
+    ...USER_SCOPED_TABLES.map((t) => `CREATE INDEX IF NOT EXISTS "${t}_userId_idx" ON "${t}"("userId")`),
+    'CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")',
+    ...INDEX_SQL,
+  ]
+}
+
+/**
+ * Le schéma est-il déjà complet (tables, colonnes tardives, index) ? Un seul
+ * aller-retour en lecture : une base Turso déjà prête démarre sans aucun DDL.
+ */
+async function schemaComplete(client: Client): Promise<boolean> {
+  const lateTables = [...new Set(LATE_COLUMNS.map(([t]) => t))]
+  try {
+    const [objects, columns] = await client.batch(
+      [
+        "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index')",
+        {
+          sql: `SELECT m.name AS tbl, p.name AS col FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table' AND m.name IN (${lateTables.map(() => '?').join(', ')})`,
+          args: lateTables,
+        },
+      ],
+      'read'
+    )
+    const have = new Set(rowsOf(objects).map((r) => `${String(r.type)}:${String(r.name)}`))
+    if (!schemaTables().every((t) => have.has(`table:${t}`))) return false
+    const indexNames = indexStatements().map((sql) => /EXISTS "(\w+)"/.exec(sql)?.[1] ?? '')
+    if (!indexNames.every((name) => have.has(`index:${name}`))) return false
+    const cols = new Set(rowsOf(columns).map((r) => `${String(r.tbl)}.${String(r.col)}`))
+    return LATE_COLUMNS.every(([table, column]) => cols.has(`${table}.${column}`))
+  } catch {
+    return false // moteur sans pragma_table_info : on applique simplement le DDL
+  }
+}
+
+/**
+ * Schéma + migrations légères. Idempotent : sûr à relancer à chaque démarrage.
+ *
+ * Une base déjà à jour ne coûte qu'une lecture (schemaComplete). Sinon tout passe
+ * en QUATRE allers-retours au plus (au lieu d'environ 80 requêtes séquentielles) :
+ * le DDL de base, la lecture groupée des colonnes existantes (`pragma_table_info`),
+ * les éventuels ALTER manquants, puis les index. Avec une base distante (Turso),
+ * chaque requête coûte un aller-retour réseau.
+ */
 async function initSchema(client: Client, mode: DbMode): Promise<void> {
   if (mode === 'local') {
     await client.execute('PRAGMA busy_timeout = 5000')
     await client.execute('PRAGMA journal_mode = WAL')
   }
+  if (await schemaComplete(client)) return
   await client.executeMultiple(BASE_DDL)
 
-  // Colonnes ajoutées après coup (bases existantes)
-  const addColumnIfMissing = async (table: string, column: string, ddl: string) => {
-    try {
-      const res = await client.execute(`PRAGMA table_info("${table}")`)
-      const cols = rowsOf(res).map((c) => String(c.name))
-      if (!cols.includes(column)) await client.execute(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`)
-    } catch {
-      /* table pas encore créée : le CREATE TABLE ci-dessus la créera complète */
+  // Colonnes existantes de toutes les tables concernées, en une seule requête.
+  const tables = [...new Set(LATE_COLUMNS.map(([t]) => t))]
+  const existing = new Set<string>()
+  try {
+    const res = await client.execute({
+      sql: `SELECT m.name AS tbl, p.name AS col FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table' AND m.name IN (${tables.map(() => '?').join(', ')})`,
+      args: tables,
+    })
+    for (const r of rowsOf(res)) existing.add(`${String(r.tbl)}.${String(r.col)}`)
+  } catch {
+    // Moteur sans fonctions table (très ancien) : lecture table par table.
+    for (const t of tables) {
+      try {
+        const res = await client.execute(`PRAGMA table_info("${t}")`)
+        for (const r of rowsOf(res)) existing.add(`${t}.${String(r.name)}`)
+      } catch {
+        /* table absente : le CREATE TABLE ci-dessus la crée complète */
+      }
     }
   }
-  for (const table of USER_SCOPED_TABLES) {
-    await addColumnIfMissing(table, 'userId', '"userId" TEXT')
-    await client.execute(`CREATE INDEX IF NOT EXISTS "${table}_userId_idx" ON "${table}"("userId")`)
+  for (const [table, column, ddl] of LATE_COLUMNS) {
+    if (existing.has(`${table}.${column}`)) continue
+    try {
+      await client.execute(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`)
+      existing.add(`${table}.${column}`)
+    } catch {
+      /* colonne ajoutée entre-temps par un autre processus */
+    }
   }
-  await addColumnIfMissing('AgentProfile', 'blueprintId', '"blueprintId" TEXT')
-  // Agent système (l'agent Dev) : `systemKey` vaut 'dev' — ni supprimable, ni visible
-  // depuis un autre compte.
-  await addColumnIfMissing('AgentProfile', 'systemKey', '"systemKey" TEXT NOT NULL DEFAULT \'\'')
-  // Rôle du compte : 'owner' (propriétaire), 'dev' (développeur), 'client'.
-  await addColumnIfMissing('User', 'role', '"role" TEXT NOT NULL DEFAULT \'client\'')
-  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")')
-  await addColumnIfMissing('SiteSetting', 'createdAt', '"createdAt" DATETIME')
-  for (const t of ['DevPage', 'TrainingObjective', 'TrainingItem', 'TrainingRun', 'TrainingLesson']) {
-    await addColumnIfMissing(t, 'createdAt', '"createdAt" DATETIME')
-  }
-  for (const sql of INDEX_SQL) await client.execute(sql)
+
+  // Index (tous idempotents) : un seul envoi.
+  await client.executeMultiple(indexStatements().join(';\n') + ';')
 }
 
 const INDEX_SQL = [
@@ -553,25 +857,96 @@ const INDEX_SQL = [
   'CREATE INDEX IF NOT EXISTS "BlueprintSchedule_userId_idx" ON "BlueprintSchedule"("userId")',
 ]
 
-/** Garantit que la connexion courante est prête (schéma créé) avant toute requête. */
+/** Client des lectures de la connexion courante, prête (schéma créé) avant toute requête. */
 async function client(): Promise<Client> {
-  const conn = getConn()
-  if (!conn.ready) {
-    const ready: Promise<void> = initSchema(conn.client, conn.source.mode).catch((err: unknown) => {
-      if (conn.ready === ready) conn.ready = null
-      throw err
-    })
-    conn.ready = ready
-  }
-  await conn.ready
-  return conn.client
+  const conn = await readyConn()
+  return conn.stale && conn.direct ? conn.direct : (conn.client as Client)
 }
 
+/**
+ * Exécute une requête. Avec une réplique Turso : lecture sur place, écriture
+ * envoyée à Turso puis réplique resynchronisée (relecture immédiate garantie).
+ */
 async function run(sql: string, args: InValue[] = []): Promise<ResultSet> {
-  return (await client()).execute({ sql, args })
+  const conn = await readyConn()
+  const stmt: InStatement = { sql, args }
+  if (!conn.replica || !conn.direct) return (conn.client as Client).execute(stmt)
+  if (READ_SQL.test(sql)) return (conn.stale ? conn.direct : (conn.client as Client)).execute(stmt)
+  const res = await conn.direct.execute(stmt)
+  await syncReplica(conn)
+  return res
+}
+
+/** Réplique Turso active et à jour : une lecture ne coûte rien. */
+function localReads(): boolean {
+  const conn = g.__nexusDbConn
+  return Boolean(conn && conn.replica && !conn.stale && !conn.closed)
 }
 
 // ── Délégués de modèles (API identique à l'ancien client) ───────────────────
+
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+// ── Écoute des écritures (caches applicatifs : sessions, nombre de comptes…) ─
+
+type WriteListener = (table: string) => void
+const writeListeners = new Set<WriteListener>()
+
+/**
+ * Prévient `listener` après chaque écriture passée par les délégués (create,
+ * update, upsert, delete, deleteMany), avec le nom de la table touchée. Sert à
+ * invalider les petits caches en mémoire dès qu'une donnée change.
+ */
+export function onTableWrite(listener: WriteListener): () => void {
+  writeListeners.add(listener)
+  return () => writeListeners.delete(listener)
+}
+
+function notifyWrite(table: string): void {
+  for (const listener of writeListeners) {
+    try {
+      listener(table)
+    } catch {
+      /* un cache défaillant ne doit jamais faire échouer une écriture */
+    }
+  }
+}
+
+/**
+ * Colonnes à lire. Avec `select`, seules les colonnes demandées quittent la
+ * base : lister les conversations ne télécharge plus le contenu complet de
+ * chacune, et vérifier le modèle de langue actif ne relit plus ses poids
+ * (plusieurs centaines de Ko) à chaque message.
+ */
+function columnsSql(select?: Record<string, boolean>): string {
+  if (!select) return '*'
+  const cols = Object.keys(select).filter((k) => select[k])
+  if (cols.length === 0 || !cols.every((c) => IDENT.test(c))) return '*'
+  return cols.map((c) => `"${c}"`).join(', ')
+}
+
+/** SELECT projeté, avec repli sur `*` si une colonne demandée n'existe pas (base ancienne). */
+async function selectRows(spec: TableSpec, select: Record<string, boolean> | undefined, tail: string, params: InValue[]): Promise<Row[]> {
+  const cols = columnsSql(select)
+  try {
+    return rowsOf(await run(`SELECT ${cols} FROM "${spec.table}"${tail}`, params))
+  } catch (err) {
+    if (cols === '*' || !/no such column/i.test(err instanceof Error ? err.message : String(err))) throw err
+    return rowsOf(await run(`SELECT * FROM "${spec.table}"${tail}`, params))
+  }
+}
+
+/**
+ * `INSERT/UPDATE/DELETE … RETURNING *` : la ligne écrite revient dans la même
+ * requête (un aller-retour au lieu de deux). Repli automatique sur l'ancienne
+ * méthode (écriture puis relecture) si le moteur ne connaît pas RETURNING.
+ */
+let returningSupported = true
+
+function returningUnsupported(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /RETURNING/i.test(msg) && /syntax|near/i.test(msg)
+}
 
 function createModelDelegate(spec: TableSpec) {
   return {
@@ -584,21 +959,21 @@ function createModelDelegate(spec: TableSpec) {
       const { sql: whereSql, params } = buildWhere(args?.where)
       const orderSql = buildOrderBy(args?.orderBy)
       const limitSql = typeof args?.take === 'number' ? ` LIMIT ${Math.max(0, Math.floor(args.take))}` : ''
-      const res = await run(`SELECT * FROM "${spec.table}"${whereSql}${orderSql}${limitSql}`, params)
-      return rowsOf(res).map((r) => hydrateRow(r, spec, args?.select))
+      const rows = await selectRows(spec, args?.select, `${whereSql}${orderSql}${limitSql}`, params)
+      return rows.map((r) => hydrateRow(r, spec, args?.select))
     },
 
     async findUnique(args: { where: Row; select?: Record<string, boolean> }) {
       const { sql: whereSql, params } = buildWhere(args.where)
-      const res = await run(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`, params)
-      return hydrateRow(rowsOf(res)[0], spec, args.select)
+      const rows = await selectRows(spec, args.select, `${whereSql} LIMIT 1`, params)
+      return hydrateRow(rows[0], spec, args.select)
     },
 
     async findFirst(args?: { where?: Row; orderBy?: unknown; select?: Record<string, boolean> }) {
       const { sql: whereSql, params } = buildWhere(args?.where)
       const orderSql = buildOrderBy(args?.orderBy)
-      const res = await run(`SELECT * FROM "${spec.table}"${whereSql}${orderSql} LIMIT 1`, params)
-      return hydrateRow(rowsOf(res)[0], spec, args?.select)
+      const rows = await selectRows(spec, args?.select, `${whereSql}${orderSql} LIMIT 1`, params)
+      return hydrateRow(rows[0], spec, args?.select)
     },
 
     async count(args?: { where?: Row }) {
@@ -619,9 +994,23 @@ function createModelDelegate(spec: TableSpec) {
       const cols = Object.keys(record)
       const placeholders = cols.map(() => '?').join(', ')
       const vals = cols.map((c) => toSqlVal(record[c]))
-      await run(`INSERT INTO "${spec.table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`, vals)
-      const res = await run(`SELECT * FROM "${spec.table}" WHERE "id" = ? LIMIT 1`, [toSqlVal(record.id)])
-      return hydrateRow(rowsOf(res)[0], spec)
+      const insert = `INSERT INTO "${spec.table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`
+      try {
+        if (returningSupported) {
+          try {
+            const res = await run(`${insert} RETURNING *`, vals)
+            return hydrateRow(rowsOf(res)[0], spec)
+          } catch (err) {
+            if (!returningUnsupported(err)) throw err
+            returningSupported = false
+          }
+        }
+        await run(insert, vals)
+        const res = await run(`SELECT * FROM "${spec.table}" WHERE "id" = ? LIMIT 1`, [toSqlVal(record.id)])
+        return hydrateRow(rowsOf(res)[0], spec)
+      } finally {
+        notifyWrite(spec.table)
+      }
     },
 
     async update(args: { where: Row; data: Row }) {
@@ -633,30 +1022,76 @@ function createModelDelegate(spec: TableSpec) {
       const setSql = cols.map((c) => `"${c}" = ?`).join(', ')
       const setVals = cols.map((c) => toSqlVal(patch[c]))
       const { sql: whereSql, params: whereVals } = buildWhere(args.where)
-      await run(`UPDATE "${spec.table}" SET ${setSql}${whereSql}`, [...setVals, ...whereVals])
-      const res = await run(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`, whereVals)
-      return hydrateRow(rowsOf(res)[0], spec)
+      const update = `UPDATE "${spec.table}" SET ${setSql}${whereSql}`
+      let changed = true
+      try {
+        if (returningSupported) {
+          try {
+            const res = await run(`${update} RETURNING *`, [...setVals, ...whereVals])
+            changed = res.rows.length > 0
+            return hydrateRow(rowsOf(res)[0], spec)
+          } catch (err) {
+            if (!returningUnsupported(err)) throw err
+            returningSupported = false
+          }
+        }
+        await run(update, [...setVals, ...whereVals])
+        const res = await run(`SELECT * FROM "${spec.table}"${whereSql} LIMIT 1`, whereVals)
+        return hydrateRow(rowsOf(res)[0], spec)
+      } finally {
+        if (changed) notifyWrite(spec.table)
+      }
     },
 
     async upsert(args: { where: Row; create: Row; update: Row }) {
-      const existing = await this.findUnique({ where: args.where })
-      if (existing) {
+      const { sql: whereSql, params } = buildWhere(args.where)
+      const found = await run(`SELECT 1 FROM "${spec.table}"${whereSql} LIMIT 1`, params)
+      if (found.rows.length > 0) {
         return this.update({ where: args.where, data: args.update })
       }
       return this.create({ data: { ...args.where, ...args.create } })
     },
 
     async delete(args: { where: Row }) {
-      const existing = await this.findUnique({ where: args.where })
       const { sql: whereSql, params } = buildWhere(args.where)
-      await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
-      return existing
+      let changed = true
+      try {
+        if (returningSupported) {
+          try {
+            const res = await run(`DELETE FROM "${spec.table}"${whereSql} RETURNING *`, params)
+            changed = res.rows.length > 0
+            return hydrateRow(rowsOf(res)[0], spec)
+          } catch (err) {
+            if (!returningUnsupported(err)) throw err
+            returningSupported = false
+          }
+        }
+        const existing = await this.findUnique({ where: args.where })
+        await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
+        return existing
+      } finally {
+        if (changed) notifyWrite(spec.table)
+      }
     },
 
     async deleteMany(args?: { where?: Row }) {
       const { sql: whereSql, params } = buildWhere(args?.where)
-      const res = await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
-      return { count: Number(res.rowsAffected ?? 0) }
+      // Réplique Turso : vérifier sur place qu'il y a quelque chose à supprimer
+      // évite un aller-retour (la purge des sessions tourne chaque minute).
+      if (localReads()) {
+        const any = await run(`SELECT 1 FROM "${spec.table}"${whereSql} LIMIT 1`, params)
+        if (any.rows.length === 0) return { count: 0 }
+      }
+      let changed = true
+      try {
+        const res = await run(`DELETE FROM "${spec.table}"${whereSql}`, params)
+        const count = Number(res.rowsAffected ?? 0)
+        changed = count > 0
+        return { count }
+      } finally {
+        // (la purge des sessions expirées, chaque minute, ne vide plus les caches pour rien)
+        if (changed) notifyWrite(spec.table)
+      }
     },
   }
 }
@@ -665,60 +1100,166 @@ function createModelDelegate(spec: TableSpec) {
 
 /** Liste des tables utilisateur d'une base. */
 export async function listTables(c: Client): Promise<string[]> {
-  const res = await c.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+  const res = await c.execute(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'libsql_%' AND name NOT LIKE '_litestream%' ORDER BY name"
+  )
   return rowsOf(res).map((r) => String(r.name))
+}
+
+/** Lots d'insertion : 200 lignes ou ~1 Mo au plus par aller-retour. */
+const COPY_BATCH_ROWS = 200
+const COPY_BATCH_BYTES = 1_000_000
+
+function approxSize(v: unknown): number {
+  if (v === null || v === undefined) return 1
+  if (typeof v === 'string') return v.length
+  if (v instanceof ArrayBuffer) return v.byteLength
+  if (ArrayBuffer.isView(v)) return v.byteLength
+  return 8
 }
 
 /**
  * Copie intégrale d'une base vers une autre (local → Turso ou Turso → local).
- * Le schéma de la cible est créé d'abord, puis les lignes sont recopiées par lots
- * (INSERT OR REPLACE : relancer la copie est sans risque).
+ * Le schéma de la cible est créé d'abord (les tables inconnues de NEXUS sont
+ * recréées telles quelles), puis les lignes sont recopiées par lots, chaque lot
+ * en une transaction (INSERT OR REPLACE : relancer la copie est sans risque).
+ * Seules les colonnes communes aux deux bases sont copiées (bases d'âges différents).
  */
 export async function copyDatabase(from: Client, to: Client): Promise<{ tables: number; rows: number }> {
   await initSchema(to, 'turso')
-  const names = await listTables(from)
+  const sourceTables = rowsOf(
+    await from.execute(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'libsql_%' AND name NOT LIKE '_litestream%' ORDER BY name"
+    )
+  )
+  const targetTables = new Set(await listTables(to))
   let rows = 0
-  for (const table of names) {
+  for (const t of sourceTables) {
+    const table = String(t.name)
+    if (!targetTables.has(table) && t.sql) {
+      await to.execute(String(t.sql).replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?/i, 'CREATE TABLE IF NOT EXISTS '))
+    }
     const src = await from.execute(`SELECT * FROM "${table}"`)
     if (src.rows.length === 0) continue
-    const cols = src.columns
-    const sql = `INSERT OR REPLACE INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
-    for (let i = 0; i < src.rows.length; i += 100) {
-      const chunk = src.rows.slice(i, i + 100)
-      await to.batch(
-        chunk.map((r) => ({ sql, args: cols.map((_c, idx) => (r[idx] as InValue) ?? null) })),
-        'write'
-      )
+    const targetCols = new Set(rowsOf(await to.execute(`PRAGMA table_info("${table}")`)).map((r) => String(r.name)))
+    const cols = src.columns.map((c, idx) => ({ c, idx })).filter(({ c }) => targetCols.has(c))
+    if (cols.length === 0) continue
+    const sql = `INSERT OR REPLACE INTO "${table}" (${cols.map(({ c }) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    let batch: InStatement[] = []
+    let bytes = 0
+    const flush = async () => {
+      if (batch.length === 0) return
+      await to.batch(batch, 'write')
+      batch = []
+      bytes = 0
     }
+    for (const r of src.rows) {
+      const args = cols.map(({ idx }) => (r[idx] as InValue) ?? null)
+      const size = args.reduce<number>((n, v) => n + approxSize(v), 0)
+      if (batch.length > 0 && (batch.length >= COPY_BATCH_ROWS || bytes + size > COPY_BATCH_BYTES)) await flush()
+      batch.push({ sql, args })
+      bytes += size
+    }
+    await flush()
     rows += src.rows.length
   }
-  return { tables: names.length, rows }
+  return { tables: sourceTables.length, rows }
 }
 
-/** Nombre de lignes par table + latence (pour l'état de la base dans le dashboard). */
+/** Marqueur de l'import automatique dans SiteSetting (« pending » puis « done:… »). */
+const IMPORT_KEY = 'nexus.turso.import'
+
+async function writeImportMarker(direct: Client, value: string): Promise<void> {
+  const now = Date.now()
+  await direct.execute({
+    sql: 'INSERT INTO "SiteSetting" ("id", "key", "value", "updatedBy", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT("id") DO UPDATE SET "value" = excluded."value", "updatedAt" = excluded."updatedAt"',
+    args: ['nexus-turso-import', IMPORT_KEY, value, 'nexus', now, now],
+  })
+}
+
+/**
+ * Première connexion à une base Turso VIDE (configurée par variables
+ * d'environnement) : la base locale y est recopiée — celle de DATABASE_URL si le
+ * fichier existe, sinon la base livrée avec le dépôt — pour retrouver comptes,
+ * savoir, agents et entraînement. Une base qui contient déjà des données n'est
+ * jamais touchée ; un import interrompu reprend au démarrage suivant.
+ * Renvoie une remarque pour l'espace Dev (ou null s'il n'y avait rien à faire).
+ */
+async function importIntoEmptyTurso(direct: Client): Promise<string | null> {
+  const marker = rowsOf(
+    await direct.execute({ sql: 'SELECT "value" FROM "SiteSetting" WHERE "key" = ? LIMIT 1', args: [IMPORT_KEY] })
+  )[0]
+  const state = marker ? String(marker.value) : ''
+  // Seul un import resté « pending » est repris ; toute autre valeur vaut « déjà fait ».
+  if (state && state !== 'pending') return null
+  if (!state) {
+    const counts = await direct.batch(
+      schemaTables().map((t) => `SELECT COUNT(*) AS n FROM "${t}"`),
+      'read'
+    )
+    if (counts.some((rs) => Number(rowsOf(rs)[0]?.n ?? 0) > 0)) return null
+  }
+  const file = importSourcePath()
+  if (!file) return null
+  const t0 = Date.now()
+  await writeImportMarker(direct, 'pending')
+  const local = createClient({ url: `file:${file}` })
+  try {
+    const copied = await copyDatabase(local, direct)
+    await writeImportMarker(direct, `done:${new Date().toISOString()}:${copied.rows}`)
+    const note = `base Turso vide : ${copied.rows} ligne(s) de ${copied.tables} table(s) importée(s) depuis ${path.basename(file)} en ${Date.now() - t0} ms`
+    console.log(`[nexus] ${note}`)
+    return note
+  } finally {
+    closeQuietly(local)
+  }
+}
+
+/** Nombre de lignes par table + latences (pour l'état de la base dans le dashboard). */
 export async function databaseStats(): Promise<{
   latencyMs: number
+  remoteLatencyMs: number | null
   tables: { name: string; rows: number }[]
   totalRows: number
 }> {
-  const t0 = Date.now()
+  const conn = await readyConn()
   const c = await client()
-  const latencyMs = Date.now() - t0
-  const names = await listTables(c)
-  const tables: { name: string; rows: number }[] = []
-  let totalRows = 0
-  for (const name of names) {
-    const res = await c.execute(`SELECT COUNT(*) AS cnt FROM "${name}"`)
-    const n = Number(rowsOf(res)[0]?.cnt ?? 0)
-    tables.push({ name, rows: n })
-    totalRows += n
+  let t0 = performance.now()
+  await c.execute('SELECT 1')
+  const latencyMs = Math.round((performance.now() - t0) * 10) / 10
+  let remoteLatencyMs: number | null = null
+  if (conn.direct && conn.direct !== c) {
+    t0 = performance.now()
+    try {
+      await conn.direct.execute('SELECT 1')
+      remoteLatencyMs = Math.round(performance.now() - t0)
+    } catch {
+      remoteLatencyMs = null
+    }
   }
-  return { latencyMs, tables, totalRows }
+  const names = await listTables(c)
+  const countSql = names.map((name) => `SELECT COUNT(*) AS cnt FROM "${name}"`)
+  // Réplique : lectures une à une, sur place (une transaction ouverte sur la
+  // réplique partirait chez Turso). Accès direct : un seul aller-retour.
+  const counts: ResultSet[] = []
+  if (c === conn.direct && countSql.length > 0) counts.push(...(await c.batch(countSql, 'read')))
+  else for (const sql of countSql) counts.push(await c.execute(sql))
+  const tables = names.map((name, i) => ({ name, rows: Number(rowsOf(counts[i])[0]?.cnt ?? 0) }))
+  const totalRows = tables.reduce((n, t) => n + t.rows, 0)
+  return { latencyMs, remoteLatencyMs, tables, totalRows }
 }
 
-/** Connexion courante : mode et hôte (sans jeton). */
-export function currentDatabase(): { mode: DbMode; origin: DbSource['origin']; target: string } {
-  const { source } = getConn()
+/** Connexion courante : mode, hôte (sans jeton), réplique et remarques. */
+export function currentDatabase(): {
+  mode: DbMode
+  origin: DbSource['origin']
+  target: string
+  replica: boolean
+  stale: boolean
+  note: string
+} {
+  const conn = getConn()
+  const { source } = conn
   let target = source.url
   if (source.mode === 'turso') {
     try {
@@ -727,7 +1268,7 @@ export function currentDatabase(): { mode: DbMode; origin: DbSource['origin']; t
       target = source.url
     }
   }
-  return { mode: source.mode, origin: source.origin, target }
+  return { mode: source.mode, origin: source.origin, target, replica: conn.replica, stale: conn.stale, note: conn.note }
 }
 
 /** Client de la base courante (pour copier vers l'autre cible). */
@@ -736,35 +1277,31 @@ export async function currentClient(): Promise<Client> {
 }
 
 /**
- * Bascule la connexion vers une autre cible. La nouvelle connexion est testée
- * (schéma créé) AVANT le basculement : en cas d'échec, l'ancienne reste active.
+ * Bascule la connexion vers une autre cible. La nouvelle connexion est ouverte
+ * et testée (schéma créé, réplique synchronisée) AVANT le basculement : en cas
+ * d'échec, l'ancienne reste active.
  */
 export async function switchDatabase(source: DbSource): Promise<void> {
   const next = makeConn(source)
-  await (next.ready = initSchema(next.client, source.mode).then(() => undefined))
+  try {
+    await (next.ready = openConn(next, { autoImport: false }))
+  } catch (err) {
+    closeConn(next)
+    throw err
+  }
   const prev = g.__nexusDbConn
   g.__nexusDbConn = next
-  if (prev && prev.client !== next.client) {
-    try {
-      prev.client.close()
-    } catch {
-      /* déjà fermé */
-    }
-  }
+  if (prev && prev !== next) closeConn(prev)
 }
 
-/** Ouvre une cible sans basculer (test de connexion, copie). */
+/** Ouvre une cible sans basculer (test de connexion, copie) — accès direct, sans réplique. */
 export async function openTarget(source: DbSource): Promise<Client> {
-  const c = makeConn(source).client
+  const c = source.mode === 'local' ? createClient({ url: `file:${source.url}` }) : directClient(source)
   try {
     await initSchema(c, source.mode)
     return c
   } catch (err) {
-    try {
-      c.close()
-    } catch {
-      /* ignore */
-    }
+    closeQuietly(c)
     throw err
   }
 }

@@ -5,10 +5,49 @@
 // ci-dessous — affichée UNE fois dans la console du serveur.
 
 import { db } from './db'
-import { DEV_LOGIN, hashPassword } from './auth'
+import { DEV_LOGIN, hashPassword, verifyPassword } from './auth'
+
+/** Mot de passe public du compte Dev (documenté dans le README). */
+const PUBLIC_DEV_PASSWORD = 'dev2026'
 
 /** Mot de passe initial du compte Dev (à changer depuis le dashboard). */
-export const DEV_DEFAULT_PASSWORD = process.env.NEXUS_DEV_PASSWORD?.trim() || 'dev2026'
+export const DEV_DEFAULT_PASSWORD = process.env.NEXUS_DEV_PASSWORD?.trim() || PUBLIC_DEV_PASSWORD
+
+/** Empreinte du dernier hachage vérifié (évite un calcul scrypt à chaque démarrage). */
+const DEV_PASSWORD_CHECK_KEY = 'nexus.dev.passwordCheck'
+
+/**
+ * Le compte Dev peut exister AVANT le premier démarrage : base livrée avec le
+ * dépôt, ou importée dans Turso. Il porte alors le mot de passe public par
+ * défaut, et NEXUS_DEV_PASSWORD (qui ne servait qu'à la création) restait sans
+ * effet. On le remplace donc ici — mais seulement s'il est encore celui par
+ * défaut : un mot de passe changé depuis « Mon compte » n'est jamais touché.
+ * Les sessions du compte sont révoquées au passage.
+ */
+async function applyEnvDevPassword(devId: string): Promise<void> {
+  const wanted = process.env.NEXUS_DEV_PASSWORD?.trim()
+  if (!wanted || wanted === PUBLIC_DEV_PASSWORD) return
+  const user = await db.user.findUnique({ where: { id: devId } })
+  const storedHash = String(user?.passwordHash ?? '')
+  const storedSalt = String(user?.salt ?? '')
+  if (!storedHash || !storedSalt) return
+  const mark = await db.siteSetting.findUnique({ where: { key: DEV_PASSWORD_CHECK_KEY } })
+  if (mark?.value === `${devId}:${storedHash.slice(0, 24)}`) return
+  let finalHash = storedHash
+  if (verifyPassword(PUBLIC_DEV_PASSWORD, storedSalt, storedHash)) {
+    const { hash, salt } = hashPassword(wanted)
+    await db.user.update({ where: { id: devId }, data: { passwordHash: hash, salt } })
+    await db.session.deleteMany({ where: { userId: devId } })
+    finalHash = hash
+    console.log('[dev-seed] compte Dev : mot de passe par défaut remplacé par NEXUS_DEV_PASSWORD')
+  }
+  const value = `${devId}:${finalHash.slice(0, 24)}`
+  await db.siteSetting.upsert({
+    where: { key: DEV_PASSWORD_CHECK_KEY },
+    create: { value, updatedBy: 'dev-seed' },
+    update: { value, updatedBy: 'dev-seed' },
+  })
+}
 
 export const DEV_AGENT_SPEC = {
   name: 'Dev',
@@ -31,6 +70,7 @@ export const DEV_AGENT_SPEC = {
 
 let bootstrapped = false
 let bootstrapping: Promise<DevBootstrapResult> | null = null
+let lastResult: DevBootstrapResult | null = null
 
 export interface DevBootstrapResult {
   createdUser: boolean
@@ -118,6 +158,11 @@ async function doBootstrap(): Promise<DevBootstrapResult> {
     }
     if (!devId) return result
     result.userId = devId
+    if (!result.createdUser) {
+      await applyEnvDevPassword(devId).catch((err: unknown) => {
+        console.error('[dev-seed] NEXUS_DEV_PASSWORD non appliqué :', err instanceof Error ? err.message : err)
+      })
+    }
 
     const agentId = await getDevAgentId(devId)
     if (!agentId) {
@@ -153,23 +198,19 @@ async function doBootstrap(): Promise<DevBootstrapResult> {
  * À appeler depuis les routes d'authentification.
  */
 export async function ensureDevBootstrap(): Promise<DevBootstrapResult> {
-  if (bootstrapped) {
-    const devId = await getDevUserId()
-    return {
-      createdUser: false,
-      createdAgent: false,
-      userId: devId,
-      agentId: devId ? await getDevAgentId(devId) : null,
-      login: DEV_LOGIN,
-      password: null,
-    }
-  }
+  // Déjà amorcé : on renvoie le résultat mémorisé, sans requête. Cet appel est
+  // fait par /api/auth/me à CHAQUE ouverture de l'application : il coûtait deux
+  // lectures en base pour un résultat qu'aucun appelant n'utilise.
+  if (bootstrapped && lastResult) return { ...lastResult, createdUser: false, createdAgent: false, password: null }
   if (!bootstrapping) {
     bootstrapping = doBootstrap().then((r) => {
       // Tant qu'aucun compte n'existe, l'amorçage n'a rien pu faire : on ne
       // verrouille PAS le drapeau, sinon le compte Dev ne serait jamais créé
       // (une simple tentative de connexion avant inscription suffirait).
-      if (r.userId) bootstrapped = true
+      if (r.userId) {
+        bootstrapped = true
+        lastResult = r
+      }
       bootstrapping = null
       return r
     })

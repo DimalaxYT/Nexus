@@ -45,7 +45,23 @@ function sanitizeMessages(messages: unknown): ChatMessage[] {
   return out
 }
 
-/** Liste les conversations (?list=1) ou renvoie une conversation complète (?id=). */
+/** Ligne en base → conversation complète renvoyée au client. */
+function toConversation(conv: any) {
+  let messages: ChatMessage[] = []
+  try {
+    messages = sanitizeMessages(JSON.parse(conv.data))
+  } catch {
+    messages = []
+  }
+  return { id: conv.id, title: conv.title, messages, createdAt: conv.createdAt, updatedAt: conv.updatedAt }
+}
+
+/**
+ * Liste les conversations (métadonnées seulement), renvoie une conversation
+ * complète (?id=) ou plusieurs d'un coup (?ids=a,b,c — 50 au plus) : le
+ * rapatriement de l'historique à la connexion ne fait plus une requête par
+ * conversation.
+ */
 export async function GET(req: NextRequest) {
   try {
     const guard = await ownerGuard()
@@ -56,15 +72,15 @@ export async function GET(req: NextRequest) {
     if (id) {
       const conv = await db.conversation.findUnique({ where: { id, ...(scope ?? {}) } })
       if (!conv) return Response.json({ error: 'Introuvable' }, { status: 404 })
-      let messages: ChatMessage[] = []
-      try {
-        messages = sanitizeMessages(JSON.parse(conv.data))
-      } catch {
-        messages = []
-      }
-      return Response.json({
-        conversation: { id: conv.id, title: conv.title, messages, createdAt: conv.createdAt, updatedAt: conv.updatedAt },
-      })
+      return Response.json({ conversation: toConversation(conv) })
+    }
+
+    const idsParam = req.nextUrl.searchParams.get('ids')
+    if (idsParam !== null) {
+      const ids = [...new Set(idsParam.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 50)
+      if (ids.length === 0) return Response.json({ conversations: [] })
+      const rows = await db.conversation.findMany({ where: { ...(scope ?? {}), id: { in: ids } } })
+      return Response.json({ conversations: rows.map(toConversation) })
     }
 
     const conversations = await db.conversation.findMany({
@@ -97,16 +113,21 @@ export async function PUT(req: NextRequest) {
     const owned = userId ? { userId } : {}
 
     // Une conversation appartenant à un AUTRE compte n'est jamais écrasée.
-    const existing = await db.conversation.findUnique({ where: { id } })
+    // (lecture du seul propriétaire : inutile de relire tout l'historique)
+    const existing = await db.conversation.findUnique({ where: { id }, select: { id: true, userId: true } })
     if (existing && userId && String(existing.userId ?? '')) {
       if (String(existing.userId) !== userId) return Response.json({ error: 'Accès refusé' }, { status: 403 })
     }
 
-    await db.conversation.upsert({
-      where: { id },
-      create: { id, title, data: JSON.stringify(messages), ...owned },
-      update: { title, data: JSON.stringify(messages), ...owned },
-    })
+    const data = JSON.stringify(messages)
+    if (existing) {
+      await db.conversation.update({ where: { id }, data: { title, data, ...owned } })
+    } else {
+      // Deux sauvegardes simultanées d'une conversation neuve : la seconde met à jour.
+      await db.conversation
+        .create({ data: { id, title, data, ...owned } })
+        .catch(() => db.conversation.update({ where: { id, ...(userId ? { userId } : {}) }, data: { title, data } }))
+    }
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(

@@ -149,7 +149,10 @@ export function DevTrainerPanel() {
       })
     }
     tick()
-    const id = setInterval(tick, 12_000)
+    // Pas de rafraîchissement quand l'onglet est masqué (requêtes et calcul inutiles)
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') tick()
+    }, 12_000)
     return () => {
       alive = false
       clearInterval(id)

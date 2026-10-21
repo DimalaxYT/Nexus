@@ -1,11 +1,21 @@
 'use client'
 
-import { memo, useState } from 'react'
+import { lazy, memo, Suspense, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+
+// Coloration syntaxique chargée à la demande (premier bloc de code affiché) :
+// le code s'affiche aussitôt en texte brut, puis coloré dès que le module arrive.
+const CodeHighlighter = lazy(() => import('./CodeHighlighter'))
+
+function PlainCode({ value }: { value: string }) {
+  return (
+    <pre className="m-0 whitespace-pre-wrap break-words p-4 font-mono text-[0.8rem] leading-relaxed text-zinc-200">
+      <code>{value}</code>
+    </pre>
+  )
+}
 
 function CodeBlock({ language, value }: { language: string; value: string }) {
   const [copied, setCopied] = useState(false)
@@ -32,14 +42,9 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
           {copied ? 'Copié' : 'Copier'}
         </Button>
       </div>
-      <SyntaxHighlighter
-        language={language || 'text'}
-        style={oneDark}
-        customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '0.8rem' }}
-        wrapLongLines
-      >
-        {value}
-      </SyntaxHighlighter>
+      <Suspense fallback={<PlainCode value={value} />}>
+        <CodeHighlighter language={language} value={value} />
+      </Suspense>
     </div>
   )
 }

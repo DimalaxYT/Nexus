@@ -24,28 +24,25 @@ export async function register() {
     // après chaque démarrage à froid — typique sur Render plan gratuit).
     import('@/lib/brain/brain').catch(() => {})
 
-    // Préchauffage du CLASSIFIEUR : importer le module ne suffit pas, car le
-    // réseau neuronal s'entraîne au premier APPEL de classify() (85 époques).
-    // Mesuré : 28,2 s pour le premier appel, 3 ms pour les suivants — c'était
-    // donc le premier message de l'utilisateur qui payait l'entraînement, et le
-    // préchauffage ci-dessus (import seul) ne changeait rien. On entraîne ici, au
-    // démarrage, pendant que personne n'attend.
-    // Note honnête : cet entraînement est synchrone, la boucle d'événements est
-    // occupée pendant sa durée ; c'est un moindre mal face à un premier message
-    // à 37 s. Suivi d'un préchauffage du retrieval de dialogue (stemmes de la
-    // banque) pour que la première réponse soit servie immédiatement.
+    // Préchauffage du CLASSIFIEUR : ses poids sont livrés dans le dépôt
+    // (`public/models/nexus-intent-v1.*`) et chargés en quelques millisecondes.
+    // Avant, le réseau s'entraînait ici de façon SYNCHRONE : 28 s pendant
+    // lesquelles le serveur ne répondait à rien (plusieurs minutes sur une
+    // instance Render à 0,1 CPU, après chaque déploiement ou redémarrage).
+    // `prepareClassifier` ne bloque jamais la boucle d'événements : si les
+    // poids livrés ne correspondent plus au dataset, il réentraîne par petites
+    // tranches pendant que le serveur continue de répondre. Suivi d'un
+    // préchauffage du retrieval de dialogue (stemmes de la banque).
     import('@/lib/brain/classifier')
-      .then(({ classify }) => {
-        const t0 = Date.now()
-        classify('Bonjour !')
-        classify("Qu'est-ce que tu sais faire ?")
-        const ms = Date.now() - t0
-        return import('@/lib/llm/dialogue').then(({ matchDialogue }) => {
+      .then(({ prepareClassifier }) => prepareClassifier())
+      .then((r) =>
+        import('@/lib/llm/dialogue').then(({ matchDialogue }) => {
           matchDialogue('Bonjour !', [])
           matchDialogue("Qu'est-ce que tu sais faire ?", [])
-          console.log(`[nexus] classifieur entraîné + retrieval prêt en ${ms} ms`)
+          const how = r.source === 'livré' ? 'poids livrés' : r.source === 'cache' ? 'poids en cache' : 'réentraîné en arrière-plan'
+          console.log(`[nexus] classifieur prêt en ${r.ms} ms (${how}) + retrieval prêt`)
         })
-      })
+      )
       .catch(() => {})
 
     // Préchauffage du modèle de langue maison : lecture des poids (base ou point

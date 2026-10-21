@@ -46,6 +46,8 @@ export interface ChatContext {
 export interface ChatProvenance {
   /** true = rédigé par le transformeur, false = texte du savoir local retrouvé. */
   generated: boolean
+  /** true = génération non tentée (modèle en observation après des refus répétés). */
+  skipped?: boolean
   source: string | null
   confidence: number
   avgNll: number
@@ -113,9 +115,10 @@ function chatInput(messages: LlmMessage[], context?: ChatContext): { message: st
 }
 
 /** Informe l'appelant de la provenance de la réponse (journal, interface). */
-function reportProvenance(context: ChatContext | undefined, answer: { generated: boolean; source: string | null; confidence: number; avgNll: number; tokens: number; ms: number }): void {
+function reportProvenance(context: ChatContext | undefined, answer: { generated: boolean; skipped?: boolean; source: string | null; confidence: number; avgNll: number; tokens: number; ms: number }): void {
   context?.onProvenance?.({
     generated: answer.generated,
+    skipped: Boolean(answer.skipped),
     source: answer.source,
     confidence: answer.confidence,
     avgNll: Number.isFinite(answer.avgNll) ? Number(answer.avgNll.toFixed(3)) : -1,
@@ -161,6 +164,7 @@ export async function llmComplete(
     model,
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,
+    gate: true,
   })
   if (!answer.ok) return null
   reportProvenance(opts.context, answer)
@@ -197,6 +201,7 @@ export async function llmStream(
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,
     onDelta,
+    gate: true,
   })
   if (!answer.ok) return null
   reportProvenance(opts.context, answer)
