@@ -13,7 +13,8 @@ export const maxDuration = 60
 export async function GET() {
   const guard = await devGuard()
   if (!guard.ok) return guard.response
-  const [pages, stats] = await Promise.all([listPages(guard.userId, 60), pagesStats(guard.userId)])
+  // Liste légère : le tableau de bord n'affiche pas le texte des pages (1,2 Mo renvoyés avant pour 28 pages).
+  const [pages, stats] = await Promise.all([listPages(guard.userId, 60, { withText: false }), pagesStats(guard.userId)])
   return Response.json({ pages, stats })
 }
 

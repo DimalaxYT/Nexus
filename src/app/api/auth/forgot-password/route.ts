@@ -4,6 +4,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { issueVerificationCode } from '@/lib/verification'
+import { mailConfigured } from '@/lib/mailer'
 import { checkRateLimit } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -22,12 +23,13 @@ export async function POST(req: NextRequest) {
   try {
     const user = await db.user.findUnique({ where: { email } })
     if (!user) {
-      // On ne révèle pas l'existence du compte.
-      return Response.json({ ok: true, sent: true })
+      // On ne révèle pas l'existence du compte (même réponse qu'un compte réel).
+      const logOnly = !mailConfigured() && process.env.NODE_ENV === 'production'
+      return Response.json(logOnly ? { ok: true, sent: false, logged: true } : { ok: true, sent: true })
     }
     const issued = await issueVerificationCode(email, 'reset')
     if (!issued.ok) return Response.json({ error: issued.error ?? 'Envoi impossible.' }, { status: 500 })
-    return Response.json({ ok: true, sent: issued.sent ?? false, devCode: issued.devCode })
+    return Response.json({ ok: true, sent: issued.sent ?? false, devCode: issued.devCode, logged: issued.logged })
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : 'Demande impossible' },

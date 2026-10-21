@@ -56,9 +56,10 @@ async function readSetting(key: string): Promise<string | null> {
 }
 
 async function writeSetting(key: string, value: string): Promise<void> {
-  const existing = await db.siteSetting.findUnique({ where: { key } })
-  if (existing) await db.siteSetting.update({ where: { key }, data: { value, updatedBy: 'gardien' } })
-  else await db.siteSetting.create({ data: { key, value, updatedBy: 'gardien' } })
+  // Une seule requête dans le cas courant (la ligne existe) : la mise à jour
+  // renvoie la ligne modifiée, ou null s'il faut la créer.
+  const updated = await db.siteSetting.update({ where: { key }, data: { value, updatedBy: 'gardien' } })
+  if (!updated) await db.siteSetting.create({ data: { key, value, updatedBy: 'gardien' } })
 }
 
 export async function getGardienState(): Promise<GardienState> {
@@ -141,10 +142,12 @@ export async function runGardienPing(source: string): Promise<GardienResult> {
   void import('@/lib/blueprint-scheduler').then((m) => m.runDueSchedules()).catch(() => {})
   try {
     const count = Number((await readSetting(K.pingCount)) ?? 0) + 1
-    await writeSetting(K.pingCount, String(count))
-    await writeSetting(K.lastPingAt, at)
-    await writeSetting(K.lastSource, source.slice(0, 40))
-    await writeSetting(K.lastResult, JSON.stringify(result))
+    await Promise.all([
+      writeSetting(K.pingCount, String(count)),
+      writeSetting(K.lastPingAt, at),
+      writeSetting(K.lastSource, source.slice(0, 40)),
+      writeSetting(K.lastResult, JSON.stringify(result)),
+    ])
   } catch {
     /* la base peut être indisponible : le ping reste valide */
   }

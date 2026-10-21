@@ -5,7 +5,11 @@ import { parseKnowledgeRow } from '@/lib/nexus-types'
 
 export const runtime = 'nodejs'
 
-/** GET /api/knowledge?q=mot&category=Programmation — liste + recherche plein texte */
+/**
+ * GET /api/knowledge?q=mot&category=Programmation — liste + recherche plein texte
+ * GET /api/knowledge?count=1 — seulement le nombre de fiches (badge du chat :
+ * inutile de télécharger toute la base pour afficher un chiffre)
+ */
 export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim().toLowerCase()
   const category = (req.nextUrl.searchParams.get('category') ?? '').trim().toLowerCase()
@@ -13,6 +17,9 @@ export async function GET(req: NextRequest) {
     const guard = await ownerGuard()
     if (!guard.ok) return guard.response
     const { scope, userId } = guard
+    if (req.nextUrl.searchParams.get('count') === '1') {
+      return Response.json({ count: await db.knowledge.count({ where: scope }) })
+    }
     const rows = await db.knowledge.findMany({ where: scope, orderBy: { updatedAt: 'desc' }, take: 300 })
     let items = rows.map(parseKnowledgeRow)
     if (q) {

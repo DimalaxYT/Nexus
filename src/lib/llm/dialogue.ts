@@ -302,6 +302,8 @@ export type ChatAnswer =
       confidence: number
       source: string | null
       grounded: boolean
+      /** true = génération non tentée : le modèle est « en observation » (voir le disjoncteur). */
+      skipped?: boolean
     }
   | { ok: false; reason: string; text?: string; avgNll?: number; generated: false }
 
@@ -316,6 +318,65 @@ export interface ChatOptions {
   onDelta?: (chunk: string) => void
   /** Modèle chargé (null = aucun modèle entraîné : repli sur le savoir retrouvé). */
   model: LoadedModel | null
+  /**
+   * Chat en direct : autorise le disjoncteur de qualité à sauter la génération
+   * quand le modèle est en observation. Les évaluations (entraîneur, scripts)
+   * le laissent à false : elles doivent mesurer le modèle à chaque fois.
+   */
+  gate?: boolean
+}
+
+// ── Disjoncteur de qualité ───────────────────────────────────────────────────
+// Mesuré sur le modèle livré : 0 rédaction sur 20 passe les garde-fous (comme
+// l'indiquent déjà les évaluations de l'entraîneur, 0/10, et la calibration,
+// 0/16). Chaque tentative coûte pourtant ~110 ms de calcul — plus d'une seconde
+// sur une instance à 0,1 CPU — avant de retomber sur le texte retrouvé. Après
+// GATE_OPEN_AFTER refus d'affilée pour un même modèle, le chat sert donc
+// directement le texte retrouvé (exactement la réponse que le repli aurait
+// donnée) et ne retente le modèle qu'une fois tous les GATE_PROBE_EVERY messages.
+// Une rédaction acceptée referme aussitôt le disjoncteur, et un nouveau modèle
+// (entraînement, nouveaux poids) repart de zéro : il est réévalué normalement.
+
+const GATE_OPEN_AFTER = 4
+const GATE_PROBE_EVERY = 12
+
+const qualityGate = { key: '', rejectStreak: 0, skipped: 0 }
+
+function gateKeyOf(model: LoadedModel): string {
+  return `${model.id}:${model.updatedAt}:${model.steps}`
+}
+
+function gateSync(model: LoadedModel): void {
+  const key = gateKeyOf(model)
+  if (qualityGate.key !== key) {
+    qualityGate.key = key
+    qualityGate.rejectStreak = 0
+    qualityGate.skipped = 0
+  }
+}
+
+/** Faut-il sauter la génération pour ce message ? (et compte le saut) */
+function gateShouldSkip(model: LoadedModel): boolean {
+  gateSync(model)
+  if (qualityGate.rejectStreak < GATE_OPEN_AFTER) return false
+  qualityGate.skipped++
+  if (qualityGate.skipped % GATE_PROBE_EVERY === 0) return false // tentative de contrôle
+  return true
+}
+
+function gateRecord(model: LoadedModel, accepted: boolean): void {
+  gateSync(model)
+  if (accepted) {
+    qualityGate.rejectStreak = 0
+    qualityGate.skipped = 0
+  } else {
+    qualityGate.rejectStreak++
+  }
+}
+
+/** État du disjoncteur (diagnostic). */
+export function chatGateStatus(): { open: boolean; rejectStreak: number; skipped: number } {
+  return { open: qualityGate.rejectStreak >= GATE_OPEN_AFTER, rejectStreak: qualityGate.rejectStreak, skipped: qualityGate.skipped }
 }
 
 /** Nettoie la sortie brute du modèle (marqueurs du format, espaces, casse). */
@@ -422,6 +483,22 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     return { ok: false, reason: 'aucun contenu pertinent retrouvé', generated: false }
   }
 
+  // Modèle en observation : réponse retrouvée servie tout de suite (voir plus haut).
+  if (opts.gate && ctx.fallback && gateShouldSkip(model)) {
+    return {
+      ok: true,
+      text: ctx.fallback,
+      generated: false,
+      avgNll: Infinity,
+      ms: Date.now() - t0,
+      tokens: 0,
+      confidence: 0,
+      source: ctx.source,
+      grounded: true,
+      skipped: true,
+    }
+  }
+
   const seed = opts.seed ?? hashText(`${message}|${history.length}`)
   const res = sample(model, prompt, {
     maxTokens: opts.maxTokens ?? 120,
@@ -441,6 +518,7 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     passage: ctx.passage,
     minGrounding: MIN_CHAT_GROUNDING,
   })
+  gateRecord(model, verdict.ok)
 
   if (!verdict.ok) {
     if (ctx.fallback) {
@@ -481,11 +559,13 @@ export async function streamChat(opts: ChatOptions): Promise<ChatAnswer> {
   const answer = await answerChat(opts)
   if (!answer.ok || !opts.onDelta) return answer
   const text = answer.text
-  const chunk = Math.max(3, Math.round(text.length / 26))
+  // Une douzaine de morceaux, 4 ms d'écart : l'effet d'écriture reste visible
+  // sans ajouter un quart de seconde d'attente artificielle à chaque réponse
+  // (26 morceaux × 9 ms auparavant).
+  const chunk = Math.max(8, Math.ceil(text.length / 12))
   for (let i = 0; i < text.length; i += chunk) {
     opts.onDelta(text.slice(i, i + chunk))
-    // Respiration entre les morceaux : le client voit la réponse s'écrire.
-    await new Promise<void>((resolve) => setTimeout(resolve, 9))
+    if (i + chunk < text.length) await new Promise<void>((resolve) => setTimeout(resolve, 4))
   }
   return answer
 }

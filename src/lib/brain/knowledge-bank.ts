@@ -3,7 +3,7 @@
 // science, programmation, Roblox/Luau, histoire, géographie, NEXUS lui-même.
 
 import { stems } from './text'
-import { semanticSimilarity } from './neural'
+import { INPUT_DIM, vectorize } from './neural'
 
 export interface KnowledgeEntry {
   keywords: string[] // mots-clés déclencheurs (normalisés, sans accents)
@@ -585,14 +585,39 @@ export const NEXUS_PRESENTATION = `**Moi, c'est NEXUS** — un agent IA **hybrid
 
 Chaque mission que tu me donnes me rend **plus compétent** : ce que j'apprends est réinjecté dans mes réponses suivantes. Tu peux me questionner sur mon raisonnement à tout moment !`
 
+/**
+ * Pré-calculs de la banque (radicaux des mots-clés, vecteur sémantique de
+ * chaque entrée) : faits une seule fois au lieu d'être refaits pour chaque
+ * entrée à CHAQUE recherche — la requête était revectorisée 35 fois par appel,
+ * et la sonde de l'entraîneur enchaîne jusqu'à 25 recherches.
+ */
+let prepared: { source: KnowledgeEntry[]; size: number; entries: { kwStems: Set<string>[]; vec: Float32Array }[] } | null = null
+
+function preparedBank() {
+  if (!prepared || prepared.source !== NEXUS_KNOWLEDGE || prepared.size !== NEXUS_KNOWLEDGE.length) {
+    prepared = {
+      source: NEXUS_KNOWLEDGE,
+      size: NEXUS_KNOWLEDGE.length,
+      entries: NEXUS_KNOWLEDGE.map((entry) => ({
+        kwStems: entry.keywords.map((kw) => new Set(stems(kw))),
+        vec: vectorize(`${entry.question} ${entry.keywords.join(' ')}`),
+      })),
+    }
+  }
+  return prepared.entries
+}
+
 /** Recherche dans la banque intégrée : retourne les meilleures entrées + score. */
 export function searchKnowledgeBank(query: string, max = 3): { entry: KnowledgeEntry; score: number }[] {
   const qStems = new Set(stems(query))
   if (qStems.size === 0) return []
-  const scored = NEXUS_KNOWLEDGE.map((entry) => {
+  const bank = preparedBank()
+  const qVec = vectorize(query)
+  const scored = NEXUS_KNOWLEDGE.map((entry, idx) => {
     let score = 0
-    for (const kw of entry.keywords) {
-      const kwStems = new Set(stems(kw))
+    const { kwStems: kwStemSets, vec } = bank[idx]
+    entry.keywords.forEach((kw, k) => {
+      const kwStems = kwStemSets[k]
       let matched = 0
       for (const s of kwStems) if (qStems.has(s)) matched++
       if (matched > 0) {
@@ -604,9 +629,12 @@ export function searchKnowledgeBank(query: string, max = 3): { entry: KnowledgeE
           (exact ? 0.35 : 0)
         score = Math.max(score, kwScore)
       }
-    }
+    })
     // Bonus de similarité sémantique neuronale (capte les reformulations et sous-mots)
-    const sem = semanticSimilarity(query, `${entry.question} ${entry.keywords.join(' ')}`)
+    // — même calcul que semanticSimilarity(), sur des vecteurs pré-calculés.
+    let dot = 0
+    for (let i = 0; i < INPUT_DIM; i++) dot += qVec[i] * vec[i]
+    const sem = Math.max(0, Math.min(1, dot))
     if (sem > 0.35) {
       score = Math.max(score, sem * 1.15)
     }

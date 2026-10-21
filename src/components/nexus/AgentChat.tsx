@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { lazyComponent, whenIdle } from '@/components/nexus/lazy-component'
 import {
   ArrowUp,
   Bell,
@@ -67,13 +68,52 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { HistoryPanel, KnowledgePanel, MemoryPanel } from '@/components/nexus/AgentPanels'
-import { BrowserPanel } from '@/components/nexus/BrowserPanel'
-import { MissionsPanel } from '@/components/nexus/MissionsPanel'
-import { TeamPanel } from '@/components/nexus/TeamPanel'
-import { BrainView } from '@/components/nexus/BrainView'
 import { cn } from '@/lib/utils'
 import { askLocalModel } from '@/lib/llm/nexus-code-client'
+
+// ── Panneaux chargés à la demande ────────────────────────────────────────────
+// Le chat est la vue d'arrivée : tout ce qu'il importait statiquement partait
+// dans le premier téléchargement, y compris three.js (salle des cerveaux, ~1 Mo)
+// et six panneaux latéraux que la plupart des visites n'ouvrent jamais. Ils
+// sont maintenant découpés en morceaux séparés, préchargés en tâche de fond une
+// fois la page prête, puis montés (fermés) : leur ouverture reste instantanée.
+const loadAgentPanels = () => import('@/components/nexus/AgentPanels')
+const HistoryPanel = lazyComponent(() => loadAgentPanels().then((m) => m.HistoryPanel))
+const KnowledgePanel = lazyComponent(() => loadAgentPanels().then((m) => m.KnowledgePanel))
+const MemoryPanel = lazyComponent(() => loadAgentPanels().then((m) => m.MemoryPanel))
+const BrowserPanel = lazyComponent(() => import('@/components/nexus/BrowserPanel').then((m) => m.BrowserPanel))
+const MissionsPanel = lazyComponent(() => import('@/components/nexus/MissionsPanel').then((m) => m.MissionsPanel))
+const TeamPanel = lazyComponent(() => import('@/components/nexus/TeamPanel').then((m) => m.TeamPanel))
+const SIDE_PANELS = [HistoryPanel, KnowledgePanel, MemoryPanel, BrowserPanel, MissionsPanel, TeamPanel]
+const BrainView = lazyComponent(
+  () => import('@/components/nexus/BrainView').then((m) => m.BrainView),
+  <div className="flex h-full items-center justify-center">
+    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+  </div>
+)
+
+/** Vrai dès que `open` a été vrai une fois : le panneau n'est monté (et téléchargé) qu'à sa première ouverture. */
+function useOpenedOnce(open: boolean): boolean {
+  const [opened, setOpened] = useState(open)
+  if (open && !opened) setOpened(true)
+  return opened || open
+}
+
+/**
+ * Messages normalisés (champs ajoutés après la v1.3), mis en cache par message :
+ * un message inchangé garde la même identité d'objet, donc sa bulle mémoïsée ne
+ * se re-rend pas à chaque paquet de texte diffusé (avant : TOUTES les bulles,
+ * Markdown et coloration de code compris, toutes les 70 ms pendant une réponse).
+ */
+const normalizedMessages = new WeakMap<ChatMessage, ChatMessage>()
+function normalizeMessage(m: ChatMessage): ChatMessage {
+  let n = normalizedMessages.get(m)
+  if (!n) {
+    n = { ...m, videos: m.videos ?? [], thought: m.thought ?? '', speaker: m.speaker ?? null }
+    normalizedMessages.set(m, n)
+  }
+  return n
+}
 
 const SUGGESTIONS = [
   { label: 'Veille IA', text: 'Quelles sont les dernières avancées en intelligence artificielle cette semaine ? Fais une synthèse.' },
@@ -574,10 +614,13 @@ export function AgentChat() {
   }, [])
 
   const refreshKnowledge = useCallback(() => {
-    fetch('/api/knowledge')
+    // Seulement le nombre de fiches (badge) : la liste complète est chargée par
+    // le panneau Savoir lui-même, à son ouverture.
+    fetch('/api/knowledge?count=1')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (Array.isArray(data?.items)) setKnowledgeCount(data.items.length as number)
+        if (typeof data?.count === 'number') setKnowledgeCount(data.count)
+        else if (Array.isArray(data?.items)) setKnowledgeCount(data.items.length as number)
       })
       .catch(() => {})
   }, [])
@@ -636,8 +679,16 @@ export function AgentChat() {
       /* quota : ignoré */
     }
   }, [target])
+  // (seulement à la FERMETURE du panneau : au montage, le chargement initial
+  // ci-dessus vient déjà de faire ces deux requêtes)
+  const teamWasOpen = useRef(false)
   useEffect(() => {
-    if (!teamOpen) {
+    if (teamOpen) {
+      teamWasOpen.current = true
+      return
+    }
+    if (teamWasOpen.current) {
+      teamWasOpen.current = false
       refreshAgents()
       refreshGroups()
     }
@@ -676,11 +727,55 @@ export function AgentChat() {
   }, [target, agents, groups])
 
   // Polling des missions : les exécutions en arrière-plan progressent même
-  // panneau fermé (badge + journal en direct)
+  // panneau fermé (badge + journal en direct). Toutes les 8 s seulement si une
+  // mission est en cours (ou le panneau ouvert), sinon toutes les ~48 s ; jamais
+  // quand l'onglet est masqué, et un rafraîchissement immédiat à son retour.
+  const pollRef = useRef({ active: false, panel: false })
   useEffect(() => {
-    const timer = setInterval(refreshTasks, 8000)
-    return () => clearInterval(timer)
+    pollRef.current.active = tasks.some((t) => t.status === 'running' || t.status === 'todo')
+  }, [tasks])
+  useEffect(() => {
+    pollRef.current.panel = missionsOpen
+  }, [missionsOpen])
+  useEffect(() => {
+    let last = Date.now()
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      const busy = pollRef.current.active || pollRef.current.panel
+      if (!busy && Date.now() - last < 45_000) return
+      last = Date.now()
+      refreshTasks()
+    }, 8000)
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      last = Date.now()
+      refreshTasks()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [refreshTasks])
+
+  // Préchargement des panneaux latéraux une fois la page prête (temps mort),
+  // puis montage (fermés) : leur première ouverture est alors instantanée,
+  // sans alourdir l'arrivée dans le chat.
+  const [panelsReady, setPanelsReady] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const cancel = whenIdle(() => {
+      Promise.all(SIDE_PANELS.map((panel) => panel.preload()))
+        .then(() => {
+          if (alive) setPanelsReady(true)
+        })
+        .catch(() => {})
+    }, 1200)
+    return () => {
+      alive = false
+      cancel()
+    }
+  }, [])
 
   /** Notification navigateur quand l'onglet est en arrière-plan. */
   const pushNotification = useCallback((title: string, body: string) => {
@@ -1245,25 +1340,31 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
     send(parts.join('\n\n'))
   }
 
-  const messages = useMemo(
-    () =>
-      (active?.messages ?? []).map((m) => ({
-        ...m,
-        // Normalisation : les conversations persistées avant v1.3 n'ont pas ces champs
-        videos: m.videos ?? [],
-        thought: m.thought ?? '',
-        speaker: m.speaker ?? null,
-      })),
-    [active?.messages]
-  )
+  // Normalisation : les conversations persistées avant v1.3 n'ont pas tous les
+  // champs (videos, thought, speaker) — voir normalizeMessage.
+  const messages = useMemo(() => (active?.messages ?? []).map(normalizeMessage), [active?.messages])
 
   // Toutes les sources de la conversation pour le panneau navigateur
-  const allSources: SourceItem[] = []
-  for (const m of messages) {
-    for (const s of m.sources) {
-      if (!allSources.some((x) => x.url === s.url)) allSources.push(s)
+  const allSources = useMemo(() => {
+    const seen = new Set<string>()
+    const out: SourceItem[] = []
+    for (const m of messages) {
+      for (const s of m.sources) {
+        if (seen.has(s.url)) continue
+        seen.add(s.url)
+        out.push(s)
+      }
     }
-  }
+    return out
+  }, [messages])
+
+  // Panneaux montés une fois préchargés, ou dès leur première ouverture
+  const historyEver = useOpenedOnce(historyOpen) || panelsReady
+  const memoryEver = useOpenedOnce(memoryOpen) || panelsReady
+  const knowledgeEver = useOpenedOnce(knowledgeOpen) || panelsReady
+  const browserEver = useOpenedOnce(browserOpen) || panelsReady
+  const missionsEver = useOpenedOnce(missionsOpen) || panelsReady
+  const teamEver = useOpenedOnce(teamOpen) || panelsReady
 
   return (
     <div className="flex h-full flex-col">
@@ -1645,7 +1746,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
       </div>
 
       {/* Panneaux latéraux */}
-      <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} />
+      {historyEver && <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} />}
       <Dialog open={brainsOpen} onOpenChange={setBrainsOpen}>
         <DialogContent className="flex h-[85vh] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:h-[85vh]">
           <DialogHeader className="border-b border-border/70 px-5 py-3">
@@ -1660,29 +1761,37 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           </div>
         </DialogContent>
       </Dialog>
-      <MemoryPanel open={memoryOpen} onOpenChange={setMemoryOpen} memories={memories} onRefresh={refreshMemories} />
-      <KnowledgePanel open={knowledgeOpen} onOpenChange={setKnowledgeOpen} onChanged={refreshKnowledge} />
-      <BrowserPanel open={browserOpen} onOpenChange={setBrowserOpen} pages={browsedPages} sources={allSources} />
-      <MissionsPanel
-        open={missionsOpen}
-        onOpenChange={setMissionsOpen}
-        tasks={tasks}
-        onRefresh={refreshTasks}
-        onLaunch={onLaunchMission}
-        busy={streaming}
-        agents={agents}
-      />
-      <TeamPanel
-        open={teamOpen}
-        onOpenChange={setTeamOpen}
-        agents={agents}
-        onRefresh={refreshAgents}
-        onOpenBlueprint={(agent) => {
-          setTeamOpen(false)
-          setBlueprintAgentFocus(agent.id)
-          setView('blueprints')
-        }}
-      />
+      {memoryEver && (
+        <MemoryPanel open={memoryOpen} onOpenChange={setMemoryOpen} memories={memories} onRefresh={refreshMemories} />
+      )}
+      {knowledgeEver && <KnowledgePanel open={knowledgeOpen} onOpenChange={setKnowledgeOpen} onChanged={refreshKnowledge} />}
+      {browserEver && (
+        <BrowserPanel open={browserOpen} onOpenChange={setBrowserOpen} pages={browsedPages} sources={allSources} />
+      )}
+      {missionsEver && (
+        <MissionsPanel
+          open={missionsOpen}
+          onOpenChange={setMissionsOpen}
+          tasks={tasks}
+          onRefresh={refreshTasks}
+          onLaunch={onLaunchMission}
+          busy={streaming}
+          agents={agents}
+        />
+      )}
+      {teamEver && (
+        <TeamPanel
+          open={teamOpen}
+          onOpenChange={setTeamOpen}
+          agents={agents}
+          onRefresh={refreshAgents}
+          onOpenBlueprint={(agent) => {
+            setTeamOpen(false)
+            setBlueprintAgentFocus(agent.id)
+            setView('blueprints')
+          }}
+        />
+      )}
     </div>
   )
 }

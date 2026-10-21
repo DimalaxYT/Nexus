@@ -1486,7 +1486,9 @@ async function runLlmPipeline(
         type: 'thought',
         text: info.generated
           ? `Réponse rédigée par le modèle de langue local — ${info.tokens} token(s) générés, confiance ${Math.round(info.confidence * 100)} %${info.source ? `, appuyée sur : ${info.source}` : ''}.`
-          : `Réponse reprise du savoir local retrouvé${info.source ? ` (${info.source})` : ''} : la génération du modèle n'a pas passé les garde-fous de qualité.`,
+          : info.skipped
+            ? `Réponse reprise directement du savoir local retrouvé${info.source ? ` (${info.source})` : ''} : le modèle de langue est en observation — ses dernières rédactions n'ont pas passé les garde-fous de qualité, il est retenté régulièrement.`
+            : `Réponse reprise du savoir local retrouvé${info.source ? ` (${info.source})` : ''} : la génération du modèle n'a pas passé les garde-fous de qualité.`,
       })
     },
   }

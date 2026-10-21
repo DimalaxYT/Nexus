@@ -133,9 +133,17 @@ export async function searchWeb(query: string, max = 6): Promise<SearchResult[] 
 }
 
 /** Bibliothèque de l'agent : les dernières pages qu'il a lues. */
-export async function listPages(userId: string, take = 40): Promise<DevPageRecord[]> {
+/** Colonnes de la liste « légère » : tout sauf le texte extrait (souvent des dizaines de Ko par page). */
+const PAGE_LIST_COLUMNS = { id: true, url: true, title: true, domain: true, bytes: true, runId: true, origin: true, hits: true, fetchedAt: true }
+
+export async function listPages(userId: string, take = 40, opts: { withText?: boolean } = {}): Promise<DevPageRecord[]> {
   try {
-    const rows = await db.devPage.findMany({ where: { userId }, orderBy: { fetchedAt: 'desc' }, take })
+    const rows = await db.devPage.findMany({
+      where: { userId },
+      orderBy: { fetchedAt: 'desc' },
+      take,
+      ...(opts.withText === false ? { select: PAGE_LIST_COLUMNS } : {}),
+    })
     return (rows ?? []).map(shapePage)
   } catch {
     return []
@@ -145,7 +153,8 @@ export async function listPages(userId: string, take = 40): Promise<DevPageRecor
 /** statistiques de la bibliothèque */
 export async function pagesStats(userId: string): Promise<{ pages: number; domains: number; bytes: number }> {
   try {
-    const rows = await db.devPage.findMany({ where: { userId }, take: 500 })
+    // Seules les colonnes utiles au décompte (avant : 500 pages complètes, texte compris)
+    const rows = await db.devPage.findMany({ where: { userId }, take: 500, select: { domain: true, bytes: true } })
     const list = rows ?? []
     const domains = new Set(list.map((r) => String(r.domain ?? '')).filter(Boolean))
     return {

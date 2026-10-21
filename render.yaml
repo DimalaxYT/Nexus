@@ -6,9 +6,13 @@
 #   • NEXUS tourne avec node:sqlite → Node >= 22.5 obligatoire (NODE_VERSION).
 #   • Le build Next.js (Turbopack) dépasse 800 Mo de RAM : le plan Free (512 Mo)
 #     tue le build (exit 137 / OOM). Le plan Starter (2 Go) passe sans problème.
-#   • La base est un fichier SQLite LOCAL : aucune dépendance Turso/Postgres.
-#     Pour ne PAS perdre les données à chaque redéploiement, il faut un Disk
-#     Render et DATABASE_URL pointant dessus (ex: file:/var/data/custom.db).
+#   • BASE DE DONNÉES : sur le plan Free, Render efface le système de fichiers à
+#     chaque redéploiement, redémarrage ou mise en veille, et n'accepte pas de
+#     Disk. Renseignez donc TURSO_DATABASE_URL + TURSO_AUTH_TOKEN (base Turso
+#     libSQL, offre gratuite) dans le dashboard : les données y sont gardées, et
+#     NEXUS les lit depuis une réplique locale (aussi rapide qu'un fichier).
+#     Au premier démarrage, une base Turso vide reçoit la base locale (voir README).
+#     Sans Turso : fichier SQLite de DATABASE_URL, à mettre sur un Disk (plan payant).
 #   • Le cerveau IA est 100 % local (aucune clé OpenAI/Ollama requise).
 
 services:
@@ -25,22 +29,30 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.22.0       # node:sqlite exige Node >= 22.5
+      - key: TURSO_DATABASE_URL
+        sync: false          # libsql://nexus-<organisation>.turso.io (turso db show nexus --url)
+      - key: TURSO_AUTH_TOKEN
+        sync: false          # jeton de la base (turso db tokens create nexus) — JAMAIS dans ce fichier
       - key: DATABASE_URL
-        value: file:/var/data/custom.db   # fichier SQLite sur le disque persistant
+        value: file:/var/data/custom.db   # sans Turso : fichier SQLite (Disk, plan payant) ;
+                                          # avec Turso : source de l'import initial s'il existe
       - key: NEXUS_SECRET_KEY
-        generateValue: true  # clé maîtresse AES-256 générée par Render
+        generateValue: true  # clé maîtresse AES-256 générée par Render — ne jamais la changer
       - key: NEXUS_DEV_PASSWORD
-        sync: false          # mot de passe du compte Dev (à définir dans le dashboard)
+        sync: false          # mot de passe du compte Dev (remplace aussi « dev2026 » du compte importé)
       - key: SMTP_HOST
-        sync: false          # ex. smtp.gmail.com — codes de connexion (2FA) par e-mail
+        sync: false          # ex. smtp-relay.brevo.com — codes de réinitialisation par e-mail
       - key: SMTP_PORT
-        value: "465"
+        sync: false          # 2525 sur le plan Free (25/465/587 bloqués par Render) ; 465 ou 587 en payant
       - key: SMTP_USER
         sync: false          # adresse d'envoi (mot de passe d'application Gmail)
       - key: SMTP_PASS
         sync: false          # mot de passe d'application — JAMAIS en clair dans ce fichier
       - key: MAIL_FROM
         sync: false          # ex. NEXUS <vous@domaine.fr>
+    # Disk persistant : plans payants uniquement, inutile avec Turso. Gardé ici pour
+    # ne pas supprimer un disque existant (et ses données) lors d'une synchro du
+    # Blueprint ; sur le plan Free, retirez ce bloc une fois Turso configuré.
     disk:
       name: nexus-data
       mountPath: /var/data

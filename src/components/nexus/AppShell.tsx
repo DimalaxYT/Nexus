@@ -39,17 +39,37 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Hub } from '@/components/nexus/Hub'
 import { AgentChat } from '@/components/nexus/AgentChat'
-import { ConnectionsPanel } from '@/components/nexus/ConnectionsPanel'
-import { ImageStudio } from '@/components/nexus/studios/ImageStudio'
-import { VideoStudio } from '@/components/nexus/studios/VideoStudio'
-import { CodeStudio } from '@/components/nexus/studios/CodeStudio'
-import { AuthGate } from '@/components/nexus/AuthGate'
-import { AccountPanel } from '@/components/nexus/AccountPanel'
-import { BlueprintsPanel } from '@/components/nexus/BlueprintsPanel'
-import { ApiKeysPanel } from '@/components/nexus/ApiKeysPanel'
-import { DevDashboard } from '@/components/nexus/DevDashboard'
+import { lazyComponent, whenIdle } from '@/components/nexus/lazy-component'
+
+// ── Vues chargées à la demande ───────────────────────────────────────────────
+// Seule la discussion (vue d'arrivée) fait partie du premier téléchargement.
+// Avant, TOUTES les vues étaient importées statiquement : studios, espace Dev,
+// réglages, accueil animé… soit ~3,3 Mo de JavaScript à télécharger, analyser
+// et exécuter avant de pouvoir écrire le premier message. Chaque vue est
+// désormais un morceau séparé, chargé à l'ouverture — et préchargé en tâche de
+// fond pour les réglages (voir NexusApp), qui s'ouvrent alors instantanément.
+const viewLoading = <StudioLoading label="Chargement…" />
+const studioLoading = <StudioLoading label="Chargement du studio…" />
+
+const Hub = lazyComponent(() => import('@/components/nexus/Hub').then((m) => m.Hub), viewLoading)
+const ConnectionsPanel = lazyComponent(() => import('@/components/nexus/ConnectionsPanel').then((m) => m.ConnectionsPanel), viewLoading)
+const AccountPanel = lazyComponent(() => import('@/components/nexus/AccountPanel').then((m) => m.AccountPanel), viewLoading)
+const BlueprintsPanel = lazyComponent(() => import('@/components/nexus/BlueprintsPanel').then((m) => m.BlueprintsPanel), viewLoading)
+const ApiKeysPanel = lazyComponent(() => import('@/components/nexus/ApiKeysPanel').then((m) => m.ApiKeysPanel), viewLoading)
+const DevDashboard = lazyComponent(
+  () => import('@/components/nexus/DevDashboard').then((m) => m.DevDashboard),
+  <StudioLoading label="Ouverture de l’espace Dev…" />
+)
+const ImageStudio = lazyComponent(() => import('@/components/nexus/studios/ImageStudio').then((m) => m.ImageStudio), studioLoading)
+const VideoStudio = lazyComponent(() => import('@/components/nexus/studios/VideoStudio').then((m) => m.VideoStudio), studioLoading)
+const CodeStudio = lazyComponent(() => import('@/components/nexus/studios/CodeStudio').then((m) => m.CodeStudio), studioLoading)
+const AuthGate = lazyComponent(
+  () => import('@/components/nexus/AuthGate').then((m) => m.AuthGate),
+  <div className="flex h-dvh items-center justify-center bg-background">
+    <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+  </div>
+)
 
 const Studio3D = dynamic(
   () => import('@/components/nexus/studios/Studio3D').then((m) => m.Studio3D),
@@ -305,6 +325,23 @@ function NexusApp() {
   const { user, loading, accountsExist } = useAuth()
   const { settings } = useSiteSettings()
   const footer = settings.footerText || 'IA 100 % locale — cerveau embarqué, aucune API externe.'
+
+  // Préchargement des réglages (compte, clés, blueprints, connexions, accueil)
+  // une fois l'application affichée et au repos : les ouvrir est instantané,
+  // sans alourdir l'arrivée dans le chat.
+  const userId = user?.id ?? null
+  const isDev = user?.role === 'dev'
+  useEffect(() => {
+    if (loading || !userId) return
+    return whenIdle(
+      () => {
+        const views = [AccountPanel, ApiKeysPanel, BlueprintsPanel, ConnectionsPanel, Hub, ...(isDev ? [DevDashboard] : [])]
+        for (const view of views) view.preload().catch(() => {})
+      },
+      3000,
+      8000
+    )
+  }, [loading, userId, isDev])
 
   if (loading) {
     return (

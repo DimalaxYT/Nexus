@@ -16,9 +16,18 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
 interface DbSnapshot {
-  current: { mode: 'local' | 'turso'; origin: string; target: string }
-  saved: { mode: 'local' | 'turso'; origin: string; tursoUrl: string; tokenSet: boolean; localPath: string; savedAt: string | null; envTurso: boolean }
-  stats: { latencyMs: number; totalRows: number; tables: { name: string; rows: number }[] } | null
+  current: { mode: 'local' | 'turso'; origin: string; target: string; replica?: boolean; stale?: boolean; note?: string }
+  saved: {
+    mode: 'local' | 'turso'
+    origin: string
+    tursoUrl: string
+    tokenSet: boolean
+    localPath: string
+    savedAt: string | null
+    envTurso: boolean
+    onRender?: boolean
+  }
+  stats: { latencyMs: number; remoteLatencyMs?: number | null; totalRows: number; tables: { name: string; rows: number }[] } | null
   statsError: string
 }
 
@@ -120,23 +129,56 @@ function DatabaseCard() {
                 <Badge variant="outline" className="text-[10px]">{cur?.origin === 'dashboard' ? 'réglée ici' : cur?.origin === 'env' ? 'variables d’env.' : 'par défaut'}</Badge>
               </p>
               <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{cur?.target}</p>
+              {cur?.mode === 'turso' && (
+                <p className={cn('mt-1 text-[10px]', cur.stale ? 'text-amber-600 dark:text-amber-300' : 'text-muted-foreground')}>
+                  {cur.replica
+                    ? cur.stale
+                      ? 'réplique locale en retard : lectures envoyées à Turso'
+                      : 'réplique locale : lectures sur place, écritures vers Turso'
+                    : 'accès direct : chaque requête va jusqu’à Turso'}
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-border/60 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Contenu</p>
               <p className="mt-1 font-semibold">{snap.stats ? `${snap.stats.totalRows.toLocaleString('fr-FR')} lignes` : 'indisponible'}</p>
               <p className="text-[10px] text-muted-foreground">
-                {snap.stats ? `latence ${snap.stats.latencyMs} ms · ${snap.stats.tables.length} tables` : snap.statsError}
+                {snap.stats
+                  ? `lecture ${snap.stats.latencyMs} ms${snap.stats.remoteLatencyMs != null ? ` · Turso ${snap.stats.remoteLatencyMs} ms` : ''} · ${snap.stats.tables.length} tables`
+                  : snap.statsError}
               </p>
             </div>
             <div className="rounded-lg border border-border/60 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Turso enregistré</p>
               <p className="mt-1 font-semibold">{snap.saved.tursoUrl ? 'oui' : 'non'}</p>
               <p className="text-[10px] text-muted-foreground">
-                {snap.saved.tokenSet ? 'jeton chiffré (AES-256-GCM)' : snap.saved.envTurso ? 'variables TURSO_* détectées' : 'aucun jeton'}
+                {cur?.origin === 'env' && snap.saved.envTurso
+                  ? 'variables TURSO_* (environnement)'
+                  : snap.saved.tokenSet
+                    ? 'jeton chiffré (AES-256-GCM)'
+                    : snap.saved.envTurso
+                      ? 'variables TURSO_* détectées'
+                      : 'aucun jeton'}
                 {snap.saved.savedAt ? ` · ${when(snap.saved.savedAt)}` : ''}
               </p>
             </div>
           </div>
+
+          {cur?.note && <p className="text-[11px] text-muted-foreground">ℹ️ {cur.note}</p>}
+          {snap.saved.onRender && cur?.mode === 'local' && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-200">
+              Sur le plan gratuit de Render, le fichier de la base locale est effacé à chaque redéploiement, redémarrage ou mise
+              en veille. Ajoutez <span className="font-mono">TURSO_DATABASE_URL</span> et <span className="font-mono">TURSO_AUTH_TOKEN</span>{' '}
+              dans Render → Environment pour garder les données.
+            </p>
+          )}
+          {snap.saved.onRender && cur?.mode === 'turso' && cur.origin === 'dashboard' && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-200">
+              Ce réglage est enregistré dans un fichier que Render efface à chaque redémarrage (plan gratuit) : recopiez l’adresse et
+              le jeton dans Render → Environment (<span className="font-mono">TURSO_DATABASE_URL</span>,{' '}
+              <span className="font-mono">TURSO_AUTH_TOKEN</span>) pour qu’il tienne.
+            </p>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-xs">
@@ -168,8 +210,10 @@ function DatabaseCard() {
           </div>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Le jeton est chiffré avant d’être écrit sur le disque et n’est jamais ré-affiché. « Migrer » copie toutes les tables
-            (comptes, conversations, connaissances, modèle entraîné…) puis bascule sans redémarrer le serveur. Créez le jeton
-            dans la console Turso (<span className="font-mono">turso db tokens create</span>).
+            (comptes, conversations, connaissances, modèle entraîné…) puis bascule sans redémarrer le serveur. Créez une base
+            libSQL et son jeton dans la console Turso (<span className="font-mono">turso db tokens create</span>). En production,
+            préférez les variables <span className="font-mono">TURSO_DATABASE_URL</span> / <span className="font-mono">TURSO_AUTH_TOKEN</span> :
+            une base Turso vide y reçoit automatiquement les données locales au premier démarrage.
           </p>
         </div>
       )}
@@ -194,7 +238,9 @@ function GardienCard() {
   useEffect(() => {
     setOrigin(window.location.origin)
     void load()
-    const id = window.setInterval(() => void load(), 15_000)
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load()
+    }, 15_000)
     return () => window.clearInterval(id)
   }, [load])
 
