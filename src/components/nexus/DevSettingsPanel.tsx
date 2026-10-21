@@ -162,7 +162,7 @@ function DatabaseCard() {
             <Button size="sm" variant="ghost" className="gap-1.5" disabled={!!busy} onClick={() => void run('use-local')}>
               Revenir à la base locale
             </Button>
-            <Button size="sm" variant="ghost" className="gap-1.5 text-rose-300" disabled={!!busy} onClick={() => void run('forget')}>
+            <Button size="sm" variant="ghost" className="gap-1.5 text-rose-600 dark:text-rose-300" disabled={!!busy} onClick={() => void run('forget')}>
               <Trash2 className="h-3.5 w-3.5" /> Oublier la config
             </Button>
           </div>
@@ -234,7 +234,7 @@ function GardienCard() {
               </p>
             </div>
             <div className="flex items-center gap-2 text-xs">
-              <span className={cn(state.enabled ? 'text-neutral-200' : 'text-muted-foreground')}>{state.enabled ? 'Activé' : 'Désactivé'}</span>
+              <span className={cn(state.enabled ? 'text-foreground' : 'text-muted-foreground')}>{state.enabled ? 'Activé' : 'Désactivé'}</span>
               <Switch checked={state.enabled} disabled={!!busy} onCheckedChange={(v) => void act('enable', { enabled: v })} />
             </div>
           </div>
@@ -252,13 +252,13 @@ function GardienCard() {
             </div>
             <div className="rounded-lg border border-border/60 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">État</p>
-              <p className={cn('mt-1 font-semibold', last?.ok ? 'text-neutral-200' : last ? 'text-rose-300' : '')}>
+              <p className={cn('mt-1 font-semibold', last?.ok ? 'text-foreground' : last ? 'text-rose-600 dark:text-rose-300' : '')}>
                 {last ? (last.ok ? 'OK' : 'Erreur') : '—'}
               </p>
               <p className="text-[10px] text-muted-foreground">
                 {last ? `IA ${last.aiReady ? 'entraînée' : 'non entraînée'} · ${last.aiMs} ms · base ${last.dbMs} ms` : 'aucun ping encore'}
               </p>
-              {last?.error ? <p className="mt-1 text-[10px] text-rose-300">{last.error}</p> : null}
+              {last?.error ? <p className="mt-1 text-[10px] text-rose-600 dark:text-rose-300">{last.error}</p> : null}
             </div>
           </div>
 
@@ -280,20 +280,20 @@ function GardienCard() {
             {state.tokenSet ? (
               <p className="text-[11px] text-muted-foreground">Jeton actuel : <span className="font-mono">{state.tokenPrefix}…</span> (régénérer invalide l’ancien)</p>
             ) : (
-              <p className="text-[11px] text-amber-300">Aucun jeton : le bot externe ne peut pas se connecter tant que tu n’en crées pas un.</p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300">Aucun jeton : le bot externe ne peut pas se connecter tant que tu n’en crées pas un.</p>
             )}
             {fresh ? (
               <div className="rounded-lg border border-amber-300/30 bg-amber-300/5 p-3">
-                <p className="mb-2 text-[11px] font-semibold text-amber-200">Jeton (affiché une seule fois)</p>
+                <p className="mb-2 text-[11px] font-semibold text-amber-700 dark:text-amber-200">Jeton (affiché une seule fois)</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 break-all rounded bg-black/40 px-2 py-1.5 font-mono text-[11px]">{fresh}</code>
+                  <code className="flex-1 break-all rounded bg-muted/60 px-2 py-1.5 font-mono text-[11px]">{fresh}</code>
                   <Button size="icon" variant="outline" className="h-8 w-8 shrink-0" onClick={() => { void navigator.clipboard.writeText(fresh); toast.success('Copié') }}>
                     <Copy className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
             ) : null}
-            <div className="rounded-lg border border-border/60 bg-black/30 p-3">
+            <div className="rounded-lg border border-border/60 bg-muted/50 p-3">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Adresse à appeler chaque minute</p>
               <code className="break-all font-mono text-[11px]">{pingUrl}</code>
               <p className="mt-2 text-[10px] text-muted-foreground">

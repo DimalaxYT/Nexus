@@ -62,8 +62,8 @@ function Sparkline({ points }: { points: { step: number; loss: number }[] }) {
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${(((p.step - x0) / (x1 - x0)) * (w - 8) + 4).toFixed(1)},${(h - 4 - ((p.loss - y0) / (y1 - y0)) * (h - 8)).toFixed(1)}`)
     .join(' ')
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-28 w-full rounded-lg border border-border/60 bg-black/30">
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="2" className="text-neutral-200" />
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-28 w-full rounded-lg border border-border/60 bg-muted/50">
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground" />
     </svg>
   )
 }
@@ -159,7 +159,7 @@ export function DevLlmPanel() {
             <div className="rounded-lg border border-border/60 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Corpus</p>
               <p className="mt-1 font-semibold">{snap.corpus.chars.toLocaleString('fr-FR')} caractères</p>
-              <p className={cn('text-[10px]', snap.corpus.trainable ? 'text-muted-foreground' : 'text-amber-300')}>
+              <p className={cn('text-[10px]', snap.corpus.trainable ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-300')}>
                 {snap.corpus.trainable ? 'suffisant pour entraîner' : 'trop court (minimum 4 000)'}
               </p>
             </div>
@@ -199,11 +199,11 @@ export function DevLlmPanel() {
                 <span className="text-[10px] text-muted-foreground">{job.params.toLocaleString('fr-FR')} paramètres</span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-neutral-200 transition-all" style={{ width: `${progress}%` }} />
+                <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
               </div>
-              {job.error ? <p className="text-xs text-rose-300">{job.error}</p> : null}
+              {job.error ? <p className="text-xs text-rose-600 dark:text-rose-300">{job.error}</p> : null}
               <Sparkline points={job.lossHistory} />
-              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-muted/50 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
                 {job.log.join('\n')}
               </pre>
             </div>

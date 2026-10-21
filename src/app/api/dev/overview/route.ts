@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic'
 const TABLES = [
   'user', 'session', 'conversation', 'memory', 'knowledge', 'task',
   'agentProfile', 'agentGroup', 'accountConnection', 'blueprint', 'apiKey', 'apiKeyLog',
+  'devWebhook', 'devApproval', 'devWebhookLog',
 ] as const
 
 export async function GET() {
@@ -38,6 +39,7 @@ export async function GET() {
     ])
 
     const weakSpots = await findWeakSpots()
+    const pendingApprovals = await db.devApproval.count({ where: { status: 'pending' } }).catch(() => 0)
 
     // Appels des dernières 24 h
     const since = Date.now() - 24 * 60 * 60 * 1000
@@ -50,6 +52,7 @@ export async function GET() {
 
     return Response.json({
       counts,
+      approvals: { pending: pendingApprovals },
       code: {
         files: stats.files,
         lines: stats.lines,

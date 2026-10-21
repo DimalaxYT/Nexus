@@ -108,20 +108,20 @@ function StepsTimeline({ steps }: { steps: AgentStep[] }) {
           className={cn(
             'flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs',
             step.status === 'error'
-              ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+              ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-300'
               : 'border-border bg-muted/60 text-foreground/80'
           )}
         >
           {step.status === 'running' ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-neutral-400" />
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           ) : step.status === 'error' ? (
             <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
           ) : (
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-500/20">
-              <Check className="h-3 w-3 text-neutral-400" />
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/20">
+              <Check className="h-3 w-3 text-muted-foreground" />
             </span>
           )}
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-400">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
             <StepIcon tool={step.tool} />
           </span>
           <span className="font-medium text-foreground">{step.label}</span>
@@ -147,21 +147,21 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
         <button
           onClick={toggle}
           aria-expanded={open}
-          className="flex items-center gap-2 rounded-full border border-neutral-500/30 bg-neutral-500/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-500/20"
+          className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/90"
         >
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground/80" />
           NEXUS réfléchit…
           {message.steps.length > 0 && (
-            <span className="rounded-full bg-neutral-500/25 px-1.5 text-[10px] font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/25 px-1.5 text-[10px] font-semibold text-foreground/80">
               {message.steps.length}
             </span>
           )}
-          <ChevronDown className={cn('h-3.5 w-3.5 text-neutral-300/80 transition-transform', open && 'rotate-180')} />
+          <ChevronDown className={cn('h-3.5 w-3.5 text-foreground/60 transition-transform', open && 'rotate-180')} />
         </button>
         {open && (
           <div className="mt-2 rounded-xl border border-border bg-muted/40 p-3">
             {message.thought && (
-              <p className="mb-2 border-l-2 border-neutral-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
+              <p className="mb-2 border-l-2 border-primary/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
                 « {message.thought} »
               </p>
             )}
@@ -183,10 +183,10 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
         aria-expanded={open}
         className="flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
-        <Brain className="h-3.5 w-3.5 text-neutral-400/80" />
+        <Brain className="h-3.5 w-3.5 text-muted-foreground/80" />
         Réflexion de {speakerName}
         {message.steps.length > 0 && (
-          <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
+          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-foreground/80">
             {message.steps.length}
           </span>
         )}
@@ -195,7 +195,7 @@ function ThinkingMenu({ message }: { message: ChatMessage }) {
       {open && (
         <div className="mt-2 rounded-xl border border-border bg-muted/30 p-3">
           {message.thought && (
-            <p className="mb-2 border-l-2 border-neutral-500/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
+            <p className="mb-2 border-l-2 border-primary/50 pl-2.5 text-xs italic leading-relaxed text-muted-foreground">
               « {message.thought} »
             </p>
           )}
@@ -220,9 +220,9 @@ function SourceList({ sources }: { sources: SourceItem[] }) {
               href={s.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-baseline gap-1.5 text-xs text-muted-foreground hover:text-neutral-300"
+              className="group flex items-baseline gap-1.5 text-xs text-muted-foreground hover:text-foreground/80"
             >
-              <span className="font-medium text-foreground/80 group-hover:text-neutral-300">{s.title}</span>
+              <span className="font-medium text-foreground/80 group-hover:text-foreground/80">{s.title}</span>
               <span className="truncate text-muted-foreground/70">{s.domain}</span>
               <ExternalLink className="h-3 w-3 shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100" />
             </a>
@@ -288,9 +288,9 @@ function ArtifactImages({
 
 function SceneCard({ scene, onOpen }: { scene: SceneSpec; onOpen: () => void }) {
   return (
-    <div className="mt-3 flex items-center gap-3 rounded-xl border border-neutral-500/30 bg-neutral-500/10 p-3.5">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-neutral-500 to-rose-500">
-        <Boxes className="h-5 w-5 text-white" />
+    <div className="mt-3 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3.5">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
+        <Boxes className="h-5 w-5 text-primary-foreground" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-foreground">{scene.name}</p>
@@ -298,7 +298,7 @@ function SceneCard({ scene, onOpen }: { scene: SceneSpec; onOpen: () => void }) 
           Scène 3D prête — {scene.objects.length} objets {scene.ground ? '· sol inclus' : ''}
         </p>
       </div>
-      <Button size="sm" className="h-8 gap-1.5 bg-neutral-500 text-white hover:bg-neutral-500" onClick={onOpen}>
+      <Button size="sm" className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90" onClick={onOpen}>
         <ExternalLink className="h-3.5 w-3.5" />
         Studio 3D
       </Button>
@@ -309,9 +309,9 @@ function SceneCard({ scene, onOpen }: { scene: SceneSpec; onOpen: () => void }) 
 function CodeCard({ code, onOpen }: { code: CodeArtifact; onOpen: () => void }) {
   const isScript = Boolean(code.files.language) && !['web', 'html'].includes(code.files.language ?? '')
   return (
-    <div className="mt-3 flex items-center gap-3 rounded-xl border border-neutral-500/30 bg-neutral-500/10 p-3.5">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-neutral-500 to-neutral-600">
-        {isScript ? <FileCode2 className="h-5 w-5 text-white" /> : <Code2 className="h-5 w-5 text-white" />}
+    <div className="mt-3 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3.5">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/85">
+        {isScript ? <FileCode2 className="h-5 w-5 text-primary-foreground" /> : <Code2 className="h-5 w-5 text-primary-foreground" />}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-foreground">{code.name}</p>
@@ -321,7 +321,7 @@ function CodeCard({ code, onOpen }: { code: CodeArtifact; onOpen: () => void }) 
             : 'Page web prête — HTML · CSS · JS interactive'}
         </p>
       </div>
-      <Button size="sm" className="h-8 shrink-0 gap-1.5 bg-neutral-500 text-white hover:bg-sky-600" onClick={onOpen}>
+      <Button size="sm" className="h-8 shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-sky-600" onClick={onOpen}>
         <ExternalLink className="h-3.5 w-3.5" />
         Studio Code
       </Button>
@@ -335,11 +335,11 @@ function VideoCard({ video, onOpen }: { video: VideoArtifact; onOpen: (url: stri
     ? `${video.url}${video.url.includes('?') ? '&' : '?'}download=1`
     : `/api/tools/video/download?url=${encodeURIComponent(video.url)}`
   return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-neutral-500/30 bg-neutral-500/10">
+    <div className="mt-3 overflow-hidden rounded-xl border border-primary/30 bg-primary/10">
       <video src={video.url} controls preload="metadata" className="max-h-80 w-full bg-black" />
       <div className="flex items-center gap-3 p-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-neutral-500 to-rose-500">
-          <Film className="h-4.5 w-4.5 text-white" />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
+          <Film className="h-4.5 w-4.5 text-primary-foreground" />
         </span>
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{video.prompt}</p>
         <a
@@ -354,7 +354,7 @@ function VideoCard({ video, onOpen }: { video: VideoArtifact; onOpen: (url: stri
         </a>
         <Button
           size="sm"
-          className="h-8 shrink-0 gap-1.5 bg-neutral-500 text-white hover:bg-neutral-600"
+          className="h-8 shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={() => onOpen(video.url)}
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -388,7 +388,7 @@ function MessageBubbleInner({
             </span>
           )}
           <div className="flex items-start gap-2.5">
-            <div className="rounded-2xl rounded-tr-md bg-gradient-to-br from-neutral-500 to-neutral-500 px-4 py-2.5 text-sm leading-relaxed text-white shadow-md shadow-neutral-500/20">
+            <div className="rounded-2xl rounded-tr-md bg-gradient-to-br from-primary to-primary/80 px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-md shadow-primary/20">
               {message.content}
             </div>
             <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -428,8 +428,8 @@ function MessageBubbleInner({
           {speaker ? (
             <span className="text-sm leading-none">{speaker.emoji}</span>
           ) : (
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-neutral-500 to-neutral-500">
-              <Boxes className="h-3.5 w-3.5 text-white" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/80">
+              <Boxes className="h-3.5 w-3.5 text-primary-foreground" />
             </span>
           )}
         </span>
@@ -470,21 +470,21 @@ function MessageBubbleInner({
 function DeliberationPanel({ entries }: { entries: DeliberationEntry[] }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="mb-3 overflow-hidden rounded-xl border border-neutral-500/30 bg-neutral-500/5">
+    <div className="mb-3 overflow-hidden rounded-xl border border-primary/30 bg-primary/5">
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-neutral-500/10"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-primary/90"
       >
-        <Users className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-        <span className="text-xs font-semibold text-sky-200">Bureau — ce que l'équipe a échangé</span>
-        <span className="rounded-full bg-neutral-500/20 px-1.5 text-[10px] font-semibold text-sky-300">
+        <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-xs font-semibold text-sky-700 dark:text-sky-200">Bureau — ce que l'équipe a échangé</span>
+        <span className="rounded-full bg-primary/20 px-1.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300">
           {entries.length} contribution{entries.length > 1 ? 's' : ''}
         </span>
-        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 text-sky-300/80 transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 text-sky-700/80 dark:text-sky-300/80 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="flex flex-col gap-2 border-t border-neutral-500/20 px-3 py-2.5">
+        <div className="flex flex-col gap-2 border-t border-primary/20 px-3 py-2.5">
           {entries.map((e, i) => (
             <div key={`${e.name}-${i}`} className="rounded-lg border border-border/70 bg-card/70 px-2.5 py-2">
               <p className="mb-1 text-[11px] font-bold tracking-wide" style={{ color: e.color }}>
@@ -1278,7 +1278,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
         >
           <History className="h-4 w-4" />
           <span className="hidden sm:inline">Historique</span>
-          <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
+          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-foreground/80">
             {conversations.length}
           </span>
         </Button>
@@ -1292,7 +1292,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           onClick={() => setBrowserOpen(true)}
           aria-label="Ouvrir le navigateur"
         >
-          <Globe className="h-4 w-4 text-neutral-400" />
+          <Globe className="h-4 w-4 text-muted-foreground" />
           <span className="hidden sm:inline">Navigateur</span>
         </Button>
         <Button
@@ -1302,7 +1302,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           onClick={() => setBrainsOpen(true)}
           aria-label="Ouvrir la salle des cerveaux 3D"
         >
-          <Brain className="h-4 w-4 text-neutral-400" />
+          <Brain className="h-4 w-4 text-muted-foreground" />
           <span className="hidden sm:inline">Cerveaux</span>
         </Button>
         <Button
@@ -1315,10 +1315,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           }}
           aria-label="Ouvrir les missions"
         >
-          <ListChecks className="h-4 w-4 text-amber-400" />
+          <ListChecks className="h-4 w-4 text-amber-700 dark:text-amber-400" />
           <span className="hidden sm:inline">Task</span>
           {tasks.filter((t) => t.status !== 'done').length > 0 && (
-            <span className="rounded-full bg-neutral-300/15 px-1.5 text-[10px] font-semibold text-amber-300">
+            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
               {tasks.filter((t) => t.status !== 'done').length}
             </span>
           )}
@@ -1333,10 +1333,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           }}
           aria-label="Ouvrir l'équipe multi-agents"
         >
-          <Users className="h-4 w-4 text-neutral-400" />
+          <Users className="h-4 w-4 text-muted-foreground" />
           <span className="hidden sm:inline">Équipe</span>
           {agents.filter((a) => a.enabled).length > 0 && (
-            <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-foreground/80">
               {agents.filter((a) => a.enabled).length}
             </span>
           )}
@@ -1348,10 +1348,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           onClick={() => setKnowledgeOpen(true)}
           aria-label="Ouvrir la base de connaissances"
         >
-          <BookOpen className="h-4 w-4 text-neutral-400" />
+          <BookOpen className="h-4 w-4 text-muted-foreground" />
           <span className="hidden sm:inline">Savoir</span>
           {knowledgeCount > 0 && (
-            <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-foreground/80">
               {knowledgeCount}
             </span>
           )}
@@ -1366,10 +1366,10 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           }}
           aria-label="Ouvrir la mémoire de l'agent"
         >
-          <Brain className="h-4 w-4 text-neutral-400" />
+          <Brain className="h-4 w-4 text-muted-foreground" />
           <span className="hidden sm:inline">Mémoire</span>
           {memories.length > 0 && (
-            <span className="rounded-full bg-neutral-500/15 px-1.5 text-[10px] font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-foreground/80">
               {memories.length}
             </span>
           )}
@@ -1379,7 +1379,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           size="icon"
           className={cn(
             'h-9 w-9 shrink-0 border-border hover:bg-accent',
-            notifyOn && 'border-neutral-300/40 bg-neutral-300/10 text-amber-300'
+            notifyOn && 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
           )}
           onClick={toggleNotify}
           aria-label={notifyOn ? 'Désactiver les notifications' : 'Activer les notifications de fin de tâche'}
@@ -1391,7 +1391,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           size="icon"
           className={cn(
             'h-9 w-9 shrink-0 border-border hover:bg-accent',
-            localModel && 'border-neutral-300/40 bg-neutral-300/10 text-emerald-300'
+            localModel && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
           )}
           onClick={toggleLocalModel}
           aria-pressed={localModel}
@@ -1413,7 +1413,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           <Button
             variant="outline"
             size="icon"
-            className="h-9 w-9 shrink-0 border-border text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+            className="h-9 w-9 shrink-0 border-border text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300"
             onClick={() => {
               deleteConversation(active.id)
               toast.success('Conversation supprimée')
@@ -1430,8 +1430,8 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center pt-10 text-center">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-neutral-500 via-neutral-500 to-rose-500 shadow-xl shadow-neutral-500/30">
-                <Boxes className="h-8 w-8 text-white" />
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-xl shadow-primary/30">
+                <Boxes className="h-8 w-8 text-primary-foreground" />
               </div>
               <h2 className="text-xl font-bold text-foreground">Bonjour, je suis NEXUS</h2>
               <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -1440,7 +1440,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                 travaille <strong>seul en arrière-plan</strong> sur les missions que tu me confies,
                 même quand tu n'es pas là.
               </p>
-              <p className="mt-3 max-w-md rounded-lg border border-neutral-500/25 bg-neutral-500/10 px-3 py-2 text-xs leading-relaxed text-neutral-300">
+              <p className="mt-3 max-w-md rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs leading-relaxed text-foreground/80">
                 💬 <strong>Avec qui veux-tu parler ?</strong> Choisis juste au-dessus de la barre de
                 saisie : <strong>NEXUS</strong> (globale), le <strong>Bureau</strong> (tous les agents
                 réfléchissent ensemble, une seule réponse consolidée), la <strong>table ronde</strong>{' '}
@@ -1452,9 +1452,9 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                   <button
                     key={s.label}
                     onClick={() => send(s.text)}
-                    className="rounded-xl border border-border bg-muted/40 p-3 text-left transition-all hover:border-neutral-500/50 hover:bg-accent/60"
+                    className="rounded-xl border border-border bg-muted/40 p-3 text-left transition-all hover:border-primary/50 hover:bg-accent/60"
                   >
-                    <p className="text-xs font-semibold text-neutral-300">{s.label}</p>
+                    <p className="text-xs font-semibold text-foreground/80">{s.label}</p>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{s.text}</p>
                   </button>
                 ))}
@@ -1504,7 +1504,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                   <span className="block text-sm font-medium">NEXUS</span>
                   <span className="block text-[10px] text-muted-foreground">Globale — l'agent principal, sans agents</span>
                 </span>
-                {target.kind === 'nexus' && <Check className="h-3.5 w-3.5 text-neutral-400" />}
+                {target.kind === 'nexus' && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -1518,7 +1518,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     Délibération parallèle · UNE réponse consolidée
                   </span>
                 </span>
-                {target.kind === 'bureau' && !target.groupId && <Check className="h-3.5 w-3.5 text-neutral-400" />}
+                {target.kind === 'bureau' && !target.groupId && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
               </DropdownMenuItem>
               {groups.map((g) => (
                 <DropdownMenuItem
@@ -1532,7 +1532,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">Groupe · délibération · réponse unique</span>
                   </span>
                   {target.kind === 'bureau' && target.groupId === g.id && (
-                    <Check className="h-3.5 w-3.5 text-neutral-400" />
+                    <Check className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1548,7 +1548,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     Toute l'équipe active ({agents.filter((a) => a.enabled).length})
                   </span>
                 </span>
-                {target.kind === 'all' && <Check className="h-3.5 w-3.5 text-neutral-400" />}
+                {target.kind === 'all' && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
               </DropdownMenuItem>
               {groups.map((g) => (
                 <DropdownMenuItem
@@ -1562,7 +1562,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">Groupe · {g.members.length} membre{g.members.length > 1 ? 's' : ''}</span>
                   </span>
                   {target.kind === 'group' && target.groupId === g.id && (
-                    <Check className="h-3.5 w-3.5 text-neutral-400" />
+                    <Check className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1587,7 +1587,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     <span className="block text-[10px] text-muted-foreground">{ROLE_LABELS[a.role]}{a.prompt ? ' · prompt personnalisé' : ''}</span>
                   </span>
                   {target.kind === 'agent' && target.agentId === a.id && (
-                    <Check className="h-3.5 w-3.5 text-neutral-400" />
+                    <Check className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
                 </DropdownMenuItem>
               ))}
@@ -1614,7 +1614,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
                     : `Message pour ${targetInfo.label}… (Entrée pour envoyer)`
               }
               aria-label="Message pour l’agent"
-              className="max-h-36 w-full resize-none rounded-xl border border-border bg-muted/60 py-3 pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500/50"
+              className="max-h-36 w-full resize-none rounded-xl border border-border bg-muted/60 py-3 pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               style={{ minHeight: '2.75rem' }}
             />
           </div>
@@ -1630,7 +1630,7 @@ ${task.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`)
           ) : (
             <Button
               size="icon"
-              className="h-11 w-11 shrink-0 rounded-xl bg-gradient-to-br from-neutral-500 to-neutral-500 text-white shadow-lg shadow-neutral-500/25 hover:opacity-90"
+              className="h-11 w-11 shrink-0 rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/25 hover:opacity-90"
               onClick={() => send(input)}
               disabled={input.trim().length === 0}
               aria-label="Envoyer le message"

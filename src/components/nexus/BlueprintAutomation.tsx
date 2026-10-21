@@ -100,7 +100,7 @@ export function BlueprintAutomation({ blueprints, onChanged }: { blueprints: Blu
       <Card className="border-border/70 bg-card/60">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <LayoutTemplate className="h-4 w-4 text-neutral-300" /> Assistants prêts à l’emploi
+            <LayoutTemplate className="h-4 w-4 text-foreground/80" /> Assistants prêts à l’emploi
           </CardTitle>
           <CardDescription className="text-xs">
             Crée un schéma à partir d’un modèle, puis planifie-le : il agit sans toi et te prévient.
@@ -124,7 +124,7 @@ export function BlueprintAutomation({ blueprints, onChanged }: { blueprints: Blu
       <Card className="border-border/70 bg-card/60">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Clock className="h-4 w-4 text-neutral-300" /> Planifications
+            <Clock className="h-4 w-4 text-foreground/80" /> Planifications
           </CardTitle>
           <CardDescription className="text-xs">
             Un schéma planifié s’exécute automatiquement, même quand tu n’es pas connecté (le Gardien passe chaque minute).
@@ -168,14 +168,14 @@ export function BlueprintAutomation({ blueprints, onChanged }: { blueprints: Blu
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={cn('text-[10px]', s.lastStatus && s.lastStatus !== 'ok' && 'border-rose-400/40 text-rose-300')}>
+                      <Badge variant="outline" className={cn('text-[10px]', s.lastStatus && s.lastStatus !== 'ok' && 'border-rose-400/40 text-rose-600 dark:text-rose-300')}>
                         {s.lastStatus || 'pas encore exécuté'}
                       </Badge>
                       <Switch checked={s.enabled} onCheckedChange={(v) => void post({ action: 'update', id: s.id, enabled: v })} />
                       <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs" onClick={() => void post({ action: 'run', id: s.id }, 'Exécution lancée')}>
                         <Play className="h-3 w-3" /> Lancer
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-300" onClick={() => void post({ action: 'delete', id: s.id }, 'Planification supprimée')}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600 dark:text-rose-300" onClick={() => void post({ action: 'delete', id: s.id }, 'Planification supprimée')}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -192,7 +192,7 @@ export function BlueprintAutomation({ blueprints, onChanged }: { blueprints: Blu
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             <span className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-neutral-300" /> Notifications {unread > 0 ? <Badge className="text-[10px]">{unread} nouvelle(s)</Badge> : null}
+              <Bell className="h-4 w-4 text-foreground/80" /> Notifications {unread > 0 ? <Badge className="text-[10px]">{unread} nouvelle(s)</Badge> : null}
             </span>
             {unread > 0 ? (
               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => void readAll()}>Tout marquer lu</Button>
@@ -205,7 +205,7 @@ export function BlueprintAutomation({ blueprints, onChanged }: { blueprints: Blu
           ) : (
             <ul className="space-y-2">
               {notices.map((n) => (
-                <li key={n.id} className={cn('rounded-lg border border-border/60 p-3', !n.read && 'bg-neutral-300/5')}>
+                <li key={n.id} className={cn('rounded-lg border border-border/60 p-3', !n.read && 'bg-primary/5')}>
                   <p className="text-xs font-semibold">{n.title}</p>
                   <p className="mt-1 whitespace-pre-line text-[11px] text-muted-foreground">{n.body}</p>
                   <p className="mt-1 text-[10px] text-muted-foreground/70">{when(n.createdAt)}</p>

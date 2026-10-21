@@ -689,3 +689,135 @@ export function planFixRequest(message: string): FixPlan | null {
     kinds,
   }
 }
+
+// ── Diagnostic du thème clair / sombre ──────────────────────────────────────
+// « le thème est bloqué en clair », « on ne peut pas passer en sombre » : le
+// symptôme est visuel, mais la cause est dans le CSS et le layout. On inspecte
+// les fichiers réels et on ne fabrique un correctif que si un défaut connu est
+// présent (ordre des palettes, variante Tailwind trop étroite, classe `dark`
+// figée dans le HTML). Si tout est correct, on le dit au lieu d'inventer.
+
+const THEME_WORDS = /\b(?:th[eè]me|dark|light|sombre|clair|apparence|nuit|noir|blanc)\b/i
+const THEME_ACTION =
+  /\b(?:corrig\w*|r[eé]par\w*|fix\w*|r[eé]sou\w*|r[eé]gl\w*|bloqu\w*|forc\w*|impossible|peux\s+pas|peut\s+pas|marche\s+pas|fonctionne\s+pas|change\w*|bascule\w*|mettre|met\s+le|active\w*|d[eé]sactive\w*|applique\w*|am[eé]liore\w*|stuck|coinc[eé]\w*)\b/i
+
+export function planThemeFix(message: string): FixPlan | null {
+  const text = String(message ?? '').trim()
+  if (!text || !THEME_WORDS.test(text) || !THEME_ACTION.test(text)) return null
+
+  const patches: CodePatchDraft[] = []
+  const notes: string[] = []
+  const targets = ['src/app/globals.css', 'src/app/layout.tsx', 'src/components/nexus/AppShell.tsx']
+
+  // 1. globals.css — palette sombre écrasée par :root (même spécificité, déclarée
+  //    après) et variante Tailwind qui ne couvre pas la racine.
+  const css = readCode('src/app/globals.css')
+  if (css) {
+    const darkMatch = /\n(?:html\.dark,\s*)?\.dark\s*\{/.exec(css)
+    const rootAt = css.indexOf('\n:root {')
+    if (darkMatch && rootAt > darkMatch.index) {
+      const next =
+        css.slice(0, darkMatch.index) + '\nhtml.dark, .dark {' + css.slice(darkMatch.index + darkMatch[0].length)
+      const window = compactWindow(css, next)
+      patches.push({
+        title: 'Palette sombre prioritaire — globals.css',
+        filePath: 'src/app/globals.css',
+        before: window.before,
+        after: window.after,
+        rationale:
+          '`.dark` est déclaré avant `:root` avec la même spécificité : la palette claire l’écrase, le mode sombre ne change donc jamais les couleurs. Le sélecteur `html.dark` reprend l’avantage quelle que soit l’ordre.',
+      })
+    }
+    const narrow = '@custom-variant dark (&:is(.dark *));'
+    if (css.includes(narrow)) {
+      const next = css.replace(narrow, '@custom-variant dark (&:is(.dark, .dark *));')
+      const window = compactWindow(css, next)
+      patches.push({
+        title: 'Variante Tailwind `dark` sur la racine — globals.css',
+        filePath: 'src/app/globals.css',
+        before: window.before,
+        after: window.after,
+        rationale:
+          'La variante `dark:` ne ciblait que les descendants de `.dark` ; elle ignore l’élément racine. `&:is(.dark, .dark *)` couvre les deux.',
+      })
+    }
+  } else {
+    notes.push('`src/app/globals.css` est introuvable : impossible de contrôler les palettes.')
+  }
+
+  // 2. layout.tsx — classe `dark` figée dans le HTML : le serveur impose le
+  //    thème et next-themes ne peut plus le retirer proprement.
+  const layout = readCode('src/app/layout.tsx')
+  if (layout && layout.includes('className="dark"')) {
+    const next = layout.replace(/\s*className="dark"/, '')
+    const window = compactWindow(layout, next)
+    patches.push({
+      title: 'Retirer la classe `dark` figée — layout.tsx',
+      filePath: 'src/app/layout.tsx',
+      before: window.before,
+      after: window.after,
+      rationale:
+        'La classe `dark` écrite en dur dans `<html>` force le thème sombre au rendu serveur et empêche next-themes de piloter la bascule. `defaultTheme="dark"` suffit pour l’apparence par défaut.',
+    })
+  }
+
+  // 2 bis. Le mode « système » exige enableSystem (sinon next-themes ignore
+  //        le choix « système » et le thème paraît figé sur clair ou sombre).
+  if (layout && layout.includes('enableSystem={false}')) {
+    const next = layout.replace('enableSystem={false}', 'enableSystem')
+    const window = compactWindow(layout, next)
+    patches.push({
+      title: 'Activer le mode « système » — layout.tsx',
+      filePath: 'src/app/layout.tsx',
+      before: window.before,
+      after: window.after,
+      rationale:
+        '`enableSystem={false}` retire l’option « Système » : NEXUS ne peut pas suivre le réglage clair/sombre de l’appareil. `enableSystem` la rétablit sans changer le thème par défaut.',
+    })
+  }
+
+  // 3. Une bascule doit exister et passer par setTheme (directement ou via le
+  //    composant partagé ThemeCycleButton).
+  const shell = readCode('src/components/nexus/AppShell.tsx')
+  const cycle = readCode('src/components/nexus/theme-cycle.tsx')
+  const hasToggle =
+    (shell?.includes('setTheme(') ?? false) ||
+    (shell?.includes('ThemeCycleButton') ?? false) ||
+    (cycle?.includes('setTheme(') ?? false)
+  if (shell && !hasToggle) {
+    notes.push(
+      'Aucune bascule de thème trouvée : ajoute `ThemeCycleButton` (src/components/nexus/theme-cycle.tsx) dans `AppShell.tsx`, ou un bouton qui appelle `setTheme("light" | "dark" | "system")`.'
+    )
+  }
+
+  // 4. La palette et l’accent doivent être pilotés par les attributs posés sur
+  //    <html> ; sinon le choix du compte n’a aucun effet.
+  if (css && !css.includes('[data-accent=')) {
+    notes.push(
+      '`globals.css` ne contient aucun sélecteur `[data-accent=…]` : les couleurs d’accent de « Mon compte → Apparence » n’auront aucun effet.'
+    )
+  }
+
+  const summary = patches.length
+    ? `Thème : ${patches.length} défaut(s) réel(s) corrigé(s) (palette, variante Tailwind ou classe figée)`
+    : 'Thème contrôlé : aucun défaut connu détecté dans le CSS, le layout ou la bascule'
+
+  if (!patches.length) {
+    notes.push(
+      'La palette claire est déclarée avant la palette sombre, la variante `dark:` couvre la racine et aucune classe `dark` n’est figée dans le HTML. ' +
+        'La bascule fait défiler clair → sombre → système dans la barre latérale, la page de connexion et **Mon compte → Apparence** (palette et couleur d’accent incluses). ' +
+        'Si le symptôme persiste, vide le stockage local du site (clés `theme`, `nexus-accent`, `nexus-palette`) puis recharge : un ancien choix y est peut-être mémorisé.'
+    )
+  }
+
+  return {
+    matched: true,
+    operation: 'corriger-defaut' as CodeOperation,
+    summary,
+    patches,
+    notes,
+    targets,
+    inspected: ['src/app/globals.css', 'src/app/layout.tsx', 'src/components/nexus/AppShell.tsx'],
+    kinds: [],
+  }
+}

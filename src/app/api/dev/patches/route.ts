@@ -12,6 +12,7 @@ import { devGuard } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { DevFsError, safePath } from '@/lib/devfs'
 import { applyAllProposed, applyPatchIds, shapePatch } from '@/lib/devpatch'
+import { syncApprovalForRef } from '@/lib/devwebhook'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -132,6 +133,10 @@ export async function PATCH(req: Request) {
     where: { id },
     data: { status, ...(status === 'applique' ? { appliedAt: new Date() } : {}) },
   })
+  // Une décision prise depuis le dashboard ferme la confirmation envoyée par
+  // webhook (sinon les deux boutons resteraient « en attente » pour toujours).
+  if (status === 'refuse') await syncApprovalForRef(id, 'refused', 'dashboard')
+  if (status === 'applique') await syncApprovalForRef(id, 'accepted', 'dashboard')
   return Response.json({ ok: true, patch: shapePatch(row) })
 }
 

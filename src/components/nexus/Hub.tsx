@@ -40,8 +40,8 @@ const TOOLS: {
     title: 'Agent IA',
     desc: 'Un agent IA hybride : moteur de raisonnement LLM + compétences locales instantanées. Il cherche sur le web, apprend des compétences lors de missions autonomes (Google, YouTube, TikTok), génère images, scènes 3D, pages web et scripts.',
     icon: Bot,
-    gradient: 'from-neutral-600 to-neutral-800',
-    shadow: 'group-hover:shadow-neutral-500/30',
+    gradient: 'from-primary to-primary/60',
+    shadow: 'group-hover:shadow-primary/30',
     tag: 'Cœur du système',
   },
   {
@@ -49,8 +49,8 @@ const TOOLS: {
     title: 'Cerveau Jarvis 3D',
     desc: 'Un cerveau central unique et animé, relié à chaque agent par des liens d’énergie : impulsions en direct pendant la réflexion, anneaux gyroscopiques et hologramme façon J.A.R.V.I.S. — ou vue « Éclaté » avec un cerveau par agent.',
     icon: Brain,
-    gradient: 'from-neutral-600 to-neutral-800',
-    shadow: 'group-hover:shadow-neutral-500/30',
+    gradient: 'from-primary to-primary/60',
+    shadow: 'group-hover:shadow-primary/30',
     tag: 'L’équipe qui pense',
   },
   {
@@ -58,8 +58,8 @@ const TOOLS: {
     title: 'Studios créatifs',
     desc: 'Quatre ateliers réunis : 3D, image, vidéo et code. Éditez à la main ou demandez à vos agents — ils y travaillent pour vous.',
     icon: Layers,
-    gradient: 'from-neutral-600 to-neutral-800',
-    shadow: 'group-hover:shadow-neutral-500/20',
+    gradient: 'from-primary to-primary/60',
+    shadow: 'group-hover:shadow-primary/20',
     tag: 'Création',
   },
   {
@@ -67,7 +67,7 @@ const TOOLS: {
     title: 'Connexions',
     desc: 'Relie tes comptes personnels — Gmail, GitHub, Discord. Tokens vérifiés réellement auprès du service et stockés localement, jamais affichés en clair.',
     icon: Link2,
-    gradient: 'from-neutral-600 to-neutral-800',
+    gradient: 'from-primary to-primary/60',
     shadow: 'group-hover:shadow-blue-500/30',
     tag: 'Tes comptes',
   },
@@ -76,8 +76,8 @@ const TOOLS: {
     title: 'Blueprints',
     desc: 'Construis toi-même le schéma d’utilisation de tes agents : règles « quand tu lis X, réponds Y », conditions, cerveau local, connaissances, outils et réponses — sur un canvas à glisser-déposer, avec testeur en direct.',
     icon: Workflow,
-    gradient: 'from-neutral-600 to-neutral-800',
-    shadow: 'group-hover:shadow-neutral-500/30',
+    gradient: 'from-primary to-primary/60',
+    shadow: 'group-hover:shadow-primary/30',
     tag: 'Schémas d’agents',
   },
   {
@@ -85,8 +85,8 @@ const TOOLS: {
     title: 'Clés API',
     desc: 'Vends des chatbots : une clé = un assistant avec ses propres réponses imposées, son schéma, son accueil, ses origines autorisées et sa limite d’appels. Snippet d’intégration fourni.',
     icon: KeyRound,
-    gradient: 'from-neutral-600 to-neutral-800',
-    shadow: 'group-hover:shadow-neutral-300/30',
+    gradient: 'from-primary to-primary/60',
+    shadow: 'group-hover:shadow-primary/20',
     tag: 'Prêt à vendre',
   },
 ]
@@ -96,8 +96,8 @@ const DEV_TOOL = {
   title: 'Espace développeur',
   desc: 'Dashboard technique : personnalisation du site depuis le web, statistiques, journal d’appels, explorateur de code et agent Dev qui lit et améliore le code de NEXUS.',
   icon: Terminal,
-  gradient: 'from-neutral-600 to-neutral-800',
-  shadow: 'group-hover:shadow-neutral-500/30',
+  gradient: 'from-primary to-primary/60',
+  shadow: 'group-hover:shadow-primary/30',
   tag: 'Réservé au Dev',
 }
 
@@ -143,8 +143,7 @@ export function Hub() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.08 }}
-            className="font-display text-5xl font-bold tracking-tight md:text-6xl"
-            style={{ backgroundImage: `linear-gradient(105deg, ${settings.accent}, ${settings.accent2})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}
+            className="text-gradient font-display text-5xl font-bold tracking-tight md:text-6xl"
           >
             {settings.appName}
           </motion.h1>
@@ -165,7 +164,7 @@ export function Hub() {
             <Button
               size="lg"
               onClick={() => setView('agent')}
-              className="h-12 gap-2 rounded-xl bg-foreground px-7 text-base font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90"
+              className="h-12 gap-2 rounded-xl bg-primary px-7 text-base font-semibold text-primary-foreground transition-transform hover:scale-[1.03] hover:opacity-90"
             >
               Parler à l’agent
               <ArrowRight className="h-4.5 w-4.5" />
@@ -196,7 +195,7 @@ export function Hub() {
               <Button
                 size="sm"
                 variant="outline"
-                className="shrink-0 border-neutral-500/40 text-neutral-300"
+                className="shrink-0 border-primary/40 text-foreground/80"
                 onClick={() => void logout()}
               >
                 Se connecter en Dev
@@ -216,12 +215,12 @@ export function Hub() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.3 + i * 0.07 }}
                 onClick={() => setView(tool.id)}
-                className={`group relative overflow-hidden rounded-2xl border border-border bg-muted/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-neutral-500/50 hover:shadow-xl ${tool.shadow}`}
+                className={`group relative overflow-hidden rounded-2xl border border-border bg-muted/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl ${tool.shadow}`}
               >
                 <div className={`absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br ${tool.gradient} opacity-10 blur-2xl transition-opacity group-hover:opacity-25`} />
                 <div className="mb-4 flex items-center justify-between">
                   <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${tool.gradient} shadow-lg`}>
-                    <Icon className="h-5.5 w-5.5 text-white" />
+                    <Icon className="h-5.5 w-5.5 text-primary-foreground" />
                   </div>
                   <span className="rounded-full border border-border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {tool.tag}

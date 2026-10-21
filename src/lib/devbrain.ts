@@ -9,8 +9,9 @@ import { db } from './db'
 import { addObjective, trainerSnapshot } from './devtrainer'
 import { getDaemonState } from './devdaemon'
 import { patchExcerpt, planCodeEdits } from './devcode'
-import { planFixRequest } from './devfix'
+import { planFixRequest, planThemeFix } from './devfix'
 import { applyPatchIds, type ApplyOutcome } from './devpatch'
+import { requestApproval } from './devwebhook'
 import {
   TODO_RE,
   DevFsError,
@@ -509,12 +510,15 @@ function handleHelp(): DevTurnResult {
 function buildCodeResult(message: string, plan: ReturnType<typeof planCodeEdits>): DevTurnResult {
   const patches = plan.patches
   const autoApply = wantsDirectApply(message)
+  const themeChecked = plan.summary.startsWith('Thème contrôlé')
 
   const title = patches.length
     ? `${patches.length > 1 ? `${patches.length} correctifs prêts` : 'Correctif prêt'} à valider`
-    : plan.operation === 'corriger-defaut'
-      ? 'Réparation impossible en l’état'
-      : 'Aucun correctif fabriqué'
+    : themeChecked
+      ? 'Thème vérifié — aucun défaut'
+      : plan.operation === 'corriger-defaut'
+        ? 'Réparation impossible en l’état'
+        : 'Aucun correctif fabriqué'
   const blocks: string[] = [
     `## ${title}\n\n` + `**Demande comprise** : ${plan.summary || message.slice(0, 200)}.`,
   ]
@@ -556,11 +560,15 @@ function buildCodeResult(message: string, plan: ReturnType<typeof planCodeEdits>
 
   if (!patches.length) {
     blocks.push(
-      'Je n’ai **rien modifié** : la demande ne permet pas encore de fabriquer une ancre fiable. ' +
-        'Donne-moi le fichier et le texte exact, par exemple :\n' +
-        '- « remplace `"ancien"` par `"nouveau"` dans src/lib/fichier.ts »\n' +
-        '- « ajoute `"// note"` après `"const x = 1"` dans src/lib/fichier.ts »\n' +
-        '- « renomme `oldName` en `newName` »'
+      themeChecked
+        ? 'Le thème est **fonctionnel dans le code** : trois modes (clair, sombre, système), `enableSystem` actif, palette sombre déclarée après `:root`, et `<html>` ne fige plus de classe. La palette et la couleur d’accent viennent de `[data-palette]` / `[data-accent]` posés sur `<html>`.\n\n' +
+            'Pour changer d’apparence : bouton de la barre latérale (clair → sombre → système) ou **Mon compte → Apparence** (3 palettes, 8 accents). Si un navigateur reste bloqué, ' +
+            'vide les clés `theme`, `nexus-accent` et `nexus-palette` du stockage local puis recharge sans cache.'
+        : 'Je n’ai **rien modifié** : la demande ne permet pas encore de fabriquer une ancre fiable. ' +
+            'Donne-moi le fichier et le texte exact, par exemple :\n' +
+            '- « remplace `"ancien"` par `"nouveau"` dans src/lib/fichier.ts »\n' +
+            '- « ajoute `"// note"` après `"const x = 1"` dans src/lib/fichier.ts »\n' +
+            '- « renomme `oldName` en `newName` »'
     )
   }
 
@@ -1287,15 +1295,22 @@ export async function runDevTurn(
 
   let result: DevTurnResult
   try {
-    // 1. Une demande de modification concrète prime sur toute analyse : c'est
-    //    elle qui doit être respectée (« corrige… », « remplace… », « ajoute… »).
-    const plan = planCodeEdits(text)
-    // 2. Sinon, une demande de RÉPARATION (« corrige… », « améliore… ») est
+    // 1. Le thème clair/sombre a un diagnostic dédié, AVANT l'analyse d'édition :
+    //    « corrige le thème, il est bloqué en clair » ressemble à un remplacement
+    //    sans ancre et finissait donc sans correctif. La cause connue est dans
+    //    l'ordre des palettes CSS et la variante Tailwind.
+    const theme = planThemeFix(text)
+    // 2. Une demande de modification concrète prime sur le reste : c'est elle
+    //    qui doit être respectée (« remplace… », « ajoute… »).
+    const plan = theme ? null : planCodeEdits(text)
+    // 3. Sinon, une demande de RÉPARATION (« corrige… », « améliore… ») est
     //    confrontée aux défauts réels de la cible avant de retomber sur un
     //    simple diagnostic : c'est ce qui permet d'obtenir un correctif sans
     //    connaître l'ancre exacte.
-    const fix = plan.matched ? null : planFixRequest(text)
-    if (plan.matched) {
+    const fix = plan?.matched || theme ? null : planFixRequest(text)
+    if (theme) {
+      result = buildCodeResult(text, theme)
+    } else if (plan?.matched) {
       result = buildCodeResult(text, plan)
     } else if (fix?.matched) {
       result = buildCodeResult(text, fix)
@@ -1370,6 +1385,7 @@ export async function runDevTurn(
 
   // Persistance de TOUS les correctifs, pour l'onglet Correctifs et l'application
   // en lot. Les identifiants servent ensuite à l'application directe.
+  const createdDrafts: DevPatchDraft[] = []
   for (const draft of drafts) {
     if (draft.id) continue
     try {
@@ -1405,6 +1421,7 @@ export async function runDevTurn(
         },
       })
       draft.id = row?.id ? String(row.id) : undefined
+      if (draft.id) createdDrafts.push(draft)
     } catch {
       /* la proposition reste affichée même si la persistance échoue */
     }
@@ -1412,6 +1429,22 @@ export async function runDevTurn(
   if (drafts.length) {
     result.patches = drafts
     result.patch = drafts[0]
+  }
+
+  // Confirmations : chaque nouveau correctif peut être accepté / refusé en un
+  // clic depuis le webhook. En application directe, il n'y a rien à confirmer.
+  if (!result.autoApply && createdDrafts.length) {
+    for (const draft of createdDrafts.slice(0, 6)) {
+      if (!draft.id) continue
+      void requestApproval({
+        userId,
+        kind: 'patch',
+        refId: draft.id,
+        title: draft.title,
+        summary: `L’agent Dev propose de modifier ${draft.filePath}. ${draft.rationale.slice(0, 1200)} Accepter applique le correctif immédiatement (sauvegarde préalable) ; refuser l’écarte.`,
+        payload: { origin: 'agent', filePath: draft.filePath, rationale: draft.rationale },
+      })
+    }
   }
 
   // Application directe : « corrige… et applique ». On écrit après persistance

@@ -28,6 +28,12 @@ export interface AuthUser {
     theme?: 'dark' | 'light'
     company?: string
     website?: string
+    /** Apparence choisie pour ce compte : mode, palette et accent. */
+    appearance?: {
+      mode?: 'light' | 'dark' | 'system'
+      accent?: string
+      palette?: string
+    }
   }
   createdAt?: string | number | Date
 }
@@ -42,7 +48,10 @@ interface AuthContextValue {
   register: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
-  saveProfile: (patch: Partial<AuthUser['profile']> & { name?: string; email?: string }) => Promise<boolean>
+  saveProfile: (
+    patch: Partial<AuthUser['profile']> & { name?: string; email?: string },
+    options?: { silent?: boolean }
+  ) => Promise<boolean>
   changePassword: (current: string, next: string) => Promise<{ ok: boolean; error?: string }>
 }
 
@@ -141,7 +150,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const saveProfile = useCallback(
-    async (patch: Partial<AuthUser['profile']> & { name?: string; email?: string }) => {
+    async (
+      patch: Partial<AuthUser['profile']> & { name?: string; email?: string },
+      options?: { silent?: boolean }
+    ) => {
       const res = await api<{ user: AuthUser }>('/api/auth/profile', {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -151,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false
       }
       setUser(res.data.user ?? user)
-      toast.success('Personnalisation enregistrée')
+      if (!options?.silent) toast.success('Personnalisation enregistrée')
       return true
     },
     [user]

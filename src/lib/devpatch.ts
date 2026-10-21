@@ -6,9 +6,11 @@
 import fs from 'fs'
 import { DevFsError, safePath, writeGuarded } from './devfs'
 import { db } from './db'
+import { emitDevEvent, syncApprovalForRef } from './devwebhook'
 
 export interface PatchRowLike {
   id?: unknown
+  userId?: unknown
   title?: unknown
   filePath?: unknown
   before?: unknown
@@ -191,7 +193,7 @@ async function markObsoleteSiblings(appliedId: string, filePath: string): Promis
  * Applique une liste de correctifs dans l'ordre fourni. Chaque échec est
  * consigné et n'empêche pas les suivants : on veut un rapport complet.
  */
-export async function applyPatchIds(ids: string[]): Promise<ApplyOutcome[]> {
+export async function applyPatchIds(ids: string[], opts: { decidedBy?: string } = {}): Promise<ApplyOutcome[]> {
   const outcomes: ApplyOutcome[] = []
   const seen = new Set<string>()
 
@@ -235,6 +237,26 @@ export async function applyPatchIds(ids: string[]): Promise<ApplyOutcome[]> {
         bytes: result.bytes,
         created: result.created,
       })
+      // Tenir l'opérateur au courant (webhook) et fermer la confirmation liée.
+      const owner = String(row.userId ?? '')
+      if (owner) {
+        void emitDevEvent(owner, 'patch.applied', {
+          title: `Correctif appliqué — ${title}`,
+          summary: result.created
+            ? `Le fichier ${filePath} a été créé par un correctif de NEXUS.`
+            : `Le fichier ${filePath} a été modifié. Sauvegarde : ${result.backup}.`,
+          fields: [
+            { name: 'Fichier', value: filePath, inline: false },
+            { name: 'Origine', value: String(row.origin ?? 'agent'), inline: true },
+            { name: 'Sauvegarde', value: result.backup || '—', inline: true },
+          ],
+          data: { patchId: id, filePath, origin: row.origin ?? 'agent', backup: result.backup },
+        })
+        // Attendu (et non `void`) : sinon la décision du webhook et celle du
+        // dashboard peuvent lire `pending` en même temps et émettre deux fois
+        // l'événement `approval.decided`.
+        await syncApprovalForRef(id, 'accepted', opts.decidedBy ?? 'dashboard')
+      }
     } catch (err) {
       outcomes.push({
         id,

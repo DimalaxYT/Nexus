@@ -9,7 +9,6 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -19,14 +18,13 @@ import {
   Loader2,
   Lock,
   Mail,
-  Moon,
   ShieldCheck,
-  Sun,
   UserPlus,
   Workflow,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ThemeCycleButton } from '@/components/nexus/theme-cycle'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/lib/auth-client'
@@ -42,23 +40,7 @@ const MARKETING_POINTS = [
 ]
 
 function ThemeToggleCorner() {
-  const { resolvedTheme, setTheme } = useTheme()
-  // Garde d'hydratation : resolvedTheme est undefined avant le montage.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-  const dark = mounted && resolvedTheme === 'dark'
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="absolute right-5 top-5 z-10 h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(dark ? 'light' : 'dark')}
-      aria-label={dark ? 'Passer en thème clair' : 'Passer en thème sombre'}
-    >
-      <Sun className="h-4 w-4 dark:hidden" />
-      <Moon className="hidden h-4 w-4 dark:block" />
-    </Button>
-  )
+  return <ThemeCycleButton className="absolute right-5 top-5 z-10 rounded-lg" />
 }
 
 export function AuthGate() {
@@ -203,7 +185,7 @@ export function AuthGate() {
         <div className="relative">
           <div className="mb-8 flex items-center gap-3">
             <span
-              className="flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-background"
+              className="flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-primary-foreground"
               style={{ background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})` }}
             >
               {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : 'N'}
@@ -243,7 +225,7 @@ export function AuthGate() {
           {/* Marque compacte (mobile) */}
           <div className="mb-8 flex flex-col items-center text-center lg:hidden">
             <span
-              className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-background"
+              className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl font-display text-xl font-bold text-primary-foreground"
               style={{ background: `linear-gradient(135deg, ${settings.accent}, ${settings.accent2})` }}
             >
               {settings.logoEmoji ? <span aria-hidden>{settings.logoEmoji}</span> : <Bot className="h-6 w-6" />}
@@ -287,7 +269,7 @@ export function AuthGate() {
                   className={cn(
                     'rounded-lg px-3 py-2 text-sm font-medium transition-all',
                     screen === m
-                      ? 'bg-foreground text-background shadow'
+                      ? 'bg-primary text-primary-foreground shadow'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
@@ -361,12 +343,12 @@ export function AuthGate() {
                 </>
               )}
               {error && (
-                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">{error}</p>
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400">{error}</p>
               )}
               <Button
                 type="submit"
                 disabled={busy}
-                className="h-11 w-full gap-2 rounded-xl bg-foreground font-semibold text-background transition-transform hover:scale-[1.01] hover:opacity-90"
+                className="h-11 w-full gap-2 rounded-xl bg-primary font-semibold text-primary-foreground transition-transform hover:scale-[1.01] hover:opacity-90"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                 {resetToken ? 'Enregistrer le mot de passe' : 'Valider le code'}
@@ -460,13 +442,13 @@ export function AuthGate() {
               )}
 
               {error && (
-                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">{error}</p>
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400">{error}</p>
               )}
 
               <Button
                 type="submit"
                 disabled={busy}
-                className="h-11 w-full gap-2 rounded-xl bg-foreground font-semibold text-background transition-transform hover:scale-[1.01] hover:opacity-90"
+                className="h-11 w-full gap-2 rounded-xl bg-primary font-semibold text-primary-foreground transition-transform hover:scale-[1.01] hover:opacity-90"
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -499,12 +481,12 @@ export function AuthGate() {
                 </div>
               </div>
               {error && (
-                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">{error}</p>
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400">{error}</p>
               )}
               <Button
                 type="submit"
                 disabled={busy}
-                className="h-11 w-full gap-2 rounded-xl bg-foreground font-semibold text-background transition-transform hover:scale-[1.01] hover:opacity-90"
+                className="h-11 w-full gap-2 rounded-xl bg-primary font-semibold text-primary-foreground transition-transform hover:scale-[1.01] hover:opacity-90"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                 Envoyer le code

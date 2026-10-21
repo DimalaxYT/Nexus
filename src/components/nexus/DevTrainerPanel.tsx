@@ -87,9 +87,9 @@ function Stat({ label, value, hint, tone }: { label: string; value: string | num
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={cn(
         'mt-1 text-xl font-bold',
-        tone === 'ok' && 'text-neutral-300',
-        tone === 'warn' && 'text-amber-300',
-        tone === 'bad' && 'text-rose-300',
+        tone === 'ok' && 'text-foreground/80',
+        tone === 'warn' && 'text-amber-700 dark:text-amber-300',
+        tone === 'bad' && 'text-rose-600 dark:text-rose-300',
         !tone && 'text-foreground'
       )}>{value}</p>
       {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
@@ -105,9 +105,9 @@ function when(v: unknown): string {
 }
 
 const STEP_TONE: Record<string, string> = {
-  ok: 'border-neutral-500/30 bg-neutral-500/5 text-neutral-200',
-  warn: 'border-neutral-300/30 bg-neutral-300/5 text-amber-200',
-  error: 'border-rose-500/30 bg-rose-500/5 text-rose-200',
+  ok: 'border-primary/30 bg-primary/5 text-foreground',
+  warn: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200',
+  error: 'border-rose-500/30 bg-rose-500/5 text-rose-600 dark:text-rose-200',
 }
 
 export function DevTrainerPanel() {
@@ -220,7 +220,7 @@ export function DevTrainerPanel() {
       </div>
 
       {daemon.lastError ? (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+        <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-200">
           <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             <strong>Dernier incident :</strong> {daemon.lastError}
@@ -250,7 +250,7 @@ export function DevTrainerPanel() {
           </label>
           <Button
             size="sm"
-            className="bg-neutral-500 hover:bg-neutral-500"
+            className="bg-primary hover:bg-primary/90"
             onClick={() => void act({ action: 'run' }, 'run')}
             disabled={busy === 'run' || daemon.running}
           >
@@ -421,7 +421,7 @@ export function DevTrainerPanel() {
           ].map((t) => {
             const Icon = t.i
             return (
-              <TabsTrigger key={t.v} value={t.v} className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-neutral-500/15 data-[state=active]:text-neutral-300">
+              <TabsTrigger key={t.v} value={t.v} className="gap-1.5 px-3 py-1.5 text-xs data-[state=active]:bg-primary/15 data-[state=active]:text-foreground/80">
                 <Icon className="h-3.5 w-3.5" />
                 {t.l}
               </TabsTrigger>
@@ -470,8 +470,8 @@ export function DevTrainerPanel() {
                     </p>
                   </div>
                   <Badge variant="outline" className={cn('shrink-0 text-[9px]',
-                    r.status === 'ok' && 'border-neutral-500/40 text-neutral-300',
-                    r.status === 'echec' && 'border-rose-500/40 text-rose-300'
+                    r.status === 'ok' && 'border-primary/40 text-foreground/80',
+                    r.status === 'echec' && 'border-rose-500/40 text-rose-600 dark:text-rose-300'
                   )}>
                     {r.status}
                   </Badge>
@@ -493,7 +493,7 @@ export function DevTrainerPanel() {
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-neutral-300">Aucune lacune : NEXUS couvre tout le banc d’épreuve.</p>
+              <p className="text-xs text-foreground/80">Aucune lacune : NEXUS couvre tout le banc d’épreuve.</p>
             )}
           </Card>
         </TabsContent>
@@ -510,7 +510,7 @@ export function DevTrainerPanel() {
               />
               <Button
                 size="sm"
-                className="shrink-0 bg-neutral-500 hover:bg-neutral-500"
+                className="shrink-0 bg-primary hover:bg-primary/90"
                 disabled={!newObjective.trim() || busy === 'obj'}
                 onClick={async () => {
                   const label = newObjective.trim()
@@ -542,11 +542,11 @@ export function DevTrainerPanel() {
                     <p className="truncate text-[10px] text-muted-foreground">{o.query}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {o.lastScore ? <span className="text-[10px] text-neutral-300">{o.lastScore.toFixed(2)}</span> : null}
+                    {o.lastScore ? <span className="text-[10px] text-foreground/80">{o.lastScore.toFixed(2)}</span> : null}
                     <Badge variant="outline" className="text-[9px]">{o.category}</Badge>
                     <Badge variant="outline" className={cn('text-[9px]',
-                      o.status === 'fait' && 'border-neutral-500/40 text-neutral-300',
-                      o.origin === 'manuel' && 'border-neutral-500/40 text-neutral-300'
+                      o.status === 'fait' && 'border-primary/40 text-foreground/80',
+                      o.origin === 'manuel' && 'border-primary/40 text-foreground/80'
                     )}>
                       {o.status === 'fait' ? 'traité' : `${o.attempts} essai(s)`}
                     </Badge>
@@ -596,11 +596,11 @@ export function DevTrainerPanel() {
                     <p className="text-xs font-semibold text-foreground">{it.question}</p>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Badge variant="outline" className={cn('text-[9px]',
-                        it.status === 'valide' && 'border-neutral-500/40 text-neutral-300',
-                        it.status === 'rejete' && 'border-rose-500/40 text-rose-300',
-                        it.status === 'candidat' && 'border-neutral-300/40 text-amber-300'
+                        it.status === 'valide' && 'border-primary/40 text-foreground/80',
+                        it.status === 'rejete' && 'border-rose-500/40 text-rose-600 dark:text-rose-300',
+                        it.status === 'candidat' && 'border-amber-500/40 text-amber-700 dark:text-amber-300'
                       )}>{it.status}</Badge>
-                      <span className="text-[10px] text-neutral-300">{it.score.toFixed(2)}</span>
+                      <span className="text-[10px] text-foreground/80">{it.score.toFixed(2)}</span>
                     </div>
                   </div>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[11px] text-muted-foreground">{it.answer}</p>
@@ -612,14 +612,14 @@ export function DevTrainerPanel() {
                     <span className="text-[9px] text-muted-foreground">{when(it.createdAt)}</span>
                     <div className="ml-auto flex gap-1">
                       {it.status !== 'valide' ? (
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-neutral-300"
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-foreground/80"
                           onClick={async () => {
                             await json('/api/dev/training/items', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id, status: 'valide' }) })
                             await load()
                           }}>Valider</Button>
                       ) : null}
                       {it.status !== 'rejete' ? (
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-rose-300"
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-rose-600 dark:text-rose-300"
                           onClick={async () => {
                             await json('/api/dev/training/items', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id, status: 'rejete' }) })
                             await load()
@@ -649,7 +649,7 @@ export function DevTrainerPanel() {
                 placeholder="https://…"
                 className="text-xs"
               />
-              <Button size="sm" className="shrink-0 bg-neutral-500 hover:bg-neutral-500" onClick={() => void browse()} disabled={busy === 'browse' || !url.trim()}>
+              <Button size="sm" className="shrink-0 bg-primary hover:bg-primary/90" onClick={() => void browse()} disabled={busy === 'browse' || !url.trim()}>
                 {busy === 'browse' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="mr-1.5 h-3 w-3" />}
                 Visiter
               </Button>
@@ -658,7 +658,7 @@ export function DevTrainerPanel() {
 
           <Card title={`Bibliothèque (${counts.pages} pages)`} icon={BookOpen}
             action={
-              <Button variant="ghost" size="sm" className="text-[10px] text-rose-300"
+              <Button variant="ghost" size="sm" className="text-[10px] text-rose-600 dark:text-rose-300"
                 onClick={async () => {
                   const res = await json<{ ok: boolean }>('/api/dev/browser?all=1', { method: 'DELETE' })
                   if (res) { toast.success('Bibliothèque vidée'); await load() }
@@ -678,7 +678,7 @@ export function DevTrainerPanel() {
                   <div className="flex shrink-0 items-center gap-2">
                     <Badge variant="outline" className="text-[9px]">{p.domain}</Badge>
                     <span className="text-[10px] text-muted-foreground">{Math.round(p.bytes / 1024)} Ko</span>
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-300"
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-600 dark:text-rose-300"
                       onClick={async () => { await json(`/api/dev/browser?id=${p.id}`, { method: 'DELETE' }); await load() }}
                       aria-label="Supprimer">
                       <Trash2 className="h-3 w-3" />
@@ -705,7 +705,7 @@ export function DevTrainerPanel() {
                   <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{l.key}</span>
                   <div className="h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-muted/50">
                     <div
-                      className={cn('h-full rounded-full', l.value >= 0.6 ? 'bg-neutral-500' : l.value >= 0.35 ? 'bg-neutral-300' : 'bg-rose-500')}
+                      className={cn('h-full rounded-full', l.value >= 0.6 ? 'bg-primary' : l.value >= 0.35 ? 'bg-primary' : 'bg-rose-500')}
                       style={{ width: `${Math.max(3, Math.round(l.value * 100))}%` }}
                     />
                   </div>

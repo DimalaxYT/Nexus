@@ -7,7 +7,6 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { useTheme } from 'next-themes'
 import { motion } from 'framer-motion'
 import {
   ArrowRight,
@@ -20,13 +19,12 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
-  Sun,
-  Moon,
   UserRound,
   Workflow,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ThemeCycleButton } from '@/components/nexus/theme-cycle'
 
 const FEATURES = [
   {
@@ -95,24 +93,7 @@ const STEPS = [
 ]
 
 function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  // `resolvedTheme` est indéterminé avant le montage : sans cette garde, le
-  // clic tombait sur setTheme('dark') alors qu'on EST en dark → aucun effet.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-  const dark = mounted && resolvedTheme === 'dark'
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(dark ? 'light' : 'dark')}
-      aria-label={dark ? 'Passer en thème clair' : 'Passer en thème sombre'}
-    >
-      <Sun className="h-4 w-4 dark:hidden" />
-      <Moon className="hidden h-4 w-4 dark:block" />
-    </Button>
-  )
+  return <ThemeCycleButton className="rounded-lg" />
 }
 
 const fadeUp = {
@@ -132,7 +113,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
           <a href="#" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground font-display text-sm font-bold text-background">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-display text-sm font-bold text-primary-foreground">
               N
             </span>
             <span className="font-display text-base font-bold tracking-[0.22em]">NEXUS</span>
@@ -144,7 +125,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button asChild className="h-9 gap-2 rounded-lg bg-foreground px-4 text-sm font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90">
+            <Button asChild className="h-9 gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.03] hover:opacity-90">
               <Link href="/app">
                 Ouvrir NEXUS
                 <ArrowRight className="h-4 w-4" />
@@ -164,8 +145,8 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground opacity-60" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
             </span>
             Modèle de langage maison — entraîné sur votre serveur
           </motion.div>
@@ -198,7 +179,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.55, delay: 0.24 }}
             className="mt-9 flex flex-wrap items-center justify-center gap-3"
           >
-            <Button asChild size="lg" className="h-12 gap-2 rounded-xl bg-foreground px-7 text-base font-semibold text-background transition-transform hover:scale-[1.03] hover:opacity-90">
+            <Button asChild size="lg" className="h-12 gap-2 rounded-xl bg-primary px-7 text-base font-semibold text-primary-foreground transition-transform hover:scale-[1.03] hover:opacity-90">
               <Link href="/app">
                 {hasAccounts ? 'Parler à NEXUS' : 'Créer mon espace et parler à NEXUS'}
                 <ArrowRight className="h-4.5 w-4.5" />
@@ -278,7 +259,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                 <span className="pointer-events-none absolute -right-3 -top-6 font-display text-8xl font-bold text-foreground/[0.045]">
                   {s.n}
                 </span>
-                <p className="font-mono text-xs text-neutral-300">{s.n}</p>
+                <p className="font-mono text-xs text-foreground/80">{s.n}</p>
                 <h3 className="mt-3 font-display text-lg font-semibold">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.desc}</p>
               </motion.div>
@@ -293,7 +274,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
             transition={{ duration: 0.5 }}
             className="glass edge-glow relative overflow-hidden rounded-3xl px-6 py-10 md:px-12 md:py-14"
           >
-            <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-neutral-400/10 blur-3xl" aria-hidden />
+            <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/10 blur-3xl" aria-hidden />
             <div className="relative grid items-center gap-8 md:grid-cols-[1.2fr_1fr]">
               <div>
                 <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">— Confidentialité</p>
@@ -305,7 +286,7 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
                   générateurs d&apos;images et de 3D — le tout tourne sur la machine. Aucune clé OpenAI, aucune
                   compétition avec vos conversations : vous restez maître de vos données.
                 </p>
-                <Button asChild className="mt-7 gap-2 rounded-xl bg-foreground px-6 font-semibold text-background hover:opacity-90">
+                <Button asChild className="mt-7 gap-2 rounded-xl bg-primary px-6 font-semibold text-primary-foreground hover:opacity-90">
                   <Link href="/app">
                     Commencer maintenant
                     <ArrowRight className="h-4 w-4" />
@@ -334,24 +315,24 @@ export function Landing({ hasAccounts }: { hasAccounts: boolean }) {
         </section>
       </main>
 
-      {/* ── Pied de page — bandeau monochrome ─────────────────────────────── */}
-      <footer className="relative border-t border-white/10 bg-black text-white">
+      {/* ── Pied de page — surfaces du thème ───────────────────────────────── */}
+      <footer className="relative border-t border-border/70 bg-card/60">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-5 px-5 py-9 md:h-24 md:flex-row md:gap-8 md:py-0">
-          <p className="font-display text-2xl font-bold tracking-[0.45em] md:text-3xl">4UR</p>
+          <p className="font-display text-2xl font-bold tracking-[0.45em] text-foreground md:text-3xl">4UR</p>
           <div className="flex items-center gap-5">
-            <span className="hidden h-px w-16 bg-white/50 sm:block" aria-hidden />
-            <p className="font-mono text-[11px] uppercase tracking-[0.35em] text-white/90">
+            <span className="hidden h-px w-16 bg-border sm:block" aria-hidden />
+            <p className="font-mono text-[11px] uppercase tracking-[0.35em] text-foreground/80">
               For your digital world.
             </p>
           </div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/60">
-            IA <span className="mx-1.5 text-white/30">·</span> Agents <span className="mx-1.5 text-white/30">·</span> Studios
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+            IA <span className="mx-1.5 text-muted-foreground/50">·</span> Agents <span className="mx-1.5 text-muted-foreground/50">·</span> Studios
           </p>
         </div>
-        <div className="border-t border-white/10">
-          <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-5 py-4 text-[11px] text-white/45 sm:flex-row">
+        <div className="border-t border-border/60">
+          <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-5 py-4 text-[11px] text-muted-foreground sm:flex-row">
             <p>© {new Date().getFullYear()} 4UR — NEXUS, cerveau IA 100 % local.</p>
-            <Link href="/app" className="flex items-center gap-1.5 font-medium text-white/70 transition-colors hover:text-white">
+            <Link href="/app" className="flex items-center gap-1.5 font-medium text-foreground/70 transition-colors hover:text-foreground">
               Ouvrir l&apos;application
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>

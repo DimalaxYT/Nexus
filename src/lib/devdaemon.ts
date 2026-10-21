@@ -6,6 +6,7 @@
 
 import { getDevUserId } from './dev-seed'
 import { DEFAULT_TRAINER_CONFIG, getTrainerConfig, runTrainingCycle, type CycleReport, type TrainerConfig } from './devtrainer'
+import { emitDevEvent } from './devwebhook'
 
 const TICK_MS = 60_000
 const LOCK_TTL_MS = 6 * 60_000
@@ -181,10 +182,30 @@ export async function tick(): Promise<void> {
         `[dev-daemon] cycle « ${report.objective} » — ${report.pages} page(s), ${report.items} entrée(s), ` +
           `couverture ${Math.round(report.scoreBefore * 100)} % → ${Math.round(report.scoreAfter * 100)} %`
       )
+    } else {
+      void emitDevEvent(userId, 'daemon.error', {
+        title: 'Incident pendant un cycle d’entraînement',
+        summary: `Le cycle « ${report.objective || 'sans objectif'} » s’est terminé en erreur : ${report.error}.`,
+        fields: [
+          { name: 'Erreurs consécutives', value: String(s.state.consecutiveErrors), inline: true },
+          { name: 'Objectif', value: report.objective || '—', inline: true },
+          { name: 'Pages lues', value: String(report.pages), inline: true },
+        ],
+        data: { objective: report.objective, error: report.error },
+      })
     }
   } catch (err) {
     s.state.consecutiveErrors += 1
     s.state.lastError = err instanceof Error ? err.message : 'erreur inconnue'
+    void emitDevEvent(userId, 'daemon.error', {
+      title: 'Le daemon d’entraînement a échoué',
+      summary: `Le cycle n’a pas pu se dérouler : ${s.state.lastError}. Prochaine tentative avec repli exponentiel (${s.state.consecutiveErrors} erreur(s) consécutive(s)).`,
+      fields: [
+        { name: 'Erreurs consécutives', value: String(s.state.consecutiveErrors), inline: true },
+        { name: 'Prochain essai', value: `dans ≤ ${Math.round((BACKOFF_MS[Math.min(s.state.consecutiveErrors, BACKOFF_MS.length - 1)] ?? 0) / 60_000)} min`, inline: true },
+      ],
+      data: { error: s.state.lastError, consecutiveErrors: s.state.consecutiveErrors },
+    })
   } finally {
     s.state.running = false
     await releaseLock()

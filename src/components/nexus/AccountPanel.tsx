@@ -1,15 +1,20 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useTheme } from 'next-themes'
 import {
   Check,
   KeyRound,
   Loader2,
   Lock,
+  Monitor,
+  Moon,
   Palette,
+  RotateCcw,
   Save,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
   User as UserIcon,
 } from 'lucide-react'
@@ -22,6 +27,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/lib/auth-client'
 import { useNexusStore } from '@/lib/store'
+import {
+  ACCENTS,
+  DEFAULT_ACCENT,
+  DEFAULT_PALETTE,
+  PALETTES,
+  readableInk,
+  useAppearance,
+  type AccentId,
+  type PaletteId,
+} from '@/lib/appearance'
 
 const TONES = [
   { id: 'chaleureux', label: 'Chaleureux', hint: 'proche et encourageant' },
@@ -31,7 +46,13 @@ const TONES = [
   { id: 'pedagogue', label: 'Pédagogue', hint: 'explique pas à pas' },
 ] as const
 
-const COLORS = ['#ffffff', '#38bdf8', '#a3a3a3', '#a3a3a3', '#fbbf24', '#f87171', '#60a5fa', '#c084fc']
+const COLORS = ['#64748b', '#6366f1', '#059669', '#d97706', '#dc2626', '#db2777', '#0891b2', '#7c3aed']
+
+const MODES = [
+  { id: 'light', label: 'Clair', hint: 'papier lumineux', icon: Sun },
+  { id: 'dark', label: 'Sombre', hint: 'repos visuel', icon: Moon },
+  { id: 'system', label: 'Système', hint: 'comme l’appareil', icon: Monitor },
+] as const
 
 interface Stats {
   conversations: number
@@ -44,6 +65,26 @@ interface Stats {
 /** Mon compte : identité, personnalisation de NEXUS, sécurité et données. */
 export function AccountPanel() {
   const { user, saveProfile, changePassword, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const { accent, palette, setAccent, setPalette, reset: resetAppearance } = useAppearance()
+  const [themeMounted, setThemeMounted] = useState(false)
+  // Montage différé : `theme` n'est fiable qu'après hydratation.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setThemeMounted(true), [])
+  const currentMode: 'light' | 'dark' | 'system' = themeMounted
+    ? theme === 'light' || theme === 'dark'
+      ? theme
+      : 'system'
+    : 'system'
+
+  // Chaque changement est aussi enregistré sur le compte (sans toast) : le
+  // choix suit l'utilisateur d'un appareil à l'autre.
+  function persistAppearance(patch: { accent?: AccentId; palette?: PaletteId; mode?: 'light' | 'dark' | 'system' }) {
+    void saveProfile(
+      { appearance: { accent: accent.id, palette: palette.id, mode: currentMode, ...patch } },
+      { silent: true }
+    )
+  }
   const conversations = useNexusStore((s) => s.conversations)
   const deleteAllConversations = useNexusStore((s) => s.deleteAllConversations)
 
@@ -61,7 +102,7 @@ export function AccountPanel() {
   const [greeting, setGreeting] = useState(profile.greeting ?? '')
   const [company, setCompany] = useState(profile.company ?? '')
   const [website, setWebsite] = useState(profile.website ?? '')
-  const [color, setColor] = useState(profile.avatarColor ?? '#ffffff')
+  const [color, setColor] = useState(profile.avatarColor ?? '#64748b')
 
   const [saving, setSaving] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -92,6 +133,8 @@ export function AccountPanel() {
   }, [])
 
   useEffect(() => {
+    // Chargement asynchrone des statistiques : aucune écriture synchrone ici.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStats()
   }, [loadStats])
 
@@ -110,6 +153,7 @@ export function AccountPanel() {
       company,
       website,
       avatarColor: color,
+      appearance: { accent: accent.id, palette: palette.id, mode: currentMode },
     })
     setSaving(false)
     if (ok) void loadStats()
@@ -134,8 +178,8 @@ export function AccountPanel() {
         {/* En-tête du compte */}
         <div className="flex items-center gap-4">
           <div
-            className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-white shadow-lg"
-            style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}
+            className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)`, color: readableInk(color) }}
           >
             {initial}
           </div>
@@ -150,11 +194,164 @@ export function AccountPanel() {
           </div>
         </div>
 
+        {/* Apparence : mode + palette + accent, mémorisés sur cet appareil */}
+        <Card className="border-border/70 bg-card/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Palette className="h-4 w-4 text-muted-foreground" /> Apparence
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Mode, palette et couleur d’accent : chaque choix s’applique à toute l’application et est enregistré sur ce compte.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mode</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {MODES.map((option) => {
+                  const Icon = option.icon
+                  const active = currentMode === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setTheme(option.id)
+                        persistAppearance({ mode: option.id })
+                      }}
+                      className={
+                        'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ' +
+                        (active
+                          ? 'border-primary/40 bg-primary/10 text-foreground'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground')
+                      }
+                      aria-pressed={active}
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{option.label}</span>
+                        <span className="block text-[11px] text-muted-foreground">{option.hint}</span>
+                      </span>
+                      {active ? <Check className="ml-auto h-4 w-4 shrink-0 text-primary" /> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Palette</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {PALETTES.map((option) => {
+                  const active = palette.id === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setPalette(option.id)
+                        persistAppearance({ palette: option.id })
+                      }}
+                      className={
+                        'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ' +
+                        (active
+                          ? 'border-primary/40 bg-primary/10 text-foreground'
+                          : 'border-border/70 bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground')
+                      }
+                      aria-pressed={active}
+                    >
+                      <span className="flex h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border/60">
+                        <span className="h-full w-1/2" style={{ background: option.light }} />
+                        <span className="h-full w-1/2" style={{ background: option.dark }} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{option.label}</span>
+                        <span className="block text-[11px] text-muted-foreground">{option.hint}</span>
+                      </span>
+                      {active ? <Check className="ml-auto h-4 w-4 shrink-0 text-primary" /> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Couleur d’accent
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {ACCENTS.map((option) => {
+                  const active = accent.id === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setAccent(option.id)
+                        persistAppearance({ accent: option.id })
+                      }}
+                      className={
+                        'flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-colors ' +
+                        (active
+                          ? 'border-foreground/30 bg-muted text-foreground'
+                          : 'border-border/70 text-muted-foreground hover:bg-muted/50 hover:text-foreground')
+                      }
+                      aria-pressed={active}
+                      title={`${option.label} — ${option.hint}`}
+                    >
+                      <span
+                        className="h-4 w-4 rounded-full border border-black/10"
+                        style={{ background: option.swatch }}
+                      />
+                      {option.label}
+                      {active ? <Check className="h-3 w-3 text-primary" /> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-background p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Aperçu</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                <span className="text-sm font-semibold text-foreground">NEXUS</span>
+                <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">Accent</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">Surface</span>
+                <Button size="sm" className="h-7 px-2.5 text-[11px]">Action</Button>
+                <span className="text-xs text-muted-foreground">Un texte secondaire reste lisible.</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-muted-foreground">
+                Préférences enregistrées sur ce compte (et sur cet appareil). La barre latérale permet aussi de changer de mode.
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  resetAppearance()
+                  setTheme('system')
+                  void saveProfile(
+                    { appearance: { accent: DEFAULT_ACCENT, palette: DEFAULT_PALETTE, mode: 'system' } },
+                    { silent: true }
+                  )
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Identité */}
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <UserIcon className="h-4 w-4 text-neutral-400" /> Identité
+              <UserIcon className="h-4 w-4 text-muted-foreground" /> Identité
             </CardTitle>
             <CardDescription className="text-xs">Nom affiché et adresse e-mail de connexion.</CardDescription>
           </CardHeader>
@@ -174,7 +371,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-neutral-400" /> Personnalisation de NEXUS
+              <Sparkles className="h-4 w-4 text-muted-foreground" /> Personnalisation de NEXUS
             </CardTitle>
             <CardDescription className="text-xs">
               Ces réglages sont propres à <strong>ce compte</strong> : NEXUS adopte votre ton, votre prénom et vos
@@ -215,7 +412,7 @@ export function AccountPanel() {
                     className={
                       'rounded-full border px-3 py-1.5 text-xs transition-all ' +
                       (tone === t.id
-                        ? 'border-neutral-500/50 bg-neutral-500/15 text-neutral-300'
+                        ? 'border-primary/50 bg-primary/15 text-foreground/80'
                         : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground')
                     }
                   >
@@ -234,7 +431,7 @@ export function AccountPanel() {
                     onClick={() => setColor(c)}
                     className={
                       'h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ' +
-                      (color === c ? 'border-white' : 'border-transparent')
+                      (color === c ? 'border-foreground' : 'border-transparent')
                     }
                     style={{ background: c }}
                     aria-label={`Couleur ${c}`}
@@ -279,7 +476,7 @@ export function AccountPanel() {
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={save} disabled={saving} className="gap-2 bg-neutral-500 hover:bg-neutral-500">
+              <Button onClick={save} disabled={saving} className="gap-2 bg-primary hover:bg-primary/90">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Enregistrer
               </Button>
@@ -291,7 +488,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldCheck className="h-4 w-4 text-neutral-400" /> Sécurité
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" /> Sécurité
             </CardTitle>
             <CardDescription className="text-xs">
               Le mot de passe est haché en local (scrypt) — il n&apos;est jamais stocké en clair.
@@ -340,7 +537,7 @@ export function AccountPanel() {
         <Card className="border-border/70 bg-card/60">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Palette className="h-4 w-4 text-neutral-400" /> Mes données
+              <Palette className="h-4 w-4 text-muted-foreground" /> Mes données
             </CardTitle>
             <CardDescription className="text-xs">
               Tout ce qui est listé ci-dessous n&apos;appartient qu&apos;à ce compte.

@@ -94,7 +94,7 @@ export function ConnectionsPanel() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <div className="mb-1 flex items-center gap-2">
-          <Link2 className="h-5 w-5 text-neutral-400" />
+          <Link2 className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-lg font-bold text-foreground">Connexions</h1>
           <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground hover:bg-accent" onClick={() => void refresh()}>
             <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} /> Rafraîchir
@@ -103,7 +103,7 @@ export function ConnectionsPanel() {
         <p className="mb-5 text-xs leading-relaxed text-muted-foreground">
           Relie tes comptes personnels à NEXUS. Chaque secret est{' '}
           <strong className="text-foreground/80">vérifié réellement</strong> auprès du service, puis{' '}
-          <strong className="text-neutral-400">chiffré en AES-256-GCM</strong> sur ce serveur — jamais stocké ni renvoyé en clair.
+          <strong className="text-muted-foreground">chiffré en AES-256-GCM</strong> sur ce serveur — jamais stocké ni renvoyé en clair.
           Une fois relié, <strong className="text-foreground/80">NEXUS et chaque agent</strong> de ton équipe peuvent s’en servir :
           demande « lis ma boîte mail », « mes repos GitHub » ou « mon TikTok » dans le chat.
         </p>
@@ -118,7 +118,7 @@ export function ConnectionsPanel() {
                 key={p.id}
                 className={cn(
                   'rounded-xl border bg-muted/40 p-4 transition-colors',
-                  conn ? 'border-neutral-500/40' : err ? 'border-rose-500/40' : 'border-border'
+                  conn ? 'border-primary/40' : err ? 'border-rose-500/40' : 'border-border'
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -127,11 +127,11 @@ export function ConnectionsPanel() {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-foreground">{p.label}</p>
                       {conn ? (
-                        <span className="flex items-center gap-1 rounded-full border border-neutral-500/50 bg-neutral-500/10 px-2 py-0.5 text-[10px] font-semibold text-neutral-300">
+                        <span className="flex items-center gap-1 rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-foreground/80">
                           <CheckCircle2 className="h-3 w-3" /> Connecté {conn.handle ? `· ${conn.handle}` : ''}
                         </span>
                       ) : err ? (
-                        <span className="flex items-center gap-1 rounded-full border border-rose-500/50 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                        <span className="flex items-center gap-1 rounded-full border border-rose-500/50 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
                           <XCircle className="h-3 w-3" /> Échec
                         </span>
                       ) : (
@@ -146,17 +146,17 @@ export function ConnectionsPanel() {
                         <KeyRound className="h-3 w-3" /> Secret enregistré : {conn.secretMask} {conn.note ? `· ${conn.note}` : ''}
                       </p>
                     )}
-                    {err && err.note && <p className="mt-1 text-[10px] text-rose-300/80">{err.note}</p>}
+                    {err && err.note && <p className="mt-1 text-[10px] text-rose-600/80 dark:text-rose-300/80">{err.note}</p>}
                   </div>
                   {conn ? (
-                    <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-border text-xs text-rose-400 hover:bg-rose-500/10" onClick={() => void disconnect(conn.id, p.label)}>
+                    <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-border text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10" onClick={() => void disconnect(conn.id, p.label)}>
                       <Unlink className="h-3 w-3" /> <span className="hidden sm:inline">Déconnecter</span>
                     </Button>
                   ) : (
                     <Button
                       size="sm"
                       variant="outline"
-                      className={cn('h-8 shrink-0 gap-1 border-border text-xs hover:bg-accent', isEditing && 'bg-accent text-neutral-300')}
+                      className={cn('h-8 shrink-0 gap-1 border-border text-xs hover:bg-accent', isEditing && 'bg-accent text-foreground/80')}
                       onClick={() => {
                         setProvider(isEditing ? null : p.id)
                         setSecret('')
@@ -192,7 +192,7 @@ export function ConnectionsPanel() {
                     />
                     <Button
                       size="sm"
-                      className="h-9 gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 text-white hover:opacity-90"
+                      className="h-9 gap-1.5 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:opacity-90"
                       onClick={() => void connect(p.id)}
                       disabled={busy || (p.id === 'tiktok' ? handle.trim().length < 2 : secret.trim().length < 8)}
                     >
