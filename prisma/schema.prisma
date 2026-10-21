@@ -187,3 +187,57 @@ model ApiKeyLog {
   ok        Boolean  @default(true)
   createdAt DateTime @default(now())
 }
+
+// ─── Webhooks & confirmations (espace Dev) ───────────────────────────────────
+
+// Webhook sortant : NEXUS prévient l'opérateur (Discord, Slack ou URL libre)
+// de l'entraînement, de ce qu'il a compris et des actions à confirmer.
+model DevWebhook {
+  id             String    @id @default(cuid())
+  userId         String
+  name           String    @default("Webhook")
+  url            String    @default("")
+  format         String    @default("auto") // auto | discord | slack | generic
+  events         String    @default("[\"*\"]") // JSON array d'événements
+  secret         String    @default("") // secret HMAC (chiffré au repos)
+  baseUrl        String    @default("") // URL publique utilisée dans les liens d'action
+  enabled        Boolean   @default(true)
+  lastStatus     String    @default("")
+  lastError      String    @default("")
+  lastDeliveryAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// Journal des livraisons (diagnostic : statut HTTP, latence, erreur).
+model DevWebhookLog {
+  id        String   @id @default(cuid())
+  userId    String   @default("")
+  webhookId String   @default("")
+  event     String   @default("")
+  ok        Boolean  @default(false)
+  status    Int      @default(0)
+  ms        Int      @default(0)
+  error     String   @default("")
+  preview   String   @default("")
+  createdAt DateTime @default(now())
+}
+
+// Demande de confirmation : le webhook porte deux liens signés (accepter /
+// refuser) qui exécutent la décision sans ouvrir l'application.
+model DevApproval {
+  id         String    @id @default(cuid())
+  userId     String    @default("")
+  kind       String    @default("patch") // patch | item | task
+  refId      String    @default("")
+  title      String    @default("")
+  summary    String    @default("")
+  payload    String    @default("{}")
+  status     String    @default("pending") // pending | accepted | refused
+  token      String    @default("")
+  decidedBy  String    @default("")
+  decidedAt  DateTime?
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}

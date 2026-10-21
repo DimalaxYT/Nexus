@@ -124,7 +124,7 @@ export function HistoryPanel({
           </div>
           <Button
             size="icon"
-            className="h-9 w-9 shrink-0 bg-gradient-to-br from-neutral-500 to-neutral-500 text-white hover:opacity-90"
+            className="h-9 w-9 shrink-0 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground hover:opacity-90"
             onClick={() => {
               createConversation()
               onOpenChange(false)
@@ -152,7 +152,7 @@ export function HistoryPanel({
                     <div
                       className={cn(
                         'group flex items-center gap-1 rounded-lg px-2.5 py-2 transition-colors',
-                        active ? 'bg-neutral-500/15' : 'hover:bg-accent/60'
+                        active ? 'bg-primary/15' : 'hover:bg-accent/60'
                       )}
                     >
                       {editingId === c.id ? (
@@ -171,7 +171,7 @@ export function HistoryPanel({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 shrink-0 text-neutral-400 hover:text-neutral-300"
+                            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground/80"
                             onClick={commitRename}
                             aria-label="Valider le renommage"
                           >
@@ -190,7 +190,7 @@ export function HistoryPanel({
                             <MessageSquare
                               className={cn(
                                 'h-4 w-4 shrink-0',
-                                active ? 'text-neutral-400' : 'text-muted-foreground/60'
+                                active ? 'text-muted-foreground' : 'text-muted-foreground/60'
                               )}
                             />
                             <span className="min-w-0 flex-1">
@@ -216,7 +216,7 @@ export function HistoryPanel({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-rose-400"
+                              className="h-7 w-7 text-muted-foreground hover:text-rose-600 dark:text-rose-400"
                               onClick={() => {
                                 deleteConversation(c.id)
                                 toast.success('Conversation supprimée')
@@ -243,10 +243,10 @@ export function HistoryPanel({
 // ─── Panneau mémoire longue terme ────────────────────────────────────────────
 
 const KIND_META: Record<MemoryItem['kind'], { label: string; className: string }> = {
-  fact: { label: 'Fait', className: 'bg-neutral-500/15 text-sky-300' },
-  preference: { label: 'Préférence', className: 'bg-neutral-500/15 text-neutral-300' },
-  project: { label: 'Projet', className: 'bg-neutral-300/15 text-amber-300' },
-  person: { label: 'Personne', className: 'bg-rose-500/15 text-rose-300' },
+  fact: { label: 'Fait', className: 'bg-primary/15 text-sky-700 dark:text-sky-300' },
+  preference: { label: 'Préférence', className: 'bg-primary/15 text-foreground/80' },
+  project: { label: 'Projet', className: 'bg-primary/15 text-amber-700 dark:text-amber-300' },
+  person: { label: 'Personne', className: 'bg-rose-500/15 text-rose-600 dark:text-rose-300' },
   other: { label: 'Autre', className: 'bg-zinc-500/15 text-zinc-300' },
 }
 
@@ -314,9 +314,9 @@ export function MemoryPanel({
       <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-border px-5 pb-3 pt-5">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <Brain className="h-4.5 w-4.5 text-neutral-400" />
+            <Brain className="h-4.5 w-4.5 text-muted-foreground" />
             Mémoire de NEXUS
-            <span className="rounded-full bg-neutral-500/15 px-2 py-0.5 text-xs font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-foreground/80">
               {memories.length}
             </span>
           </DialogTitle>
@@ -340,7 +340,7 @@ export function MemoryPanel({
           />
           <Button
             size="sm"
-            className="h-9 shrink-0 bg-gradient-to-br from-neutral-500 to-neutral-500 text-white hover:opacity-90"
+            className="h-9 shrink-0 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground hover:opacity-90"
             disabled={!draft.trim() || adding}
             onClick={addMemory}
           >
@@ -381,7 +381,7 @@ export function MemoryPanel({
                     </p>
                     <button
                       onClick={() => removeMemory(m.id)}
-                      className="shrink-0 rounded-md p-1 text-muted-foreground/50 opacity-0 transition-all hover:text-rose-400 group-hover:opacity-100"
+                      className="shrink-0 rounded-md p-1 text-muted-foreground/50 opacity-0 transition-all hover:text-rose-600 dark:text-rose-400 group-hover:opacity-100"
                       aria-label="Supprimer cette mémoire"
                     >
                       <X className="h-4 w-4" />
@@ -398,7 +398,7 @@ export function MemoryPanel({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 border-border text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+              className="h-8 border-border text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300"
               onClick={clearAll}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -606,7 +606,7 @@ export function KnowledgePanel({
             ) : (
               <span className="w-3.5 shrink-0" />
             )}
-            <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400/80" />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-amber-700/80 dark:text-amber-400/80" />
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
             <span className="shrink-0 text-[10px] text-muted-foreground/70">
               {countItems(node)}
@@ -621,7 +621,7 @@ export function KnowledgePanel({
                 <div
                   className={cn(
                     'group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent/60',
-                    editing?.id === item.id && 'bg-neutral-500/10'
+                    editing?.id === item.id && 'bg-primary/10'
                   )}
                   style={{ paddingLeft: `${8 + (node.path ? depth + 1 : depth) * 14}px` }}
                 >
@@ -629,19 +629,19 @@ export function KnowledgePanel({
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     onClick={() => openNote(item)}
                   >
-                    <BookOpen className="h-3.5 w-3.5 shrink-0 text-neutral-400/80" />
+                    <BookOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
                     <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/85">
                       {item.title}
                     </span>
                     {item.source === 'agent' && (
-                      <span className="shrink-0 rounded-full bg-neutral-500/15 px-1.5 text-[9px] font-semibold uppercase text-neutral-300">
+                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] font-semibold uppercase text-foreground/80">
                         IA
                       </span>
                     )}
                   </button>
                   <button
                     onClick={() => remove(item.id)}
-                    className="shrink-0 rounded-md p-0.5 text-muted-foreground/40 opacity-0 transition-all hover:text-rose-400 group-hover:opacity-100"
+                    className="shrink-0 rounded-md p-0.5 text-muted-foreground/40 opacity-0 transition-all hover:text-rose-600 dark:text-rose-400 group-hover:opacity-100"
                     aria-label={`Supprimer la note ${item.title}`}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -660,9 +660,9 @@ export function KnowledgePanel({
       <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-5 pb-3 pt-5">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <BookOpen className="h-4.5 w-4.5 text-neutral-400" />
+            <BookOpen className="h-4.5 w-4.5 text-muted-foreground" />
             Base de connaissances
-            <span className="rounded-full bg-neutral-500/15 px-2 py-0.5 text-xs font-semibold text-neutral-300">
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-foreground/80">
               {items.length}
             </span>
           </DialogTitle>
@@ -698,7 +698,7 @@ export function KnowledgePanel({
           {!editing && (
             <Button
               size="sm"
-              className="h-9 shrink-0 bg-gradient-to-br from-neutral-500 to-neutral-500 text-white hover:opacity-90"
+              className="h-9 shrink-0 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground hover:opacity-90"
               onClick={() => setEditing({ ...EMPTY_EDITOR })}
             >
               <Plus className="h-4 w-4" />
@@ -770,7 +770,7 @@ export function KnowledgePanel({
                   onChange={(e) => setEditing({ ...editing, content: e.target.value })}
                   rows={10}
                   placeholder="Ce que vous voulez retenir et organiser…"
-                  className="w-full resize-y rounded-lg border border-border bg-muted/60 p-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500/50"
+                  className="w-full resize-y rounded-lg border border-border bg-muted/60 p-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 />
               </div>
               <div className="flex items-center justify-between gap-2 pt-1">
@@ -778,7 +778,7 @@ export function KnowledgePanel({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 border-border text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+                    className="h-9 border-border text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300"
                     onClick={() => remove(editing.id as string)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -789,7 +789,7 @@ export function KnowledgePanel({
                 )}
                 <Button
                   size="sm"
-                  className="h-9 gap-1.5 bg-gradient-to-br from-neutral-500 to-neutral-500 text-white hover:opacity-90"
+                  className="h-9 gap-1.5 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground hover:opacity-90"
                   disabled={saving || !editing.title.trim() || !editing.content.trim()}
                   onClick={save}
                 >
@@ -841,7 +841,7 @@ export function KnowledgePanel({
                       disabled={!target}
                       className={cn(
                         'rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[11px] text-foreground/80',
-                        target && 'hover:border-neutral-500/50 hover:text-neutral-300'
+                        target && 'hover:border-primary/50 hover:text-foreground/80'
                       )}
                       onClick={() => target && openNote(target)}
                     >

@@ -643,7 +643,7 @@ export function JarvisCanvas({ className }: { className?: string }) {
             <div
               className={cn(
                 'rounded-xl border px-2.5 py-1.5 shadow-xl backdrop-blur-md',
-                b.id === 'nexus' ? 'border-neutral-300/40 bg-black/75' : 'border-white/10 bg-black/70'
+                b.id === 'nexus' ? 'border-white/20 bg-black/75' : 'border-white/10 bg-black/70'
               )}
             >
               <p className="flex items-center gap-1.5 text-[12px] font-bold leading-none text-white">
@@ -657,7 +657,7 @@ export function JarvisCanvas({ className }: { className?: string }) {
                   style={{ backgroundColor: b.id === 'nexus' ? CYAN : b.color || '#ffffff' }}
                 />
               </p>
-              <p className={cn('mt-0.5 text-[9px] uppercase tracking-wider', b.id === 'nexus' ? 'text-neutral-300/70' : 'text-white/50')}>
+              <p className={cn('mt-0.5 text-[9px] uppercase tracking-wider', b.id === 'nexus' ? 'text-white/70' : 'text-white/50')}>
                 {b.id === 'nexus' ? 'cerveau central' : b.role || 'agent'}
               </p>
               <p
@@ -683,8 +683,8 @@ export function JarvisCanvas({ className }: { className?: string }) {
 
       {/* HUD haute */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between px-4 pt-3">
-        <div className="rounded-lg border border-neutral-300/25 bg-black/55 px-3 py-1.5 backdrop-blur-md">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-300">Nexus · Neural Link</p>
+        <div className="rounded-lg border border-white/15 bg-black/55 px-3 py-1.5 backdrop-blur-md">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground/80">Nexus · Neural Link</p>
           <p className="mt-0.5 text-[10px] text-white/60">
             {nodes.length} agent{nodes.length > 1 ? 's' : ''} relié{nodes.length > 1 ? 's' : ''}
             {activeCount > 1 ? ` · ${activeCount - 1} actif${activeCount - 1 > 1 ? 's' : ''}` : ' · tous en veille'}
@@ -696,13 +696,13 @@ export function JarvisCanvas({ className }: { className?: string }) {
       {/* Légende basse */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-gradient-to-t from-background/85 to-transparent px-4 pb-3 pt-8 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-neutral-300" /> cerveau central (réflexion + parole de NEXUS)
+          <span className="inline-block h-2 w-2 rounded-full bg-primary" /> cerveau central (réflexion + parole de NEXUS)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-amber-300" /> impulsions = pensées qui voyagent
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-neutral-400" /> nœuds = tes agents en orbite
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white/60" /> nœuds = tes agents en orbite
         </span>
         <span className="hidden sm:inline">— glisse pour tourner, molette pour zoomer</span>
       </div>

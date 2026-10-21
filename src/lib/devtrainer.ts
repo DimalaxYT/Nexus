@@ -16,6 +16,7 @@ import { stems } from './brain/text'
 import { buildKnowledgePatch } from './devknowledge'
 import { applyPatchToDisk } from './devpatch'
 import { maybeRetrainModel, probeModel, validQuestions } from './devmodel'
+import { emitDevEvent, requestApproval } from './devwebhook'
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -791,7 +792,22 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
         },
       })
       .catch(() => {})
-    return { ...report, runId, steps }
+    const final = { ...report, runId, steps }
+    void emitDevEvent(userId, 'training.completed', {
+      title: report.error ? `Cycle terminé avec incident — ${report.objective || 'sans objectif'}` : `Cycle terminé — ${report.objective}`,
+      summary: report.error
+        ? `Le cycle s’est arrêté : ${report.error}. ${report.pages} page(s) lue(s), ${report.items} savoir(s) produit(s).`
+        : `Objectif « ${report.objective} » : ${report.pages} page(s) lue(s), ${report.items} savoir(s) produit(s). Couverture ${Math.round(report.scoreBefore * 100)} % → ${Math.round(report.scoreAfter * 100)} %.`,
+      fields: [
+        { name: 'Mode', value: report.mode === 'web' ? 'web' : report.mode === 'local' ? 'corpus local' : 'aucune source', inline: true },
+        { name: 'Pages', value: String(report.pages), inline: true },
+        { name: 'Savoirs', value: String(report.items), inline: true },
+        { name: 'Couverture', value: `${Math.round(report.scoreBefore * 100)} % → ${Math.round(report.scoreAfter * 100)} %`, inline: true },
+        ...(report.error ? [{ name: 'Erreur', value: report.error.slice(0, 500) }] : []),
+      ],
+      data: { runId, objective: report.objective, mode: report.mode, pages: report.pages, items: report.items },
+    })
+    return final
   }
 
   try {
@@ -828,6 +844,16 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
 
     /** Récolte, rédaction, évaluation et promotion pour un objectif donné. */
     async function gather(objective: { id: string; label: string; query: string; category: string }) {
+      void emitDevEvent(userId, 'training.started', {
+        title: `Entraînement démarré — ${objective.label}`,
+        summary: `Cycle ${opts.trigger === 'manuel' ? 'lancé à la main' : 'automatique'} sur l’objectif « ${objective.label} » (catégorie ${objective.category}).`,
+        fields: [
+          { name: 'Déclencheur', value: opts.trigger === 'manuel' ? 'manuel' : 'daemon', inline: true },
+          { name: 'Objectif', value: objective.label, inline: false },
+          { name: 'Couverture avant', value: `${Math.round(before.score * 100)} %`, inline: true },
+        ],
+        data: { runId, objectiveId: objective.id, trigger: opts.trigger ?? 'auto' },
+      })
       // 3. Récolte
       const material = await collectMaterial(objective, userId, runId, config)
       if (!material || !material.pages.length) {
@@ -960,6 +986,19 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
         })
         .catch(() => {})
       step('Promotion', 'Entrée ajoutée aux connaissances du compte : NEXUS peut déjà l’utiliser')
+      void emitDevEvent(userId, 'training.learned', {
+        title: `Ce que NEXUS a compris — ${objective.label}`,
+        summary: `**Question :** ${question}\n\n**Réponse retenue :** ${answer.slice(0, 1500)}`,
+        fields: [
+          { name: 'Score', value: score.toFixed(2), inline: true },
+          { name: 'Seuil', value: config.minScore.toFixed(2), inline: true },
+          { name: 'Mode', value: material.mode === 'web' ? 'web' : 'corpus local', inline: true },
+          { name: 'Sources', value: sources.slice(0, 4).join(' · ') || 'corpus local', inline: false },
+          { name: 'Catégorie', value: objective.category, inline: true },
+          { name: 'Objectif', value: objective.label, inline: true },
+        ],
+        data: { runId, itemId, objectiveId: objective.id, question, answer: answer.slice(0, 2500), score, sources },
+      })
 
       // Correctif vers la banque intégrée (savoir servi à tous, hors-ligne)
       const patch = buildKnowledgePatch({ keywords, question, answer })
@@ -1001,6 +1040,14 @@ export async function runTrainingCycle(userId: string, opts: RunOptions = {}): P
           }
         } else if (patchRow) {
           step('Correctif', 'Correctif déposé dans l’onglet Correctifs, en attente de validation', 'ok')
+          void requestApproval({
+            userId,
+            kind: 'patch',
+            refId: String(patchRow.id),
+            title: patch.title,
+            summary: `Correctif issu de l’entraînement sur « ${objective.label} » (score ${score.toFixed(2)}). Il modifie ${patch.filePath}. Accepter l’applique immédiatement (sauvegarde préalable) ; refuser l’écarte.`,
+            payload: { origin: 'entrainement', objective: objective.label, filePath: patch.filePath, rationale: patch.rationale },
+          })
         }
       }
 

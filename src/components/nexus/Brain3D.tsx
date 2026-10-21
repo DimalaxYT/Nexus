@@ -561,13 +561,13 @@ export function BrainCanvas({ className }: { className?: string }) {
       {/* Légende */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-gradient-to-t from-background/85 to-transparent px-4 pb-3 pt-8 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-neutral-400" /> veille (respiration lente)
+          <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground" /> veille (respiration lente)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-amber-400" /> réflexion (impulsions rapides)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-neutral-400" /> prise de parole (halo intense)
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-muted-foreground" /> prise de parole (halo intense)
         </span>
         {hiddenCount > 0 && <span className="italic">+ {hiddenCount} autre(s) cerveau(x) hors champ</span>}
         <span className="hidden sm:inline">— glisse pour tourner, molette pour zoomer</span>

@@ -41,9 +41,9 @@ const DURATIONS = ["Aujourd'hui", 'Cette semaine', 'Ce mois-ci', 'Personnalisée
 
 const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
   todo: { label: 'À faire', className: 'border-border bg-muted/60 text-muted-foreground' },
-  running: { label: 'En cours', className: 'border-neutral-500/40 bg-neutral-500/10 text-sky-300' },
-  done: { label: 'Terminée', className: 'border-neutral-500/40 bg-neutral-500/10 text-neutral-300' },
-  blocked: { label: 'Bloquée', className: 'border-rose-500/40 bg-rose-500/10 text-rose-300' },
+  running: { label: 'En cours', className: 'border-primary/40 bg-primary/10 text-sky-700 dark:text-sky-300' },
+  done: { label: 'Terminée', className: 'border-primary/40 bg-primary/10 text-foreground/80' },
+  blocked: { label: 'Bloquée', className: 'border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-300' },
 }
 
 function formatTs(ts: number): string {
@@ -188,7 +188,7 @@ export function MissionsPanel({
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl" style={{ scrollbarWidth: 'thin' }}>
         <SheetHeader className="border-b border-border/70 px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <StickyNote className="h-4 w-4 text-amber-400" />
+            <StickyNote className="h-4 w-4 text-amber-700 dark:text-amber-400" />
             Missions
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -222,7 +222,7 @@ export function MissionsPanel({
                   className={cn(
                     'rounded-full border px-2.5 py-1 text-xs transition-colors',
                     durationChoice === d
-                      ? 'border-neutral-300/50 bg-neutral-300/10 text-amber-300'
+                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
                       : 'border-border bg-muted/50 text-muted-foreground hover:bg-accent'
                   )}
                 >
@@ -283,7 +283,7 @@ export function MissionsPanel({
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs transition-colors',
                         active
-                          ? 'border-neutral-500/50 bg-neutral-500/10 text-neutral-300'
+                          ? 'border-primary/50 bg-primary/10 text-foreground/80'
                           : 'border-border bg-muted/50 text-muted-foreground hover:bg-accent'
                       )}
                     >
@@ -295,7 +295,7 @@ export function MissionsPanel({
             </div>
           )}
           <Button
-            className="h-9 gap-1.5 bg-neutral-300 text-white hover:bg-amber-600"
+            className="h-9 gap-1.5 bg-primary text-primary-foreground hover:bg-amber-600"
             onClick={createTask}
             disabled={creating || name.trim().length === 0}
           >
@@ -333,7 +333,7 @@ export function MissionsPanel({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-300"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300"
                       onClick={() => removeTask(task)}
                       aria-label={`Supprimer la mission ${task.name}`}
                     >
@@ -366,7 +366,7 @@ export function MissionsPanel({
                       <ul className="flex flex-col gap-1">
                         {task.progress.slice(-4).reverse().map((p, i) => (
                           <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug text-foreground/80">
-                            <CircleCheck className="mt-0.5 h-3 w-3 shrink-0 text-neutral-400" />
+                            <CircleCheck className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
                             <span className="min-w-0 flex-1">{p.note}</span>
                             <span className="shrink-0 text-[9px] text-muted-foreground/50">{formatTs(p.at)}</span>
                           </li>
@@ -379,7 +379,7 @@ export function MissionsPanel({
                     {task.report && (
                       <Button
                         size="sm"
-                        className="h-7 gap-1.5 bg-neutral-500 px-2.5 text-xs text-white hover:bg-neutral-600"
+                        className="h-7 gap-1.5 bg-primary px-2.5 text-xs text-primary-foreground hover:bg-primary/90"
                         onClick={() => setReportTask(task)}
                         title="Lire la synthèse finale rédigée par l'équipe"
                       >
@@ -390,7 +390,7 @@ export function MissionsPanel({
                     {task.status !== 'running' && task.status !== 'done' && (
                       <Button
                         size="sm"
-                        className="h-7 gap-1.5 bg-neutral-300 px-2.5 text-xs text-white hover:bg-amber-600"
+                        className="h-7 gap-1.5 bg-primary px-2.5 text-xs text-primary-foreground hover:bg-amber-600"
                         onClick={() => runInBackground(task)}
                         disabled={launchingId === task.id}
                         title="NEXUS exécute la mission en autonomie (recherche multi-sources + apprentissage + rapport)"
@@ -440,7 +440,7 @@ export function MissionsPanel({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 gap-1.5 border-rose-500/30 px-2.5 text-xs text-rose-300 hover:bg-rose-500/10"
+                        className="h-7 gap-1.5 border-rose-500/30 px-2.5 text-xs text-rose-600 dark:text-rose-300 hover:bg-rose-500/10"
                         onClick={() => setStatus(task, 'blocked')}
                       >
                         <TriangleAlert className="h-3 w-3" />
@@ -461,7 +461,7 @@ export function MissionsPanel({
         <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
           <DialogHeader className="border-b border-border/70 px-5 py-3.5">
             <DialogTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-4 w-4 text-neutral-400" />
+              <FileText className="h-4 w-4 text-muted-foreground" />
               Rapport — {reportTask?.name}
             </DialogTitle>
             <DialogDescription className="flex items-center gap-1.5 text-xs">

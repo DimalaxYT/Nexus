@@ -16,8 +16,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  // Chrome mobile suit le mode réellement affiché.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f9f9fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#16181b" },
+  ],
 };
+
+// Applique la palette et l'accent mémorisés AVANT le premier rendu : évite
+// qu'un utilisateur « chaud + émeraude » voie un flash neutre/ardoise.
+const appearanceScript = `(function(){try{var d=document.documentElement;var a=localStorage.getItem("nexus-accent");if(a)d.setAttribute("data-accent",a);var p=localStorage.getItem("nexus-palette");if(p)d.setAttribute("data-palette",p);}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -25,9 +33,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="dark" suppressHydrationWarning>
+    <html lang="fr" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: appearanceScript }} />
+      </head>
       <body className="antialiased bg-background text-foreground">
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
           {children}
           <Toaster />
         </ThemeProvider>

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { useTheme } from 'next-themes'
 import {
   ArrowRight,
   Bot,
@@ -18,8 +17,6 @@ import {
   Link2,
   LogOut,
   Menu,
-  Moon,
-  Sun,
   Terminal,
   User as UserIcon,
   Workflow,
@@ -29,6 +26,8 @@ import { cn } from '@/lib/utils'
 import { useNexusStore } from '@/lib/store'
 import { AuthProvider, useAuth } from '@/lib/auth-client'
 import { SiteSettingsProvider, useSiteSettings } from '@/lib/site-settings-client'
+import { ThemeCycleButton } from '@/components/nexus/theme-cycle'
+import { readableInk } from '@/lib/appearance'
 import type { ViewId } from '@/lib/nexus-types'
 import { Button } from '@/components/ui/button'
 import {
@@ -141,7 +140,7 @@ function NavButton({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
       )}
     >
       {active && (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-foreground/70" aria-hidden />
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden />
       )}
       <Icon className={cn('h-4.5 w-4.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground/80')} />
       <span className="flex-1">{item.label}</span>
@@ -192,24 +191,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  // Garde d'hydratation : resolvedTheme est undefined avant le montage, le
-  // clic pouvait re-set le thème courant (aucun effet visible).
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-  const dark = mounted && resolvedTheme === 'dark'
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-9 w-9 text-muted-foreground hover:text-foreground"
-      onClick={() => setTheme(dark ? 'light' : 'dark')}
-      aria-label="Basculer le thème clair ou sombre"
-    >
-      <Sun className="h-4 w-4 dark:hidden" />
-      <Moon className="hidden h-4 w-4 dark:block" />
-    </Button>
-  )
+  return <ThemeCycleButton />
 }
 
 /** Menu du compte connecté (profil, déconnexion). */
@@ -220,7 +202,7 @@ function AccountMenu() {
 
   const profile = user.profile ?? {}
   const label = profile.displayName || user.name || user.email.split('@')[0]
-  const color = profile.avatarColor ?? '#ffffff'
+  const color = profile.avatarColor ?? '#64748b'
   const initial = label.trim().charAt(0).toUpperCase()
 
   return (
@@ -231,8 +213,8 @@ function AccountMenu() {
           aria-label="Menu du compte"
         >
           <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
-            style={{ background: `linear-gradient(135deg, ${color}, ${color}aa)` }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+            style={{ background: `linear-gradient(135deg, ${color}, ${color}aa)`, color: readableInk(color) }}
           >
             {initial}
           </span>
@@ -265,7 +247,7 @@ function AccountMenu() {
           </a>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void logout()} className="gap-2 text-rose-400">
+        <DropdownMenuItem onClick={() => void logout()} className="gap-2 text-rose-600 dark:text-rose-400">
           <LogOut className="h-4 w-4" /> Se déconnecter
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -327,7 +309,7 @@ function NexusApp() {
     return (
       <div className="flex h-dvh items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <p className="text-xs text-muted-foreground">Ouverture de votre espace…</p>
         </div>
       </div>

@@ -812,7 +812,7 @@ export function Studio3D() {
               variant={gizmoMode === m ? 'default' : 'outline'}
               className={cn(
                 'h-9 px-3 text-xs capitalize',
-                gizmoMode === m ? 'bg-neutral-500 text-white hover:bg-neutral-500' : 'border-border hover:bg-accent'
+                gizmoMode === m ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border-border hover:bg-accent'
               )}
               onClick={() => setGizmoMode(m)}
             >
@@ -852,7 +852,7 @@ export function Studio3D() {
             variant={measureMode ? 'default' : 'outline'}
             className={cn(
               'h-9 gap-1.5 px-3 text-xs',
-              measureMode ? 'bg-neutral-300 text-white hover:bg-amber-600' : 'border-border hover:bg-accent'
+              measureMode ? 'bg-primary text-primary-foreground hover:bg-amber-600' : 'border-border hover:bg-accent'
             )}
             onClick={() => {
               setMeasureMode((v) => !v)
@@ -936,8 +936,8 @@ export function Studio3D() {
       </div>
 
       {/* Barre IA + export */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-gradient-to-r from-neutral-500/10 to-neutral-500/10 px-3 py-2">
-        <Sparkles className="h-4 w-4 shrink-0 text-neutral-400" />
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-gradient-to-r from-primary/10 to-primary/80 px-3 py-2">
+        <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
         <Input
           value={aiPrompt}
           onChange={(e) => setAiPrompt(e.target.value)}
@@ -948,7 +948,7 @@ export function Studio3D() {
         />
         <Button
           size="sm"
-          className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-neutral-500 to-neutral-500 px-4 text-white hover:opacity-90"
+          className="h-9 shrink-0 gap-1.5 bg-gradient-to-r from-primary to-primary/80 px-4 text-primary-foreground hover:opacity-90"
           onClick={generateAI}
           disabled={aiLoading || aiPrompt.trim().length === 0}
         >
@@ -998,7 +998,7 @@ export function Studio3D() {
                   key={type}
                   onClick={() => addObject(type)}
                   title={`Ajouter : ${PRIMITIVE_LABELS[type]}`}
-                  className="flex flex-col items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-1 py-2 text-muted-foreground transition-all hover:border-neutral-500/50 hover:text-neutral-300"
+                  className="flex flex-col items-center gap-1 rounded-lg border border-border/70 bg-muted/40 px-1 py-2 text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground/80"
                 >
                   <Icon className="h-4 w-4" />
                   <span className="w-full truncate text-center text-[9px] leading-tight">{PRIMITIVE_LABELS[type]}</span>
@@ -1023,13 +1023,13 @@ export function Studio3D() {
                     className={cn(
                       'group flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs transition-colors',
                       o.id === selectedId
-                        ? 'bg-neutral-500/15 text-neutral-300 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.35)]'
+                        ? 'bg-primary/15 text-foreground/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.35)]'
                         : 'text-muted-foreground hover:bg-accent/60'
                     )}
                   >
                     <button
                       onClick={() => patchObject(o.id, { visible: o.visible === false })}
-                      className={cn('shrink-0 rounded p-0.5 hover:text-foreground', o.visible === false ? 'text-muted-foreground/40' : 'text-neutral-400/80')}
+                      className={cn('shrink-0 rounded p-0.5 hover:text-foreground', o.visible === false ? 'text-muted-foreground/40' : 'text-muted-foreground/80')}
                       title={o.visible === false ? 'Afficher' : 'Masquer'}
                       aria-label={o.visible === false ? `Afficher ${o.name}` : `Masquer ${o.name}`}
                     >
@@ -1037,7 +1037,7 @@ export function Studio3D() {
                     </button>
                     <button
                       onClick={() => patchObject(o.id, { locked: !o.locked })}
-                      className={cn('shrink-0 rounded p-0.5 hover:text-foreground', o.locked ? 'text-amber-400' : 'text-muted-foreground/50')}
+                      className={cn('shrink-0 rounded p-0.5 hover:text-foreground', o.locked ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground/50')}
                       title={o.locked ? 'Déverrouiller' : 'Verrouiller'}
                       aria-label={o.locked ? `Déverrouiller ${o.name}` : `Verrouiller ${o.name}`}
                     >
@@ -1059,7 +1059,7 @@ export function Studio3D() {
                 <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5 border-border text-xs hover:bg-accent" onClick={duplicateSelected}>
                   <Copy className="h-3.5 w-3.5" /> Dupliquer
                 </Button>
-                <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5 border-border text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300" onClick={deleteSelected}>
+                <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5 border-border text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300" onClick={deleteSelected}>
                   <Trash2 className="h-3.5 w-3.5" /> Suppr.
                 </Button>
               </div>
@@ -1162,10 +1162,10 @@ export function Studio3D() {
               : 'Clic gauche : orbite · Molette : zoom · Clic : sélectionner · Ctrl+Z : annuler'}
           </div>
           {measureDistance !== null && (
-            <div className="absolute right-3 top-3 flex items-center gap-2 rounded-lg border border-neutral-300/40 bg-neutral-300/15 px-3 py-1.5 text-xs font-semibold text-amber-200 backdrop-blur">
+            <div className="absolute right-3 top-3 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-200 backdrop-blur">
               <Ruler className="h-3.5 w-3.5" />
               {measureDistance.toFixed(2)} m
-              <button onClick={clearMeasure} className="text-amber-300/70 hover:text-amber-200" aria-label="Effacer la mesure">
+              <button onClick={clearMeasure} className="text-amber-700/70 dark:text-amber-300/70 hover:text-amber-700 dark:text-amber-200" aria-label="Effacer la mesure">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1197,7 +1197,7 @@ export function Studio3D() {
                       className={cn(
                         'h-8 text-[11px]',
                         (scene.lighting ?? 'studio') === p
-                          ? 'bg-neutral-500 text-white hover:bg-neutral-500'
+                          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                           : 'border-border hover:bg-accent'
                       )}
                       onClick={() => applyLighting(p)}
@@ -1343,9 +1343,9 @@ export function Studio3D() {
                       .sort((a, b) => a.t - b.t)
                       .map((k) => (
                         <li key={k.t} className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
-                          <Film className="h-3 w-3 shrink-0 text-neutral-400" />
+                          <Film className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <button
-                            className="flex-1 text-left font-mono text-neutral-300 hover:text-neutral-300"
+                            className="flex-1 text-left font-mono text-foreground/80 hover:text-foreground/80"
                             onClick={() => scrubTo(k.t)}
                             title="Aller à cette clé"
                           >
@@ -1353,7 +1353,7 @@ export function Studio3D() {
                           </button>
                           <button
                             onClick={() => deleteKeyframe(k.t)}
-                            className="shrink-0 rounded p-0.5 text-muted-foreground/50 hover:text-rose-400"
+                            className="shrink-0 rounded p-0.5 text-muted-foreground/50 hover:text-rose-600 dark:text-rose-400"
                             aria-label="Supprimer cette clé"
                           >
                             <Trash2 className="h-3 w-3" />
@@ -1403,7 +1403,7 @@ export function Studio3D() {
           <div className="flex items-center gap-1.5">
             <Button
               size="icon"
-              className="h-8 w-8 rounded-lg bg-neutral-500 text-white hover:bg-neutral-500"
+              className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={playing ? pauseAnim : playAnim}
               aria-label={playing ? 'Mettre en pause' : 'Lire l\u2019animation'}
             >
@@ -1456,7 +1456,7 @@ export function Studio3D() {
           onClick={() => setAnimOpen(true)}
           className="flex items-center gap-1.5 border-t border-border/70 bg-card/60 px-4 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          <Film className="h-3.5 w-3.5 text-neutral-400" />
+          <Film className="h-3.5 w-3.5 text-muted-foreground" />
           Animation clé par clé — ouvrir la timeline
         </button>
       )}

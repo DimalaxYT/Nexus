@@ -23,7 +23,7 @@ export function BrainView({ compact = false }: { compact?: boolean }) {
             aria-pressed={mode === 'jarvis'}
             className={cn(
               'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors',
-              mode === 'jarvis' ? 'bg-neutral-500/25 text-neutral-300' : 'text-white/55 hover:text-white/85'
+              mode === 'jarvis' ? 'bg-primary/25 text-foreground/80' : 'text-white/55 hover:text-white/85'
             )}
           >
             <Brain className="h-3 w-3" /> Jarvis
@@ -34,7 +34,7 @@ export function BrainView({ compact = false }: { compact?: boolean }) {
             aria-pressed={mode === 'multi'}
             className={cn(
               'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors',
-              mode === 'multi' ? 'bg-neutral-500/30 text-neutral-300' : 'text-white/55 hover:text-white/85'
+              mode === 'multi' ? 'bg-primary/30 text-foreground/80' : 'text-white/55 hover:text-white/85'
             )}
           >
             <Network className="h-3 w-3" /> Éclaté

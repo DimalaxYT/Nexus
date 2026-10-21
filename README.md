@@ -106,6 +106,11 @@ Chaque compte possède ses propres données, sans aucun mélange :
 - **Personnalisation** (menu *Mon compte*) : prénom utilisé par NEXUS, nom donné à l'assistant, ton
   (chaleureux / neutre / professionnel / direct / pédagogue), métier, entreprise, langue, avatar,
   message d'accueil et **consignes permanentes** injectées dans le prompt système du cerveau.
+- **Apparence** (*Mon compte → Apparence*, ou bouton de la barre latérale) : **trois modes** (clair,
+  sombre, **système**), **trois palettes** neutres (Neutre, Chaud, Froid) et **huit couleurs
+  d'accent** (Ardoise, Indigo, Émeraude, Ambre, Terracotta, Rose, Cyan, Violet). Tout s'applique
+  instantanément, sans rechargement, et reste mémorisé sur l'appareil (`localStorage` : `theme`,
+  `nexus-palette`, `nexus-accent`). En mode système, `prefers-color-scheme` est respecté en direct.
 
 ### 🧩 Blueprints — construisez vous-même le schéma de vos agents
 
@@ -193,13 +198,17 @@ mot de passe : dev2026          ← à changer depuis le menu « Mon compte »
 > Le mot de passe initial se surcharge avec la variable d'environnement `NEXUS_DEV_PASSWORD`.
 > Il est affiché **une seule fois** dans la console du serveur, lors de la création du compte.
 
-L'espace développeur (**Espace Dev**, dans la barre latérale) réunit sept onglets :
+L'espace développeur (**Espace Dev**, dans la barre latérale) réunit onze onglets :
 
 | Onglet | Ce qu'il fait |
 |---|---|
 | **Vue d'ensemble** | Compteurs de la base, poids du code par dossier, fichiers les plus lourds, charge système, et les **sujets mal couverts** détectés dans le journal d'appels |
 | **Site** | Personnalisation du site depuis le web : nom, slogan, emoji du logo, deux couleurs d'accent, textes de connexion et d'accueil, pied de page, visibilité des tuiles de l'accueil, **CSS libre** — avec aperçu en direct |
 | **Agent Dev** | Discuter avec l'agent qui lit le code |
+| **Entraînement** | État du daemon, cycles, couverture de NEXUS, savoirs appris, réglages du modèle |
+| **Filtres** | Exclure ou masquer des conversations de l'entraînement |
+| **Réglages** | Base libSQL (locale/Turso) et Gardien anti-veille |
+| **Webhooks** | Brancher Discord, Slack ou une URL libre et retrouver les **confirmations en attente** |
 | **Code** | Explorateur de fichiers + recherche dans tout le projet (avec numéros de ligne) |
 | **Correctifs** | Les propositions de l'agent Dev, à relire et à appliquer une par une **ou toutes d'un coup** (sauvegarde automatique) |
 | **Améliorations** | File de tâches alimentée par l'agent Dev et par vous |
@@ -240,6 +249,12 @@ ligne). Il sait :
   résiduels, imports nommés jamais utilisés, `parseInt` sans base, `target="_blank"` sans
   `rel="noopener noreferrer"`, `<img>` sans `alt`. S'il ne trouve rien de sûr à corriger, il ne
   fabrique pas de faux correctif : il explique ce qu'il a contrôlé et demande l'ancre exacte.
+- **Réparer le thème** — « corrige le thème, il est bloqué en clair » : diagnostic dédié qui lit
+  réellement `src/app/globals.css`, `src/app/layout.tsx` et la bascule. Il remet la palette sombre
+  après `:root` (sinon le clair l'écrase), élargit la variante Tailwind `dark:` à la racine, retire
+  une classe `dark` figée, active le mode « système » (`enableSystem`) et vérifie que les sélecteurs
+  `data-accent` existent. Si tout est correct, il le dit et indique où changer d'apparence — il
+  n'invente pas de correctif.
 
 Une même demande peut donc produire **plusieurs correctifs** : plusieurs instructions
 (« remplace … dans a.ts **puis** supprime … dans a.ts **et** crée b.md ») sont découpées et
@@ -271,6 +286,34 @@ l'application est **refusée** plutôt que d'écrire au mauvais endroit. Les aut
 attente sur le même fichier dont l'ancre a disparu passent automatiquement en **« périmé »** : ils
 ne bloquent plus « Tout appliquer ».
 
+### 🔔 Webhooks : NEXUS vous tient au courant
+
+L'onglet **Webhooks** de l'espace Dev branche NEXUS sur **Discord**, **Slack** ou n'importe quelle URL
+qui accepte un `POST` JSON (n8n, Make, Zapier, script maison…). Les messages sont formatés
+automatiquement ; un **secret HMAC** optionnel signe chaque requête (`X-Nexus-Signature`).
+
+Événements disponibles, sélectionnables un par un ou tous :
+
+| Événement | Contenu envoyé |
+|---|---|
+| `training.started` | Objectif choisi, déclencheur (daemon ou manuel), couverture avant le cycle |
+| `training.learned` | **Ce que l'IA a compris** : question, réponse retenue, score, sources, catégorie |
+| `training.completed` | Bilan du cycle : pages lues, savoirs produits, couverture avant → après, erreur éventuelle |
+| `approval.requested` | **Attente de confirmation** avec deux boutons **✅ Accepter** / **❌ Refuser** |
+| `approval.decided` | Qui a tranché (webhook ou dashboard) et dans quel sens |
+| `patch.applied` | Fichier modifié et sauvegarde associée |
+| `daemon.error` | Incident d'un cycle, nombre d'erreurs consécutives et prochaine tentative |
+| `test` | Message de vérification envoyé par le bouton « Envoyer un test » |
+
+Les boutons d'une confirmation sont de **vrais liens signés** (jeton aléatoire de 24 octets, à usage
+unique) : un clic applique ou écarte l'action immédiatement, sans ouvrir l'application, et affiche une
+petite page de confirmation. L'onglet Webhooks montre les confirmations en attente, le journal des
+livraisons (statut HTTP, latence, erreur) et permet de tester ou désactiver chaque webhook.
+
+Le champ **URL publique de NEXUS** (ou les variables `NEXUS_PUBLIC_URL` / `RENDER_EXTERNAL_URL`) sert
+à construire ces liens. En développement, une URL locale (`http://localhost:…`) est acceptée ; en
+production la protection anti-SSRF refuse les adresses internes, sauf `NEXUS_WEBHOOK_ALLOW_PRIVATE=1`.
+
 ### Sécurité de l'espace Dev
 
 - `devGuard()` : seules les requêtes du compte `dev` passent (401 anonyme, 403 pour tout autre
@@ -292,8 +335,10 @@ Modèles ajoutés en v2.1 : `User`, `Session`, `Blueprint`, `ApiKey`, `ApiKeyLog
 `AccountConnection` et un champ `blueprintId` sur `AgentProfile`.
 
 Modèles de l'espace Dev : `SiteSetting` (réglages du site), `DevPatch` (correctifs proposés),
-`DevTask` (file d'améliorations), plus les colonnes `role` sur `User` (`owner` / `dev` / `client`)
-et `systemKey` sur `AgentProfile` (`'dev'` pour l'agent système).
+`DevTask` (file d'améliorations), `DevWebhook` (destinations d'alertes), `DevWebhookLog` (journal des
+livraisons), `DevApproval` (confirmations Accepter / Refuser avec jeton), plus les colonnes `role`
+sur `User` (`owner` / `dev` / `client`) et `systemKey` sur `AgentProfile` (`'dev'` pour l'agent
+système).
 
 ## Structure
 

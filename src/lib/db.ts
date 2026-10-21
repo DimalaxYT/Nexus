@@ -292,6 +292,52 @@ const TABLES: Record<string, TableSpec> = {
     boolCols: ['read'],
     defaults: { userId: '', title: '', body: '', source: 'system', read: false },
   },
+  /** Webhooks sortants de l'espace Dev : où NEXUS raconte ce qu'il fait. */
+  devWebhook: {
+    table: 'DevWebhook',
+    dateCols: ['createdAt', 'updatedAt', 'lastDeliveryAt'],
+    boolCols: ['enabled'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      name: 'Webhook',
+      url: '',
+      format: 'auto',
+      events: '["*"]',
+      secret: '',
+      baseUrl: '',
+      enabled: true,
+      lastStatus: '',
+      lastError: '',
+      lastDeliveryAt: null,
+    },
+  },
+  /** Journal des livraisons de webhooks (200 dernières par compte). */
+  devWebhookLog: {
+    table: 'DevWebhookLog',
+    dateCols: ['createdAt'],
+    boolCols: ['ok'],
+    defaults: { userId: '', webhookId: '', event: '', ok: false, status: 0, ms: 0, error: '', preview: '' },
+  },
+  /** Demandes de confirmation (accepter / refuser) envoyées par webhook. */
+  devApproval: {
+    table: 'DevApproval',
+    dateCols: ['createdAt', 'updatedAt', 'decidedAt', 'notifiedAt'],
+    hasUpdatedAt: true,
+    defaults: {
+      userId: '',
+      kind: 'patch',
+      refId: '',
+      title: '',
+      summary: '',
+      payload: '{}',
+      status: 'pending',
+      token: '',
+      decidedBy: '',
+      decidedAt: null,
+      notifiedAt: null,
+    },
+  },
   /** Exécution automatique d'un blueprint (assistant qui tourne seul). */
   blueprintSchedule: {
     table: 'BlueprintSchedule',
@@ -998,6 +1044,50 @@ const BASE_DDL = `
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS "DevWebhook" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "name" TEXT NOT NULL DEFAULT 'Webhook',
+      "url" TEXT NOT NULL DEFAULT '',
+      "format" TEXT NOT NULL DEFAULT 'auto',
+      "events" TEXT NOT NULL DEFAULT '["*"]',
+      "secret" TEXT NOT NULL DEFAULT '',
+      "baseUrl" TEXT NOT NULL DEFAULT '',
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "lastStatus" TEXT NOT NULL DEFAULT '',
+      "lastError" TEXT NOT NULL DEFAULT '',
+      "lastDeliveryAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "DevWebhookLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "webhookId" TEXT NOT NULL DEFAULT '',
+      "event" TEXT NOT NULL DEFAULT '',
+      "ok" BOOLEAN NOT NULL DEFAULT false,
+      "status" INTEGER NOT NULL DEFAULT 0,
+      "ms" INTEGER NOT NULL DEFAULT 0,
+      "error" TEXT NOT NULL DEFAULT '',
+      "preview" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS "DevApproval" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL DEFAULT '',
+      "kind" TEXT NOT NULL DEFAULT 'patch',
+      "refId" TEXT NOT NULL DEFAULT '',
+      "title" TEXT NOT NULL DEFAULT '',
+      "summary" TEXT NOT NULL DEFAULT '',
+      "payload" TEXT NOT NULL DEFAULT '{}',
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "token" TEXT NOT NULL DEFAULT '',
+      "decidedBy" TEXT NOT NULL DEFAULT '',
+      "decidedAt" DATETIME,
+      "notifiedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS "Notification" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "userId" TEXT NOT NULL DEFAULT '',
@@ -1050,6 +1140,9 @@ function buildDb() {
     llmModel: createModelDelegate(TABLES.llmModel),
     conversationFilter: createModelDelegate(TABLES.conversationFilter),
     notification: createModelDelegate(TABLES.notification),
+    devWebhook: createModelDelegate(TABLES.devWebhook),
+    devWebhookLog: createModelDelegate(TABLES.devWebhookLog),
+    devApproval: createModelDelegate(TABLES.devApproval),
     blueprintSchedule: createModelDelegate(TABLES.blueprintSchedule),
   }
 }

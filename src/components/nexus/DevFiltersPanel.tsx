@@ -188,7 +188,7 @@ export function DevFiltersPanel() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={r.enabled} onCheckedChange={(v) => void mutate({ action: 'toggle', id: r.id, enabled: v }, '')} />
-                  <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-300" onClick={() => void mutate({ action: 'remove', id: r.id }, 'Règle supprimée')}>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600 dark:text-rose-300" onClick={() => void mutate({ action: 'remove', id: r.id }, 'Règle supprimée')}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -246,7 +246,7 @@ export function DevFiltersPanel() {
                         <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-[11px]" disabled={c.hidden} onClick={() => void convAction(c, 'hide')}>
                           <EyeOff className="h-3 w-3" /> Masquer
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-[11px] text-rose-300" onClick={() => void deleteConv(c)}>
+                        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-[11px] text-rose-600 dark:text-rose-300" onClick={() => void deleteConv(c)}>
                           <Trash2 className="h-3 w-3" /> Supprimer
                         </Button>
                       </div>

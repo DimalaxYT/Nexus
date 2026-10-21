@@ -111,7 +111,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   --dev-accent-soft: ${settings.accent}26;
   --dev-accent-ring: ${settings.accent};
 }
-:root, .dark { --ring: ${settings.accent}; }
 ${settings.customCss}
 `}</style>
       {children}

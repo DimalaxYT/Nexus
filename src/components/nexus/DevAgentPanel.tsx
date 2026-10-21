@@ -13,6 +13,7 @@ import {
   FileCode2,
   Lightbulb,
   Loader2,
+  Moon,
   Play,
   Search,
   Sparkles,
@@ -60,6 +61,7 @@ const SUGGESTIONS = [
   { icon: Terminal, label: 'Où est gérée l’authentification ?', text: 'où est gérée l’authentification ?' },
   { icon: Cpu, label: 'Optimise les performances', text: 'optimise les performances du projet' },
   { icon: Wrench, label: 'Répare les imports inutilisés du projet', text: 'corrige les imports inutilisés dans src/' },
+  { icon: Moon, label: 'Répare le thème clair/sombre', text: 'corrige le thème, il est bloqué en clair et on ne peut pas passer en mode sombre' },
   { icon: Wrench, label: 'Que sais-tu faire sur le code ?', text: 'que peux-tu faire ?' },
 ]
 
@@ -247,7 +249,7 @@ export function DevAgentPanel() {
       {/* En-tête */}
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-500 to-neutral-600 text-white shadow-lg shadow-neutral-500/25">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/85 text-primary-foreground shadow-lg shadow-primary/25">
             <Terminal className="h-4.5 w-4.5" />
           </span>
           <div className="leading-tight">
@@ -264,7 +266,7 @@ export function DevAgentPanel() {
         {messages.map((m, i) => (
           <div key={i} className={cn('flex gap-3', m.role === 'user' ? 'justify-end' : 'justify-start')}>
             {m.role === 'assistant' && (
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-neutral-500 to-neutral-600 text-white">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/85 text-primary-foreground">
                 <Bot className="h-4 w-4" />
               </span>
             )}
@@ -272,7 +274,7 @@ export function DevAgentPanel() {
               className={cn(
                 'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
                 m.role === 'user'
-                  ? 'bg-neutral-500/15 text-foreground'
+                  ? 'bg-primary/15 text-foreground'
                   : 'border border-border/70 bg-card/70 text-foreground'
               )}
             >
@@ -281,7 +283,7 @@ export function DevAgentPanel() {
                   {m.thoughts.map((t, j) => (
                     <span
                       key={j}
-                      className="inline-flex items-center gap-1 rounded-full border border-neutral-500/30 bg-neutral-500/10 px-2 py-0.5 text-[10px] text-neutral-300"
+                      className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-foreground/80"
                     >
                       <Lightbulb className="h-2.5 w-2.5" />
                       {t}
@@ -290,7 +292,7 @@ export function DevAgentPanel() {
                 </div>
               )}
 
-              <div className="prose prose-invert max-w-none prose-sm prose-pre:rounded-lg prose-pre:bg-black/40 prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0">
+              <div className="prose max-w-none prose-sm dark:prose-invert prose-pre:rounded-lg prose-pre:bg-muted/60 prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0">
                 <Markdown content={m.content} />
               </div>
 
@@ -304,7 +306,7 @@ export function DevAgentPanel() {
                     >
                       <FileCode2 className="h-2.5 w-2.5" />
                       {f.path}
-                      {f.note ? <span className="text-neutral-400/80">· {f.note}</span> : null}
+                      {f.note ? <span className="text-muted-foreground/80">· {f.note}</span> : null}
                     </span>
                   ))}
                 </div>
@@ -316,16 +318,16 @@ export function DevAgentPanel() {
                 const pending = patches.filter((p) => !p.id || !appliedIds.has(p.id))
                 const key = pending.map((p) => p.id).filter(Boolean).join(',')
                 return (
-                  <div className="mt-3 space-y-2.5 rounded-lg border border-neutral-500/30 bg-neutral-500/10 p-3">
+                  <div className="mt-3 space-y-2.5 rounded-lg border border-primary/30 bg-primary/10 p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground/80">
                         {patches.length > 1 ? `${patches.length} correctifs` : 'Correctif'} à valider
                       </p>
                       {pending.length > 1 ? (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 border-neutral-500/40 text-[11px]"
+                          className="h-7 border-primary/40 text-[11px]"
                           onClick={() => void applyPatches(pending)}
                           disabled={applying === key}
                         >
@@ -350,13 +352,13 @@ export function DevAgentPanel() {
                             <p className="truncate font-mono text-[10px] text-muted-foreground">{p.filePath}</p>
                           </div>
                           {done ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-300">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
                               <Check className="h-3 w-3" /> appliqué
                             </span>
                           ) : (
                             <Button
                               size="sm"
-                              className="h-7 bg-neutral-600 text-[11px] hover:bg-neutral-500"
+                              className="h-7 bg-primary text-[11px] hover:bg-primary/90"
                               onClick={() => void applyPatches([p])}
                               disabled={applying === (p.id ?? key)}
                             >
@@ -373,7 +375,7 @@ export function DevAgentPanel() {
                     })}
                     <p className="text-[10px] text-muted-foreground">
                       Sauvegarde automatique avant écriture · diff complet dans l’onglet{' '}
-                      <span className="text-neutral-300">Correctifs</span>.
+                      <span className="text-foreground/80">Correctifs</span>.
                     </p>
                   </div>
                 )
@@ -387,9 +389,9 @@ export function DevAgentPanel() {
                   {m.applied.map((r, j) => (
                     <p key={`${r.id}-${j}`} className="text-[11px] text-foreground/80">
                       {r.ok ? (
-                        <span className="text-emerald-300">✓</span>
+                        <span className="text-emerald-700 dark:text-emerald-300">✓</span>
                       ) : (
-                        <span className="text-rose-300">✕</span>
+                        <span className="text-rose-600 dark:text-rose-300">✕</span>
                       )}{' '}
                       {r.title || r.filePath}
                       {r.ok && r.backup ? (
@@ -397,7 +399,7 @@ export function DevAgentPanel() {
                           {' '}· sauvegarde <span className="font-mono text-[10px]">{r.backup}</span>
                         </span>
                       ) : null}
-                      {!r.ok && r.error ? <span className="text-rose-300"> · {r.error}</span> : null}
+                      {!r.ok && r.error ? <span className="text-rose-600 dark:text-rose-300"> · {r.error}</span> : null}
                     </p>
                   ))}
                 </div>
@@ -436,7 +438,7 @@ export function DevAgentPanel() {
               <button
                 key={s.label}
                 onClick={() => void send(s.text)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-neutral-500/40 hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               >
                 <Icon className="h-3 w-3" />
                 {s.label}
@@ -466,7 +468,7 @@ export function DevAgentPanel() {
             onClick={() => void send(input)}
             disabled={busy || !input.trim()}
             size="icon"
-            className="h-[52px] w-[52px] shrink-0 bg-neutral-500 hover:bg-neutral-500"
+            className="h-[52px] w-[52px] shrink-0 bg-primary hover:bg-primary/90"
             aria-label="Envoyer"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
