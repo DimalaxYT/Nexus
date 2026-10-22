@@ -169,7 +169,7 @@ Questions sur le projet, avant ce round (retrieval seul) :
 C'était un **trou de contenu**, pas un problème de classement : aucune fiche ne
 décrivait Turso, le cache, l'installation, GitHub, la mémoire longue, le
 pipeline, le modèle, les agents, les connexions ou la sécurité.
-`src/lib/brain/project-knowledge.ts` ajoute ces **12 fiches** (37 passages, 308
+`src/lib/brain/project-knowledge.ts` ajoute ces **12 fiches** (37 passages, 315
 au total), volontairement **hors du corpus d'entraînement** pour que les
 mesures v1/v2 restent comparables. Auto-retrieval : **10/10** ; les questions
 réelles donnent 0,89–0,96 (« Qu'est-ce que Turso ? » 0,89, cache 0,90,
