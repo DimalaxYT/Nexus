@@ -45,10 +45,16 @@ export const HISTORY_MAX = 90
 export const CONTEXT_MAX = 260
 export const MESSAGE_MAX = 110
 
-/** Score de retrieval en dessous duquel on rédige sans contexte fourni. */
-export const MIN_CONTEXT_SCORE = 0.2
-/** Score en dessous duquel aucun repli textuel n'est proposé. */
-export const MIN_FALLBACK_SCORE = 0.12
+/**
+ * Score de retrieval en dessous duquel on ne sert PAS l'entrée trouvée.
+ * Mesuré : les vraies correspondances de la banque de dialogue marquent 0,70 à
+ * 1,00 (et 0,34 pour une relance), tandis qu'une question hors sujet accroche
+ * une entrée par des mots génériques à 0,18–0,25 — « recette du couscous »
+ * tombait sur « la différence avec ChatGPT ». On refuse donc en dessous de 0,34.
+ */
+export const MIN_CONTEXT_SCORE = 0.34
+/** Score en dessous duquel aucun repli textuel n'est proposé (réponse honnête). */
+export const MIN_FALLBACK_SCORE = 0.28
 
 /**
  * Seuils étalonnés sur des mesures réelles, pas devinés :
@@ -137,7 +143,10 @@ const entryIdf = (s: string) => Math.log((ENTRY_N + 1) / ((ENTRY_DF.get(s) ?? 0)
  * « continue », « vraiment ? »). Aucun mot-clé thématique ne peut les matcher —
  * c'est le tour précédent qui donne le sens.
  */
-const FOLLOWUP_RE = /^(?:et |bon |ben |bah |ok |d'accord |dac |oui |non |si |ah )*(?:pourquoi|comment [çc]a|explique|pr[ée]cise|d[ée]veloppe|d[ée]taille|dis m'en plus|dis-moi en plus|continue|encore|et alors|vraiment|ah bon|c'est[- ]à[- ]dire|tu crois|t'es s[ûu]r|tu es s[ûu]r|je ne comprends pas|je comprends pas|pas compris)\b/i
+/** Fragment elliptique : « et toi ? », « le cache ? », « pourquoi ? »… */
+const ELLIPSIS_RE = /^(?:et\s+)?(?:toi|vous|moi|lui|elle|le|la|les|cela|ce|cette|pourquoi|comment|vraiment|encore)\b/i
+
+const FOLLOWUP_RE = /^(?:et |bon |ben |bah |ok |d'accord |dac |oui |non |si |ah )*(?:pourquoi|comment [çc]a|explique|pr[ée]cise|d[ée]veloppe|d[ée]taille|dis m'en plus|dis-moi en plus|continue|encore|et alors|vraiment|ah bon|c'est[- ]à[- ]dire|tu crois|t'es s[ûu]r|tu es s[ûu]r|je ne comprends pas|je comprends pas|pas compris|un exemple|exemple|pour illustrer)\b/i
 
 export interface DialogueMatch {
   entry: DialogueEntry
@@ -196,7 +205,15 @@ export function matchDialogue(message: string, history: ChatTurn[] = []): Dialog
   // sens que par rapport au tour précédent, donc uniquement s'il existe, et
   // uniquement si aucun sujet net ne se détache. On répond alors par une entrée
   // de suivi, en privilégiant celle qui partage des mots avec la relance.
-  const isFollowUp = hasPreviousAnswer && mw.size <= 6 && (FOLLOWUP_RE.test(msg.trim()) || (best?.score ?? 0) < 0.45)
+  // RELANCE = la formulation le dit : motif explicite (« pourquoi ? »,
+  // « développe ») ou fragment elliptique (« et toi ? », « le cache ? »).
+  // Deux pièges mesurés dans le chat réel :
+  //  · un simple compteur de mots faisait passer « Merci ! » pour une relance
+  //    (« Parce que c'est la conséquence directe de ce qu'on vient de voir ») ;
+  //  · l'ancienne condition « score de dialogue < 0,45 » transformait toute
+  //    question courte en relance (« Comment fonctionne le cache clé-valeur ? »).
+  const isFollowUp =
+    hasPreviousAnswer && mw.size <= 6 && (FOLLOWUP_RE.test(msg.trim()) || (mw.size <= 3 && ELLIPSIS_RE.test(msg.trim())))
   if (isFollowUp) {
     const followUps = DIALOGUE_BANK.map((entry, index) => ({ entry, index })).filter((x) => x.entry.t === 'suivi')
     if (followUps.length > 0) {
@@ -238,11 +255,25 @@ export interface ChatContext {
  * meilleur gagne naturellement : « qui es-tu ? » tombe sur le dialogue,
  * « qu'est-ce que Turso ? » tombe sur la banque de connaissances.
  */
+/**
+ * Le cerveau réécrit une relance en un prompt enrichi :
+ * « Et le cache ? \n\n[Suivi : …] \n\n[Ta dernière réponse …] ».
+ * Utile au modèle, toxique pour la recherche : les mots du SUJET PRÉCÉDENT
+ * (« transformers ») y figurent et gagnent le classement. On ne cherche donc
+ * que sur la demande d'origine, jusqu'au premier bloc entre crochets.
+ */
+function retrievalQuery(message: string): string {
+  const raw = String(message ?? '')
+  const cut = raw.search(/\n\s*\n\s*\[/)
+  return (cut > 0 ? raw.slice(0, cut) : raw).trim() || raw.trim()
+}
+
 export async function retrieveChatContext(
   message: string,
   userId?: string | null,
   history: ChatTurn[] = []
 ): Promise<ChatContext> {
+  message = retrievalQuery(message)
   const match = matchDialogue(message, history)
   const dialogueScore = match?.score ?? 0
 
@@ -264,13 +295,20 @@ export async function retrieveChatContext(
   // Une relance (« et pourquoi tu dis ça ? ») porte sur le tour précédent : un
   // passage retrouvé sur un mot isolé (« pourquoi ») ne doit pas la remplacer.
   const isFollowUp = match?.followUp === true
-  if (!isFollowUp && passage && passageScore > dialogueScore && passageScore >= MIN_CONTEXT_SCORE) {
+  // Une relance garde la main SAUF si un passage documentaire est nettement
+  // pertinent (≥ 0,5) : une vraie question déguisée en relance ne doit pas
+  // recevoir une formule de suivi générique.
+  const passageBeatsDialogue = passageScore > (isFollowUp ? Math.max(dialogueScore, 0.5) : dialogueScore)
+  if (passage && passageBeatsDialogue && passageScore >= MIN_CONTEXT_SCORE) {
+    // Réponse = début de l'ENTRÉE, pas seulement la phrase qui a matché : la
+    // définition arrive avant le détail (« Turso est une base libSQL… »).
+    const full = passage.group ? clip(passage.group, CONTEXT_MAX) : clip(passage.text, CONTEXT_MAX)
     return {
-      passage: clip(passage.text, CONTEXT_MAX),
+      passage: full,
       source: passage.source,
       score: passageScore,
       entry: match?.entry ?? null,
-      fallback: clip(passage.text, 240),
+      fallback: withSourcePrefix(passage.source, clip(passage.group ?? passage.text, 240)),
     }
   }
 
@@ -285,15 +323,32 @@ export async function retrieveChatContext(
   }
 
   // Rien de pertinent : le modèle rédige seul (garde-fous renforcés), et le
-  // repli reste possible si un match faible existe ou via une relance.
+  // repli reste possible si un match PLAUSIBLE existe — sinon on avoue
+  // honnêtement que le savoir local ne couvre pas la question.
   const weak = match && dialogueScore >= MIN_FALLBACK_SCORE ? varyFallback(match, history) : null
+  const opening = DIALOGUE_OPENERS.length ? DIALOGUE_OPENERS[hashText(message) % DIALOGUE_OPENERS.length] : null
   return {
     passage: null,
     source: null,
     score: Math.max(dialogueScore, passageScore),
     entry: match?.entry ?? null,
-    fallback: weak ?? (DIALOGUE_OPENERS.length ? DIALOGUE_OPENERS[hashText(message) % DIALOGUE_OPENERS.length] : null),
+    fallback: weak ?? (looksLikeQuestion(message) ? unknownReply(message) : opening),
   }
+}
+
+/**
+ * Réponse quand le savoir local ne couvre pas la question. Une réponse hors
+ * sujet est pire qu'un aveu : elle fait croire que NEXUS a compris. On le dit,
+ * et on propose l'action qui marche vraiment (recherche web, apprentissage).
+ */
+const UNKNOWN_REPLIES = [
+  "Je n'ai pas ça dans mon savoir local — je préfère te le dire plutôt qu'inventer. Dis-moi « cherche : … » et j'irai voir sur le web, ou apprends-le-moi avec « retiens que … ».",
+  "Cette information n'est pas dans ma base locale, et je ne veux pas te raconter n'importe quoi. Je peux chercher sur le web si tu me le demandes, ou l'enregistrer si tu me la donnes.",
+  "Là, je sèche : rien de solide dans mon savoir local sur ce sujet. Demande-moi une recherche web, ou dis-moi « retiens que … » pour que je l'apprenne.",
+]
+
+function unknownReply(message: string): string {
+  return UNKNOWN_REPLIES[hashText(message) % UNKNOWN_REPLIES.length]
 }
 
 /** Évite de renvoyer deux fois la même phrase : variante du même sujet. */
@@ -309,11 +364,44 @@ function varyFallback(match: DialogueMatch, history: ChatTurn[]): string {
   return answer
 }
 
+/**
+ * Les souvenirs de l'utilisateur sont servis tels qu'il les a écrits, mais
+ * annoncés : « D'après ce que tu m'as dit : « mon chat s'appelle Pixel » ».
+ * Sans ça, la réponse ressemblait à un extrait de base de données.
+ */
+function withSourcePrefix(source: string | undefined, text: string): string {
+  const s = String(source ?? '')
+  if (!s) return text
+  if (s.startsWith('tes notes') || s === 'ta mémoire') {
+    return `D'après ce que tu m'as dit : « ${text.replace(/[.\s]+$/, '')} ».`
+  }
+  return text
+}
+
+/** Une vraie question cherche un fait : l'aveu doit alors être explicite. */
+function looksLikeQuestion(message: string): boolean {
+  const m = String(message ?? '').trim().toLowerCase()
+  if (m.length < 8) return false
+  return (
+    /\?/.test(m) ||
+    /^(?:qui|que|quoi|quel|quelle|quels|quelles|comment|pourquoi|quand|ou|combien|est-ce|donne|dis|dit|montre|cite|trouve|cherche|explique|calcule)\b/.test(m)
+  )
+}
+
+/**
+ * Coupe propre : on préfère la fin d'une PHRASE, sinon le dernier espace.
+ * Couper au caractère près donnait « … une réplique locale de cette base : les »
+ * — l'air d'un bug d'affichage plutôt que d'une réponse courte.
+ */
 function clip(text: string, max: number): string {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim()
   if (t.length <= max) return t
-  const cut = t.lastIndexOf(' ', max)
-  return t.slice(0, cut > max * 0.5 ? cut : max).replace(/[,;:.\s]+$/, '')
+  const window = t.slice(0, max)
+  let cut = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '), window.lastIndexOf('; '))
+  if (cut > 0) return t.slice(0, cut + 1).trim()
+  cut = window.lastIndexOf(' ')
+  if (cut <= max * 0.5) return `${t.slice(0, Math.max(1, cut)).replace(/[,;:.\s]+$/, '')}…`
+  return `${t.slice(0, cut).replace(/[,;:.\s]+$/, '')}…`
 }
 
 function hashText(s: string): number {
@@ -412,7 +500,10 @@ export interface ChatOptions {
 // Une rédaction acceptée referme aussitôt le disjoncteur, et un nouveau modèle
 // (entraînement, nouveaux poids) repart de zéro : il est réévalué normalement.
 
-const GATE_OPEN_AFTER = 4
+// Deux traces suffisent : sur v2, 0/12 réponses acceptées en évaluation et
+// 0/16 en calibration. Quatre refus coûtaient quatre tours lents (~1,3 s) à
+// chaque démarrage du serveur (l'état vit en mémoire).
+const GATE_OPEN_AFTER = 2
 const GATE_PROBE_EVERY = 12
 
 const qualityGate = { key: '', rejectStreak: 0, skipped: 0 }
@@ -590,6 +681,29 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     return { ok: false, reason: 'aucun contenu pertinent retrouvé', generated: false }
   }
 
+  // SAVOIR EXACT : quand le retrieval est presque certain (≥ 0,9) et que le
+  // texte retrouvé est déjà une réponse complète, générer ne peut que la
+  // dégrader — et coûte 1,3 à 2,7 s sur 2 CPU. On sert directement. Mesuré :
+  // un tour de chat bien connu passe de 1 300–2 700 ms à 60–90 ms.
+  const exact = ctx.score >= 0.9 && (ctx.fallback?.length ?? 0) >= 30
+  if (exact && ctx.fallback) {
+    // Compté comme un saut (pas comme un échec de génération) : le modèle n'a
+    // simplement pas été sollicité, comme lorsque le disjoncteur est ouvert.
+    gateRecord(model, false)
+    return {
+      ok: true,
+      text: ctx.fallback,
+      generated: false,
+      avgNll: Infinity,
+      ms: Date.now() - t0,
+      tokens: 0,
+      confidence: ctx.score,
+      source: ctx.source,
+      grounded: true,
+      skipped: true,
+    }
+  }
+
   // Modèle en observation : réponse retrouvée servie tout de suite (voir plus haut).
   if (opts.gate && ctx.fallback && gateShouldSkip(model)) {
     return {
@@ -644,6 +758,10 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     })
     if (!verdict.ok) {
       if (!firstReason) firstReason = verdict.reason
+      // Charabia franc : inutile de payer une seconde génération de 200 tokens
+      // (mesuré : 1,3 s sur 2 CPU par tentative). Un second avis ne sauve une
+      // réponse que si elle est « presque » acceptable — d'où le seuil bas.
+      if (model.lexicon.size > 0 && lexiconCoverage(text, model.lexicon) < MIN_CHAT_LEXICON * 0.6) break
       continue
     }
     const score = candidateScore(text, { avgNll: res.avgNll, lexicon: model.lexicon, passage: ctx.passage })

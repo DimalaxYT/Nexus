@@ -6,6 +6,7 @@
 // Les événements SSE (contrat v1) restent identiques → client inchangé.
 
 import { db } from '@/lib/db'
+import { invalidatePassageCache } from '@/lib/llm/grounding'
 import { ownerFilter, type UserProfile } from '@/lib/auth'
 import { runBlueprintGraph } from '@/lib/blueprint'
 import { personaBlock } from '@/lib/persona'
@@ -146,6 +147,7 @@ async function saveMemoryItems(items: { content: string; kind: string }[], saveS
       if (content.length < 8) continue
       if (isDuplicateMemory(content, existing)) continue
       await db.memory.create({ data: { content, kind: item.kind, source: 'auto', ...(saveScope ? { userId: saveScope } : {}) } })
+      invalidatePassageCache()
       existing.push({ content })
       added++
     }
@@ -193,9 +195,14 @@ async function saveNote(title: string, content: string, category: string, tags: 
     if (userId) data.userId = userId
     if (match) {
       await db.knowledge.update({ where: { id: match.id }, data })
+      invalidatePassageCache()
       return 'updated'
     }
     await db.knowledge.create({ data: { ...data, source: 'agent' } })
+    // Le retrieval du chat met les passages en cache 60 s : sans cette purge,
+    // « retiens que mon chat s'appelle Pixel » suivi de « Comment s'appelle mon
+    // chat ? » répondait encore « NEXUS » pendant une minute.
+    invalidatePassageCache()
     return 'created'
   } catch {
     return 'error'
@@ -511,7 +518,10 @@ async function skillKnowledgeSave(ctx: Ctx): Promise<string> {
   ctx.send({ type: 'step', ...s, status: 'running' })
 
   const m = text.match(/(?:retiens|note\s+(?:ca|ça|que)|enregistre|souviens.?toi\s+que|stocke|ajoute\s+(?:a\s+)?(?:ma|ta)\s+base)\s*:?\s*(.{10,2000})/i)
-  const content = (m?.[1] ?? text).trim()
+  // « retiens que mon chat s'appelle Pixel » → contenu « mon chat s'appelle
+  // Pixel » : le « que » de liaison ne fait pas partie du fait retenu (il
+  // apparaissait dans le titre de la note et dans la réponse au chat).
+  const content = (m?.[1] ?? text).trim().replace(/^que\s+/i, '')
   const words = content.split(/\s+/).slice(0, 6).join(' ')
   const title = (words.length > 3 ? words : 'Note').replace(/[.,;:!?]+$/, '').slice(0, 80)
   const tags = stems(text).slice(0, 5)

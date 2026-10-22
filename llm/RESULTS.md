@@ -146,3 +146,113 @@ réponses servies sont les bonnes entrées de la banque de dialogue (provenance
 « savoir local retrouvé » : la génération n'a pas passé les garde-fous).
 Latence : **1,85 s au pire** pour le premier tour (le temps que le disjoncteur
 s'ouvre après quatre refus), puis **29–76 ms** par tour — le retrieval seul.
+
+## Round 22 — le savoir servi par le chat (2026-10-22, après-midi)
+
+Le modèle n'a **pas** été réentraîné ce round : les mesures ci-dessus montrent
+que son plafond est un budget de calcul, pas un réglage. Le levier restant était
+le savoir *servi* — ce que l'utilisateur reçoit quand les garde-fous refusent la
+génération, c'est-à-dire presque toujours.
+
+### NEXUS ne savait pas décrire son propre fonctionnement
+
+Questions sur le projet, avant ce round (retrieval seul) :
+
+| Question | Score obtenu | Réponse servie |
+|---|---|---|
+| « Qu'est-ce que Turso ? » | 0,01 | un conseil de raisonnement |
+| « Comment fonctionne le cache clé-valeur ? » | 0,28 | un extrait d'apprentissage Dev |
+| « Comment installer NEXUS ? » | 0,72 | une réponse hors sujet |
+| « Comment fonctionne GitHub ? » | 0,01 | un extrait sans rapport |
+| « Qu'est-ce que la mémoire longue ? » | 0,30 | « Oui, je garde une mémoire longue… » |
+
+C'était un **trou de contenu**, pas un problème de classement : aucune fiche ne
+décrivait Turso, le cache, l'installation, GitHub, la mémoire longue, le
+pipeline, le modèle, les agents, les connexions ou la sécurité.
+`src/lib/brain/project-knowledge.ts` ajoute ces **12 fiches** (37 passages, 308
+au total), volontairement **hors du corpus d'entraînement** pour que les
+mesures v1/v2 restent comparables. Auto-retrieval : **10/10** ; les questions
+réelles donnent 0,89–0,96 (« Qu'est-ce que Turso ? » 0,89, cache 0,90,
+installation 0,75).
+
+### Classement en deux temps (entrée, puis phrase)
+
+Classer directement les phrases faisait gagner la phrase d'une AUTRE entrée qui
+partageait un mot : « Un peu de motivation » tombait sur « ce qui te motive »
+d'un conseil de programmation (0,56 contre 0,35). Désormais : on choisit
+d'abord l'ENTRÉE (question + mots-clés + mots-clés déclencheurs), puis la
+phrase la plus proche *dans* cette entrée. Effet secondaire voulu : la réponse
+commence par la définition de l'entrée et non par une phrase du milieu.
+
+Trois portes anti-hors-sujet, mesurées sur 6 questions hors domaine :
+
+| Question hors sujet | Avant | Après |
+|---|---|---|
+| « capitale du Kazakhstan en 1723 » | phrase sur le Japon (0,42) | refus honnête |
+| « recette du couscous royal » | définition d'algorithme (0,42) | refus honnête |
+| « qui a gagné la coupe du monde 1998 ? » | piliers d'un langage (0,25) | refus honnête |
+| « combien coûte une Tesla Model 3 ? » | fiche sur le modèle de langue (0,36) | refus honnête |
+| « quel temps fera-t-il demain ? » | conseil d'organisation, mot « temps » (0,56) | réponse « je n'ai pas de capteur » |
+| « asdf qwer zxcv 1234 » | aucun passage | aucun passage |
+
+Règles : les 2 radicaux les plus spécifiques de la question doivent être
+retrouvés (à 50 % en poids IDF) ; un nom propre cité doit l'être aussi — et s'il
+est **absent du corpus** (« Tesla », « Kazakhstan »), c'est un refus, pas une
+approximation ; un mot-clé déclencheur ne compte que s'il est rare (IDF ≥ 3).
+
+Quand rien ne répond : « Cette information n'est pas dans ma base locale, et je
+ne veux pas te raconter n'importe quoi… » au lieu d'un passage voisin.
+
+### Souvenirs et notes passent avant le savoir générique
+
+« Retiens que mon chat s'appelle Pixel » puis « Comment s'appelle mon chat ? »
+répondait « NEXUS. C'est le nom qu'on m'a donné » : les souvenirs n'ont pas de
+titre, et le classement par entrée les ignorait. Ils sont maintenant comparés à
+égalité avec la meilleure entrée, servis sous la forme « D'après ce que tu m'as
+dit : « mon chat s'appelle Pixel » », et le cache de passages (60 s) est purgé à
+chaque écriture — sans ça la note mettait jusqu'à une minute à devenir visible.
+
+### Harnais permanent et résultats
+
+`scripts/check-chat-knowledge.ts` : 24 questions (11 naturelles, 8 sur NEXUS,
+5 hors sujet), plus 2 souvenirs avec `--user`. Mesuré sur le commit précédent
+(`4ab2447`) puis sur ce round :
+
+| Famille | Avant | Après |
+|---|---|---|
+| Questions naturelles | 8/11 | **11/11** |
+| Questions sur NEXUS | 0/8 | **8/8** |
+| Hors sujet → refus | 0/5 | **5/5** |
+| Souvenirs (`--user`) | 2/2 | **2/2** |
+| **Total** | **10/26 (38 %)** | **26/26 (100 %)** |
+
+`scripts/check-retrieval.ts` (banque de connaissances, chemin réel
+`bestPassage`) : question canonique **34/34 (100 %)**, score moyen 0,83 ;
+mots-clés **34/34 (100 %)**. Avant : 33/34 et 34/34 avec un score moyen plus
+faible (0,74 / 0,64) — mais l'ancien titre incluait les mots-clés de l'entrée,
+ce qui rendait le test des mots-clés circulaire.
+
+`scripts/check-dialogue.ts` : inchangé à 185/186 et 186/186 (les relances et
+salutations n'ont pas régressé ; une seule correction : « Merci ! » ne part
+plus en relance, « Ça va aujourd'hui ? » non plus).
+
+### Latence réelle (serveur de dev, 2 CPU)
+
+Le disjoncteur s'ouvre après **deux** refus (0/12 et 0/16 mesurés) et une
+réponse de score ≥ 0,9 est servie sans générer :
+
+| Tour | Avant | Après |
+|---|---|---|
+| « Bonjour ! » | 672 ms | **62 ms** |
+| « Qu'est-ce que Turso ? » | 4 674 ms | **70 ms** |
+| Six tours types (`check-chat-e2e.mjs`) | 1 852 ms au pire | **1 212 ms au pire**, puis 58–92 ms |
+| Conversation réelle de 8 tours | 1,3–2,7 s sur 4 tours | 69–79 ms (sauf 1 tour à 1,3 s au démarrage) |
+
+### Reproduire
+
+```bash
+node --import tsx scripts/check-chat-knowledge.ts                       # 24/24
+node --import tsx scripts/check-chat-knowledge.ts --user <id>           # + souvenirs
+node --import tsx scripts/check-retrieval.ts && node --import tsx scripts/check-dialogue.ts
+node scripts/check-chat-e2e.mjs --ask "Qu'est-ce que Turso ?|Qui a créé NEXUS ?"
+```

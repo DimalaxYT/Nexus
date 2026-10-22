@@ -84,3 +84,29 @@ Reste ouvert : la copie du contexte n'est pas apprise à cette échelle. Prochai
 levier réaliste = plus de pas sur un modèle plus petit (le coût par pas varie
 comme dim² × ctx²), ou une architecture de copie explicite (pointeur) — documenté
 dans `RESULTS.md`.
+
+## Passe 4 — le savoir servi (2026-10-22, après-midi)
+
+Objectif : sans réentraîner le modèle (son plafond est un budget de calcul,
+mesuré), rendre **plus intelligentes les réponses que l'utilisateur reçoit
+vraiment** — c'est-à-dire celles qui viennent du retrieval.
+
+| # | Tâche | État |
+|---|-------|------|
+| 1 | Documentation du projet interrogeable (12 fiches : Turso, cache, installation, GitHub, mémoire longue, pipeline, modèle, agents, connexions, sécurité, création, injections) | ✅ `project-knowledge.ts`, hors corpus |
+| 2 | Classement en deux temps : entrée (question + mots-clés) puis phrase dans l'entrée | ✅ 34/34 question, 34/34 mots-clés |
+| 3 | Titre = question de l'entrée (mots-clés devenus déclencheurs) | ✅ teste enfin le classement au lieu de le rendre circulaire |
+| 4 | Portes anti-hors-sujet : 2 radicaux les plus spécifiques, entités nommées, mot-clé rare (IDF ≥ 3) | ✅ 5/5 refus, 0/5 avant |
+| 5 | Réponse = entrée entière coupée proprement (260 car.), au lieu d'une phrase isolée | ✅ |
+| 6 | Souvent comparés à égalité avec les entrées + purge du cache à l'écriture | ✅ « mon chat s'appelle Pixel » |
+| 7 | Relances : retirer les blocs `[Suivi : …]` avant la recherche ; « Merci ! » n'est plus une relance | ✅ |
+| 8 | Harnais `check-chat-knowledge.ts` (24 questions + souvenirs) | ✅ 10/26 → 26/26 |
+| 9 | Latence : disjoncteur après 2 refus, savoir exact servi sans générer | ✅ 1 852 ms → 92 ms au pire |
+| 10 | E2E `--ask` pour interroger le projet en réel | ✅ 27–101 ms |
+
+Prochaine marche à franchir (mesurée, pas supposée) : **la génération**. Tant que
+le modèle ne sait pas recopier un passage (0/12 et 0/16 acceptées), NEXUS sert
+le savoir retrouvé. Les deux leviers chiffrés dans `RESULTS.md` : un budget de
+calcul très supérieur (une tête d'induction sur 700 caractères ne s'installe pas
+en 3 000 pas) ou un objectif de copie découpé (recopie par segments plutôt
+qu'en une passe).

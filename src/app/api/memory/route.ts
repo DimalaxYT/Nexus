@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ownerGuard } from '@/lib/auth'
 import { isDuplicateMemory } from '@/lib/memory-utils'
+import { invalidatePassageCache } from '@/lib/llm/grounding'
 
 export const runtime = 'nodejs'
 
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
     }
 
     const memory = await db.memory.create({ data: { content, kind, source, ...(userId ? { userId } : {}) } })
+    invalidatePassageCache()
 
     // Purge des plus anciennes mémoires automatiques si le quota est dépassé
     const count = await db.memory.count({ where: scope })

@@ -530,7 +530,7 @@ désormais **beaucoup mieux choisi** (voir ci-dessous).
 |---|---|---|
 | Banque de dialogue — question canonique → bonne réponse (top-1) | 63 % (117/186) | **99 % (185/186)** |
 | Banque de dialogue — mots-clés seuls (top-1) | — | **100 % (186/186)** |
-| Banque de connaissances — question → bonne entrée (top-1) | 91 % (31/34) | **97 % (33/34)** |
+| Banque de connaissances — question → bonne entrée (top-1) | 91 % (31/34) | **100 % (34/34)** |
 | Banque de connaissances — mots-clés seuls (top-1) | — | **100 % (34/34)** |
 
 Cinq causes corrigées, toutes mesurées : les mots-outils comptaient autant que
@@ -544,18 +544,59 @@ contenue telle quelle dans le message. Une relance retrouvée passe en plus
 avant un passage isolé : « et pourquoi tu dis ça ? » ne répond plus
 « Pourquoi TypeScript ? ».
 
-Vérifié de bout en bout sur le serveur de développement (`check-chat-e2e.mjs`) :
-les six tours types — salutation, identité, capacités, humeur, relance,
-remerciement — donnent la bonne réponse ; 1,85 s au pire pour le premier tour,
-puis 29–76 ms une fois le disjoncteur de génération ouvert.
+### Ce que NEXUS sait *de lui-même* (et ce qu'il refuse d'inventer)
+
+Un assistant qui répond « bonjour » mais pas « qu'est-ce que Turso ? » n'est pas
+intelligent : il a une base de connaissances, pas une connaissance de lui-même.
+`src/lib/brain/project-knowledge.ts` contient **12 fiches sur le projet** — base
+Turso, cache clé/valeur, installation, GitHub, mémoire longue, pipeline de
+réponse, modèle, agents, connexions, sécurité, création du projet, protection
+contre les injections. Elles sont interrogeables mais **volontairement hors du
+corpus d'entraînement**, pour que les mesures v1/v2 restent comparables.
+
+Le classement des passages se fait maintenant en **deux temps** : d'abord
+l'ENTRÉE (sa question, ses mots-clés), puis la phrase la plus proche *dans*
+cette entrée. Classer directement les phrases faisait gagner « ce qui te motive »
+d'un conseil de programmation sur la fiche « Un peu de motivation ». Trois
+gardes évitent les hors-sujet : les mots les plus spécifiques de la question
+doivent être retrouvés, un nom propre cité doit l'être aussi (« Tesla »,
+« Kazakhstan »), et un mot-clé déclencheur ne compte que s'il est rare.
+
+Quand le savoir local ne couvre pas la question, NEXUS le **dit** et propose une
+recherche web ou d'apprendre le fait, au lieu de servir un passage voisin :
+« recette du couscous » recevait une définition d'algorithme, « quel temps
+fera-t-il demain ? » un conseil d'organisation.
+
+Les notes (« retiens que … ») et la mémoire longue passent **avant** le savoir
+générique — « Comment s'appelle mon chat ? » répond « D'après ce que tu m'as
+dit : « mon chat s'appelle Pixel » » — et le cache de passages est purgé à
+chaque écriture, sinon la note mettait jusqu'à une minute à être visible.
+
+Nouveau harnais `scripts/check-chat-knowledge.ts` (24 questions : 11 naturelles,
+8 sur NEXUS, 5 hors sujet ; 2 de plus avec `--user`) :
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Questions naturelles | 8/11 | **11/11** |
+| Questions sur NEXUS | 0/8 | **8/8** |
+| Hors sujet → refus honnête | 0/5 | **5/5** |
+| **Total** | **10/26 (38 %)** | **26/26 (100 %)** |
+
+Vérifié de bout en bout sur le serveur de développement (`check-chat-e2e.mjs`,
+option `--ask "question|question"`) : les six tours types — salutation,
+identité, capacités, humeur, relance, remerciement — donnent la bonne réponse,
+et les questions sur le projet aussi (Turso, cache, création, sécurité) ;
+**67–101 ms par tour**, avec un seul tour à ~1,2 s au démarrage du serveur (le
+temps que le disjoncteur de génération s'ouvre après deux refus).
 
 **Garde-fous** (`verdictOn` dans `dialogue.ts`) : une génération n'est servie que si elle passe des
 seuils **mesurés** sur le savoir local (≥ 3 mots de contenu, couverture lexicale ≥ 0,55, ancrage
 ≥ 0,42, ≥ 16 caractères et 4 mots, NLL ≤ 3,5 nats/caractère, unicité ≥ 0,5). Sinon NEXUS répond avec
 le contenu retrouvé et **le dit** dans le fil de pensée — jamais de charabia présenté comme une
 réponse, jamais de silence trompeur. Sans contenu retrouvé, le modèle ne génère pas du tout. Après
-quatre refus d'affilée, un disjoncteur sert directement le texte retrouvé et ne retente le modèle
-qu'un message sur douze : la latence reste celle du retrieval.
+deux refus d'affilée (0/12 et 0/16 en évaluation), un disjoncteur sert directement le texte retrouvé
+et ne retente le modèle qu'un message sur douze ; quand le retrieval est quasi certain (score ≥ 0,9),
+la réponse est servie sans même générer : la latence reste celle du retrieval.
 
 **Reproduire l'entraînement v2** :
 

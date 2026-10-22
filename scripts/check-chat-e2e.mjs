@@ -13,6 +13,7 @@
 // Prérequis : un serveur qui tourne (npm run dev, ou npm run build && npm start)
 // et le compte de développement. Usage :
 //   node scripts/check-chat-e2e.mjs [--base http://127.0.0.1:3000] [--turns 6]
+//                                   [--ask "question 1|question 2|…"]
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -96,8 +97,11 @@ async function oneTurn(cookie, history, message, { timeline = false } = {}) {
   return { headersMs, firstTokenMs, doneMs, closedMs: at(), text, provenance, tokens, thoughts, steps }
 }
 
+const asked = arg('ask', '')
 const maxTurns = Number(arg('turns', TURNS.length))
-const messages = TURNS.slice(0, Number.isFinite(maxTurns) ? maxTurns : TURNS.length)
+const messages = asked
+  ? asked.split('|').map((q) => q.trim()).filter(Boolean)
+  : TURNS.slice(0, Number.isFinite(maxTurns) ? maxTurns : TURNS.length)
 
 const cookie = await login()
 console.log(`serveur ${BASE} · ${messages.length} tours · compte ${EMAIL}\n`)

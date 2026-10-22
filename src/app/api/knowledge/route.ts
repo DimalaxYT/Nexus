@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ownerGuard } from '@/lib/auth'
 import { parseKnowledgeRow } from '@/lib/nexus-types'
+import { invalidatePassageCache } from '@/lib/llm/grounding'
 
 export const runtime = 'nodejs'
 
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
       : await db.knowledge.create({
           data: { title, content, category, tags: JSON.stringify(tags), links: JSON.stringify(links), source, ...owned },
         })
+    // Le retrieval du chat met les passages en cache 60 s : une note ajoutée
+    // doit être visible immédiatement (« retiens que … » puis une question).
+    invalidatePassageCache()
     return Response.json({ item: parseKnowledgeRow(row) })
   } catch (err) {
     return Response.json(
@@ -91,10 +95,12 @@ export async function DELETE(req: NextRequest) {
     const { scope, userId } = guard
     if (all === '1') {
       await db.knowledge.deleteMany({ where: scope })
+      invalidatePassageCache()
       return Response.json({ ok: true, deleted: 'all' })
     }
     if (!id) return Response.json({ error: 'Paramètre id requis' }, { status: 400 })
     await db.knowledge.delete({ where: { id, ...(scope ?? {}) } })
+    invalidatePassageCache()
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(
