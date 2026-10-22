@@ -8,7 +8,7 @@
 import { db } from './db'
 import { getTrainJob, startTraining } from './llm/train'
 import { answerWithLocalModel, loadActiveModel, type LoadedModel } from './llm/engine'
-import { CHAT_CONFIG, CHAT_FORMAT, GROUNDED_FORMAT, GROUNDED_CTX } from './llm/model'
+import { CHAT_CONFIG, CHAT_FORMAT, GROUNDED_FORMAT, GROUNDED_CTX, countParams } from './llm/model'
 
 /** Nombre d'apprentissages validés à accumuler avant une relance. */
 export const RETRAIN_MIN_NEW_ITEMS = 2
@@ -131,6 +131,24 @@ export async function maybeRetrainModel(opts: { allowed?: boolean } = {}): Promi
     return {
       started: false,
       reason: `${fresh} nouvel apprentissage(s) — relance à partir de ${RETRAIN_MIN_NEW_ITEMS}`,
+      steps: 0,
+    }
+  }
+
+  /**
+   * Garde-fou v2 : le modèle de conversation livré fait ~900 k paramètres.
+   * L'entraîner DANS le process Node coûterait ~9 s par pas (mesuré), soit
+   * plusieurs heures pour 400 pas — et il partagerait la boucle d'événements
+   * avec le chat. L'entraînement hors ligne (`llm/train_nexus_chat.py`, NumPy)
+   * va ~30× plus vite. On refuse donc proprement, avec la marche à suivre.
+   */
+  if (format === 'chat' && model && countParams(model.params) > 400_000) {
+    return {
+      started: false,
+      reason:
+        'modèle de conversation v2 (~900 k paramètres) : entraînement hors ligne recommandé — ' +
+        'node --import tsx scripts/export-chat-corpus.ts puis llm/.venv/bin/python llm/train_nexus_chat.py ' +
+        '(le process web resterait bloqué plusieurs heures sinon)',
       steps: 0,
     }
   }

@@ -1,26 +1,32 @@
-// ─── NEXUS — Corpus de conversation (format `chat-v1`, tokenizer BPE) ────────
+// ─── NEXUS — Corpus de conversation (format `chat-v1`, tokenizer caractère) ──
 // Ce que le modèle de conversation apprend, et dans quelle forme. Chaque
-// exemple est un bloc terminé par le token de fin :
+// exemple est un bloc :
 //
 //   H: <dernier échange>        (facultatif — mémoire courte de la conversation)
-//   C: <contenu retrouvé>       (facultatif — le fond, fourni par le retrieval)
 //   Q: <message de l'utilisateur>
+//   C: <contenu retrouvé>       (facultatif — le fond, fourni par le retrieval)
 //   R: <réponse de NEXUS>
 //
+// Le contenu est placé JUSTE AVANT la réponse : la tâche apprise est une copie
+// à courte portée (« lis C:, réponds avec ce qu'il contient »), la seule que
+// puisse vraiment réussir un modèle de cette taille. `Q:` reste devant pour que
+// le modèle apprenne aussi à répondre sans contenu (petite conversation).
+//
 // Sources, par ordre d'importance pour une conversation naturelle :
-//   1. la banque de dialogue (178 échanges français écrits à la main),
+//   1. la banque de dialogue (186 échanges français écrits à la main),
 //   2. la banque de connaissances de NEXUS (faits, capacités, fonctionnement),
 //   3. les notes / apprentissages / mémoires / conversations de la base.
 //
-// Le modèle voit chaque échange sous plusieurs formes (avec et sans contexte,
-// question canonique / minuscule / reformulée) pour que l'invite réelle — qui
-// contient le message exact de l'utilisateur — reste dans la distribution apprise.
+// v2 (2026-10) : corpus densifié. Chaque entrée de dialogue est vue sous
+// plusieurs formes (ancrée, libre, avec mémoire), chaque réponse de
+// connaissance est découpée en phrases entières (et non plus tronquée à
+// 130 caractères), et les questions sont reformulées. Objectif mesuré :
+// ~400 k caractères au lieu de 84 k, pour un modèle de ~900 k paramètres.
 
 import { db } from '@/lib/db'
 import { DIALOGUE_BANK, type DialogueEntry } from '@/lib/brain/dialogue-bank'
 import { NEXUS_KNOWLEDGE, NEXUS_PRESENTATION } from '@/lib/brain/knowledge-bank'
 import { evaluateConversation, loadFilterRules, parseMessages } from '@/lib/conversation-filters'
-import { groundedDocsFor, cleanQuestion } from './grounding'
 import { cleanForCorpus } from './corpus'
 import { CONTEXT_MAX, MESSAGE_MAX, HISTORY_MAX, type ChatTurn } from './dialogue'
 
@@ -35,7 +41,7 @@ export interface ChatCorpusSources {
 }
 
 export interface ChatCorpusReport {
-  /** Un exemple = un bloc `H:/C:/Q:/R:` (le token de fin est ajouté à l'encodage). */
+  /** Un exemple = un bloc `H:/Q:/C:/R:` (les exemples sont séparés par une ligne vide). */
   examples: string[]
   /** Concaténation des exemples (lexique, statistiques, journal). */
   text: string
@@ -43,29 +49,74 @@ export interface ChatCorpusReport {
   sources: ChatCorpusSources
 }
 
-/** Longueurs cibles : un exemple complet doit tenir dans le contexte du modèle
- *  (CHAT_CTX = 352 caractères). */
-const ANSWER_MAX = 130
+/** Longueur maximale d'une réponse apprise (doit tenir dans `CHAT_CTX`). */
+export const ANSWER_MAX = 220
 /** Passages conservés par entrée de connaissance (le corpus doit rester dense). */
-const MAX_PASSAGES_PER_ENTRY = 3
+const MAX_PASSAGES_PER_ENTRY = 8
+/** Nombre de reformulations de question par entrée (au-delà, le corpus gonfle). */
+const MAX_QUESTIONS_PER_ENTRY = 3
 
 /**
  * Coupe une réponse sur une FIN DE PHRASE : un modèle qui apprend à rédiger doit
  * voir des phrases complètes, pas des bouts coupés en plein milieu. À défaut de
  * point, on coupe sur un mot.
  */
-function clipAnswer(text: string): string {
+function clipAnswer(text: string, max = ANSWER_MAX): string {
   const t = cleanForCorpus(text).replace(/\n+/g, ' ').trim()
-  if (t.length <= ANSWER_MAX) return t
-  const window = t.slice(0, ANSWER_MAX)
+  if (t.length <= max) return t
+  const window = t.slice(0, max)
   const sentence = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '))
-  if (sentence >= ANSWER_MAX * 0.45) return window.slice(0, sentence + 1)
+  if (sentence >= max * 0.45) return window.slice(0, sentence + 1)
   const cut = window.lastIndexOf(' ')
-  return (cut > ANSWER_MAX * 0.6 ? window.slice(0, cut) : window).replace(/[,;:.\s]+$/, '') + '.'
+  return (cut > max * 0.6 ? window.slice(0, cut) : window).replace(/[,;:.\s]+$/, '') + '.'
 }
 
 function clipMessage(text: string): string {
   return cleanForCorpus(text).replace(/\n+/g, ' ').trim().slice(0, MESSAGE_MAX)
+}
+
+/** Coupe sur un mot (jamais au milieu) — utilisé pour la ligne `H:`. */
+function clipWords(text: string, max: number): string {
+  const t = clipMessage(text)
+  if (t.length <= max) return t
+  const cut = t.lastIndexOf(' ', max)
+  return t.slice(0, cut > max * 0.5 ? cut : max).replace(/[,;:.\s]+$/, '')
+}
+
+/**
+ * Découpe un texte long en passages de phrases ENTIÈRES (≤ `max` caractères).
+ * C'est ce qui permet d'utiliser les réponses de 600–1 100 caractères de la
+ * banque de connaissances sans les mutiler : le modèle voit une ou deux
+ * phrases complètes, pas un fragment qui s'arrête au milieu d'un mot.
+ */
+export function longPassages(text: string, max = ANSWER_MAX): string[] {
+  const clean = cleanForCorpus(text).replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!clean) return []
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const out: string[] = []
+  let current = ''
+  for (const sentence of sentences) {
+    const s = sentence.trim()
+    if (!s) continue
+    if (s.length > max) {
+      if (current) {
+        out.push(current)
+        current = ''
+      }
+      out.push(clipAnswer(s, max))
+      continue
+    }
+    if (!current) {
+      current = s
+    } else if (current.length + 1 + s.length <= max) {
+      current += ` ${s}`
+    } else {
+      out.push(current)
+      current = s
+    }
+  }
+  if (current) out.push(current)
+  return [...new Set(out.filter((p) => p.length >= 20))]
 }
 
 /** Bloc au format appris (mêmes longueurs qu'à l'inférence). */
@@ -77,7 +128,7 @@ function example(opts: { history?: string | null; context?: string | null; quest
   // commentaire de `CHAT_FORMAT` dans model.ts : la distance de copie est le
   // facteur décisif pour un modèle de cette taille.
   const lines: string[] = []
-  if (opts.history) lines.push(`H: ${opts.history.slice(0, HISTORY_MAX)}`)
+  if (opts.history) lines.push(`H: ${cleanForCorpus(opts.history).replace(/\n+/g, ' ').trim().slice(0, HISTORY_MAX)}`)
   lines.push(`Q: ${q}`)
   if (opts.context) lines.push(`C: ${cleanForCorpus(opts.context).replace(/\n+/g, ' ').trim().slice(0, CONTEXT_MAX)}`)
   lines.push(`R: ${a}`)
@@ -94,51 +145,82 @@ function questionVariants(q: string): string[] {
   const noPunct = lower.replace(/[?.!]+$/, '')
   if (noPunct.length > 3) out.add(noPunct)
   if (lower.startsWith('comment ')) out.add(lower.replace('comment ', 'comment est-ce que '))
-  if (lower.startsWith('qu\'est-ce que ')) out.add(lower.replace('qu\'est-ce que ', 'c\'est quoi '))
+  if (lower.startsWith("qu'est-ce que ")) out.add(lower.replace("qu'est-ce que ", "c'est quoi "))
   if (lower.startsWith('est-ce que ')) out.add(lower.replace('est-ce que ', ''))
   if (lower.startsWith('tu ')) out.add(`est-ce que ${lower}`)
   if (lower.startsWith('pourquoi ')) out.add(`et ${lower}`)
-  return [...out].slice(0, 4)
+  // Reformulations de politesse : « tu peux me dire … » est une tournure très
+  // fréquente en conversation réelle et n'était jamais vue à l'entraînement.
+  if (noPunct.length <= MESSAGE_MAX - 22 && !/^(bonjour|bonsoir|salut|coucou|hey|merci|au revoir)\b/i.test(lower)) {
+    out.add(`tu peux me dire : ${noPunct} ?`)
+    out.add(`dis-moi : ${noPunct} ?`)
+  }
+  // Sans accent : beaucoup d'utilisateurs tapent vite. Le retrieval normalise
+  // déjà les accents ; le modèle doit pouvoir lire ces messages aussi.
+  const plain = noPunct.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (plain !== noPunct && plain.length > 3) out.add(plain)
+  return [...out].slice(0, 7)
 }
 
 /**
  * Exemples d'une entrée de la banque de dialogue — CORPUS DENSE.
  *
- * Pourquoi peu d'exemples par entrée : l'entraînement est limité en temps de
- * calcul (~410 caractères/seconde sur ce serveur). Le nombre d'époques vaut
- * (débit × durée) / taille du corpus : avec 210 ko de corpus on tombait à 6
- * époques et la tâche de copie n'émergeait pas (mesuré : 52 % des caractères
- * attendus dans le top-3, décodage glouton « de de : : le : »). En passant à
- * ~75 ko, on monte à ~20 époques à durée égale.
- *
- * Deux formes par entrée, les deux ANCRÉES (c'est le cas réel en inférence : le
- * retrieval fournit toujours un contenu) :
- *   · question canonique  → réponse,
- *   · question reformulée → même réponse (une entrée sur deux), pour que le
- *     modèle ne dépende pas du libellé exact de la question.
- * Plus la forme avec mémoire courte (`H:`) pour les relances.
+ * Trois formes par entrée :
+ *   · ANCRÉE (Q + C = réponse + R) : le cas réel en inférence, où le retrieval
+ *     fournit toujours un contenu ; c'est la tâche de copie courte portée,
+ *   · LIBRE (Q + R) : répondre sans contenu — indispensable pour que le modèle
+ *     sache saluer ou relancer sans dépendre d'un passage,
+ *   · AVEC MÉMOIRE (`H:`) pour les relances et un échantillon d'entrées.
+ * Plus une ou deux reformulations de la question, pour ne pas dépendre du
+ * libellé exact.
  */
 function dialogueExamples(entry: DialogueEntry, previous: DialogueEntry | null, index: number): string[] {
   const out: string[] = []
   const answer = clipAnswer(entry.a)
   const variants = questionVariants(entry.q)
 
+  // 1. Formes ancrées : la question canonique, puis jusqu'à deux reformulations.
   const grounded = example({ context: answer, question: variants[0], answer })
   if (grounded) out.push(grounded)
-
-  if (index % 2 === 1) {
-    const alt = variants.find((v) => v !== variants[0])
-    if (alt) {
-      const varied = example({ context: answer, question: alt, answer })
-      if (varied) out.push(varied)
-    }
+  for (const alt of variants.slice(1, MAX_QUESTIONS_PER_ENTRY)) {
+    const made = example({ context: answer, question: alt, answer })
+    if (made) out.push(made)
   }
 
-  // Relances : une réponse précédente est en mémoire, la question est courte.
-  if (previous && entry.t === 'suivi') {
-    const h = `${clipMessage(previous.q).slice(0, 14)} > ${clipAnswer(previous.a).slice(0, 16)}`
+  // 2. Forme libre : une entrée sur deux (l'autre moitié garde le corpus dense).
+  if (index % 2 === 0) {
+    const free = example({ question: entry.q, answer })
+    if (free) out.push(free)
+  }
+
+  // 3. Mémoire courte : une réponse précédente puis une relance.
+  if (previous && (entry.t === 'suivi' || index % 5 === 0)) {
+    const h = `${clipWords(previous.q, 34)} > ${clipWords(clipAnswer(previous.a), 46)}`
     const withHistory = example({ history: h, context: answer, question: entry.q, answer })
     if (withHistory) out.push(withHistory)
+  }
+  return out
+}
+
+/** Exemples ancrés d'une réponse de connaissance (découpée en phrases entières). */
+function knowledgeExamples(question: string, answer: string): string[] {
+  const passages = longPassages(answer)
+  const variants = questionVariants(question)
+  const out: string[] = []
+  for (let i = 0; i < passages.length && i < MAX_PASSAGES_PER_ENTRY; i++) {
+    const passage = passages[i]
+    // Le contenu fourni peut contenir le passage ET le suivant (≤ CONTEXT_MAX) :
+    // le modèle apprend à choisir la bonne phrase dans un contexte plus large.
+    const next = passages[i + 1] && passage.length + 1 + passages[i + 1].length <= CONTEXT_MAX ? passages[i + 1] : null
+    const context = next ? `${passage} ${next}` : passage
+    const q = variants[i % Math.min(variants.length, MAX_QUESTIONS_PER_ENTRY)]
+    const made = example({ context, question: q, answer: passage })
+    if (made) out.push(made)
+  }
+  // Une forme libre par entrée : la première phrase, sans contenu.
+  if (passages[0]) {
+    const free = example({ question: question, answer: passages[0] })
+    if (free) out.push(free)
   }
   return out
 }
@@ -170,13 +252,13 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
 
   // 2. Banque de connaissances : faits et fonctionnement (format ancré).
   for (const e of NEXUS_KNOWLEDGE) {
-    const docs = groundedDocsFor(e.question, e.answer).slice(0, MAX_PASSAGES_PER_ENTRY)
+    const docs = knowledgeExamples(e.question, e.answer)
     if (docs.length) {
       examples.push(...docs)
       sources.nexusKnowledge++
     }
   }
-  const presentation = groundedDocsFor('Qui es-tu, NEXUS ?', NEXUS_PRESENTATION).slice(0, MAX_PASSAGES_PER_ENTRY)
+  const presentation = knowledgeExamples('Qui es-tu, NEXUS ?', NEXUS_PRESENTATION)
   if (presentation.length) {
     examples.push(...presentation)
     sources.nexusKnowledge++
@@ -186,7 +268,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
     // 3. Notes de la base de connaissances (tous comptes).
     const notes = await db.knowledge.findMany({ take: 1000 }).catch(() => [])
     for (const n of notes ?? []) {
-      const docs = groundedDocsFor(String(n.title ?? ''), String(n.content ?? '')).slice(0, MAX_PASSAGES_PER_ENTRY)
+      const docs = knowledgeExamples(String(n.title ?? ''), String(n.content ?? ''))
       if (docs.length) {
         examples.push(...docs)
         sources.knowledge++
@@ -196,7 +278,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
     // 4. Apprentissages validés de l'entraîneur Dev.
     const items = await db.trainingItem.findMany({ where: { status: { in: ['valide', 'applique'] } }, take: 1000 }).catch(() => [])
     for (const it of items ?? []) {
-      const q = cleanQuestion(String(it.question ?? ''))
+      const q = clipMessage(String(it.question ?? ''))
       const a = clipAnswer(String(it.answer ?? ''))
       const made = example({ context: a.slice(0, CONTEXT_MAX), question: q, answer: a })
       const free = example({ question: q, answer: a })
@@ -232,7 +314,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
         if (msgs[i].role !== 'user' || msgs[i + 1].role !== 'assistant') continue
         const previous: ChatTurn | null = i >= 1 ? { role: msgs[i - 1].role === 'assistant' ? 'assistant' : 'user', content: msgs[i - 1].content } : null
         const made = example({
-          history: previous ? clipMessage(previous.content).slice(0, 34) : null,
+          history: previous ? clipWords(previous.content, HISTORY_MAX) : null,
           question: msgs[i].content,
           answer: msgs[i + 1].content,
         })
@@ -246,8 +328,13 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
     }
   }
 
+  // Déduplication : les variantes de politesse de deux entrées proches peuvent
+  // produire le même bloc. Un doublon exact n'apprend rien de plus et biaise les
+  // statistiques du corpus.
+  const unique = [...new Set(examples)]
+
   // Séparateur : une ligne vide entre les exemples (le tokenizer caractère n'a
   // pas de token de fin — c'est le saut de ligne qui marque la fin d'une réponse).
-  const text = examples.join('\n\n') + '\n\n'
-  return { examples, text, chars: text.length, sources }
+  const text = unique.join('\n\n') + '\n\n'
+  return { examples: unique, text, chars: text.length, sources }
 }

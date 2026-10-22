@@ -55,7 +55,15 @@ const STOPWORDS = new Set([
   'pour', 'avec', 'sans', 'dans', 'sur', 'sous', 'par', 'comme',
   'moi', 'toi', 'lui', 'eux', 'me', 'te', 'ne', 'pas', 'tres', 'bien',
   'stp', 'svp', 'sil', 'plait', 'please', 'juste', 'fais', 'fait', 'faire',
+  // Formes élidées et morceaux produits par la tokenisation : « qu'est-ce »
+  // donne « qu » + « est » + « ce », « aujourd'hui » donne « aujourd » + « hui ».
+  'qu', 'c', 'j', 'n', 's', 't', 'm', 'd', 'l', 'aujourd', 'hui',
 ])
+
+/** Ce mot est-il un mot vide ? (utilisé par le retrieval pour pondérer les mots) */
+export function isStopword(word: string): boolean {
+  return STOPWORDS.has(word)
+}
 
 /** Coupe en mots bruts (normalisés ; élisions françaises découpées sur l'apostrophe). */
 export function tokenize(text: string): string[] {

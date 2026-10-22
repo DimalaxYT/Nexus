@@ -60,3 +60,27 @@ Note génération (checkpoint v2 étape 100, sous-entraîné) : à ce stade les
 faisceaux dégénèrent sur « de de de… » (chemin le plus probable d'un
 modèle qui ne sait encore rien) — l'échantillonnage reste préférable
 tant que la perplexité n'est pas descendue.
+
+## Passe 3 — modèle de conversation v2 (2026-10-22)
+
+Objectif : rendre le modèle de dialogue réellement plus intelligent (contexte
+plus long, corpus plus dense, meilleur retrieval), sans sortir du 100 % local.
+
+| # | Tâche | État |
+|---|-------|------|
+| 1 | Contexte 352 → 704, dim 64 → 128, 3 → 4 couches, 4 → 8 têtes (899 968 p) | ✅ exporté |
+| 2 | Budgets d'invite H/Q/C/R revus (90/110/260/220) + garde-fou de taille dans `chatPrompt` | ✅ |
+| 3 | Corpus dense v2 : 854 exemples / 241 641 caractères (reformulations, mémoire courte, passages entiers) | ✅ |
+| 4 | Pré-entraînement prose française (364 473 caractères) puis affinage conversation | ✅ 3 000 pas, 55 min |
+| 5 | Validation NLL forcée + top-3, meilleur point de contrôle restauré avant export | ✅ NLL 2,5055 · top-3 50 % |
+| 6 | Évaluation v1/v2 sur le même jeu (`scripts/eval-chat.ts`) | ✅ 2,426 → 2,407 |
+| 7 | Garde-fous recalibrés sur v2 (`scripts/calibrate-chat.ts`) | ⚠️ 0/16 acceptées — seuils conservés |
+| 8 | Retrieval dialogue : IDF, relances hors historique, filtres de bruit sur les radicaux | ✅ 63 % → 99 % top-1 |
+| 9 | Retrieval connaissances : poids du titre 0,25 → 0,35, bruit de requête stemmé | ✅ 91 % → 97 % top-1 |
+| 10 | Scripts de mesure permanents (`check-dialogue.ts`, `check-retrieval.ts`) | ✅ |
+| 11 | Copies scratch `.retrieval*.ts`, `.speed*.ts`, `.bench.ts`, `.t.ts` supprimées | ✅ |
+
+Reste ouvert : la copie du contexte n'est pas apprise à cette échelle. Prochain
+levier réaliste = plus de pas sur un modèle plus petit (le coût par pas varie
+comme dim² × ctx²), ou une architecture de copie explicite (pointeur) — documenté
+dans `RESULTS.md`.

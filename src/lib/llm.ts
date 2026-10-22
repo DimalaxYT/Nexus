@@ -8,7 +8,7 @@
 // Règle de répartition, assumée et documentée :
 //   · la CONVERSATION passe par le modèle de langue (texte réellement généré),
 //   · les ACTIONS (recherche, code, image, vidéo…) restent déterministes : un
-//     modèle de 300 k paramètres ne décide pas d'un appel d'outil de façon
+//     modèle de 900 k paramètres ne décide pas d'un appel d'outil de façon
 //     fiable, et les compétences locales produisent déjà un résultat exact.
 // Quand le modèle n'est pas assez sûr de lui, on ne « bluffe » pas : la réponse
 // revient au savoir retrouvé (banque de dialogue, connaissances, notes).

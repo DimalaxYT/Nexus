@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "romans_francophones": {
+      "chars": 300124,
+      "origin": "data/corpus_v2.txt"
+    },
+    "documentation_nexus": {
+      "chars": 64346,
+      "origin": "data/corpus_fr.txt"
+    }
+  },
+  "chars": 364473,
+  "words": 62427,
+  "output": "llm/data/chat_pretrain_v2.txt"
+}

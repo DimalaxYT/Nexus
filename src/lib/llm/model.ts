@@ -49,20 +49,27 @@ export const GROUNDED_CTX = 256
  * la tâche est une copie — `C:` et `R:` contiennent le même texte. Avec l'ordre
  * historique `C:` puis `Q:` puis `R:`, ~100 caractères séparaient le contenu de la
  * réponse : il faut alors une tête d'induction (coucher précédente + correspondance
- * de contexte) pour aller le rechercher. À 178 496 paramètres (dim 64, 3 couches,
- * 4 têtes de 16 dimensions), après 400 pas et ~9 époques, la NLL forcée de la
- * réponse restait à 2,6 nats/caractère avec 52-59 % des caractères dans le top-3,
- * et le décodage glouton produisait « de de le e de » — le modèle avait appris le
- * RYTHME du français (consonne, voyelle, espace à 33-43 %) mais pas QUEL caractère
- * prendre. Le même modèle sur-apprend pourtant une fenêtre figée à 0,578 en 80 pas,
- * donc ni la boucle d'apprentissage ni la capacité ne sont en cause : c'est la
- * distance de copie. Placer le contenu en dernière position avant la réponse en
- * fait une tâche à courte portée, à la portée de ce modèle.
+ * de contexte) pour aller le rechercher. Avec le modèle v1 (178 496 paramètres,
+ * dim 64, 3 couches), après 400 pas et ~9 époques, la NLL forcée restait à
+ * 2,6 nats/caractère, 52-59 % des caractères dans le top-3, et le décodage
+ * glouton produisait « de de le e de » : le rythme du français, pas son contenu.
+ * Placer le contenu en dernière position avant la réponse en fait une tâche à
+ * courte portée. Le modèle v2 (900 k paramètres, contexte 704, corpus densifié,
+ * pré-entraînement sur de la prose) franchit le seuil : voir README et
+ * llm/checkpoints/nexus-chat-v2-metrics.json.
  */
 export const CHAT_FORMAT = 'chat-v1'
 /**
- * Contexte du chat, en CARACTÈRES : H: (3+34) + Q: (3+60) + C: (3+90)
- * + R: (3+130) + 3 sauts de ligne = 329, donc 352 laisse la marge.
+ * Contexte du chat, en CARACTÈRES : H: (3+90) + Q: (3+110) + C: (3+260)
+ * + R: (3+220) + 3 sauts de ligne = 695, donc 704 laisse la marge.
+ *
+ * v2 (2026-10) : le contexte passe de 352 à 704 caractères et la capacité de
+ * 178 k à ~900 k paramètres. L'ancien format tronquait la question à 60
+ * caractères et le contenu à 90 : le modèle ne voyait jamais la fin d'une
+ * demande réelle, et ne pouvait produire que des réponses d'une ligne. Les
+ * budgets restent alignés sur `chatPrompt` (inférence) et `chat-corpus.ts`
+ * (entraînement) — c'est cette égalité qui fait tenir un exemple entier dans
+ * chaque fenêtre.
  *
  * Pourquoi le tokenizer caractère et pas les sous-mots BPE — mesuré, pas deviné :
  * le BPE du dépôt (`tokenizer-merges.json`, vocabulaire 2049) a été entraîné sur
@@ -76,13 +83,13 @@ export const CHAT_FORMAT = 'chat-v1'
  * si le corpus dépasse quelques Mo (`cfg.tokenizer = 'bpe'` reste pris en charge
  * de bout en bout : entraînement, inférence, garde-fous).
  */
-export const CHAT_CTX = 352
+export const CHAT_CTX = 704
 /** Configuration du modèle de conversation. */
 export const CHAT_CONFIG: Omit<LmConfig, 'vocab' | 'lexicon'> = {
   ctx: CHAT_CTX,
-  dim: 64,
-  heads: 4,
-  layers: 3,
+  dim: 128,
+  heads: 8,
+  layers: 4,
   format: CHAT_FORMAT,
   tokenizer: 'char',
 }

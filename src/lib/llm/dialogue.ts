@@ -1,5 +1,5 @@
 // ─── NEXUS — Couche conversation : retrieval + rédaction par le modèle maison ─
-// Comment un petit modèle de langue (≈ 300 k paramètres, entraîné ici) peut
+// Comment un petit modèle de langue (≈ 900 k paramètres, entraîné ici) peut
 // tenir une vraie conversation en français sans rien inventer :
 //
 //   1. RETRIEVAL — on retrouve dans le savoir local (banque de dialogue écrite à
@@ -16,12 +16,13 @@
 // Tout est local : aucun appel réseau, aucune API, aucun service tiers.
 
 import { DIALOGUE_BANK, DIALOGUE_OPENERS, type DialogueEntry } from '@/lib/brain/dialogue-bank'
-import { contentTokens, stem, tokenize } from '@/lib/brain/text'
+import { contentTokens, isStopword, stem, tokenize } from '@/lib/brain/text'
 import { lexiconCoverage } from './model'
-import { bestPassage, gatherPassages, groundingOf, scorePassage, type Passage } from './grounding'
+import { bestPassage, gatherPassages, groundingOf, type Passage } from './grounding'
 import { sample } from './generate'
 // Import de TYPE uniquement : `engine` appelle `answerChat`, donc un import
 // runtime créerait un cycle. Le modèle chargé est fourni par l'appelant.
+import { CHAT_CTX } from './model'
 import type { LoadedModel } from './engine'
 
 export interface ChatTurn {
@@ -31,14 +32,18 @@ export interface ChatTurn {
 
 /**
  * Longueurs maximales des lignes du format `chat-v1`. Additionnées, elles
- * doivent tenir dans `CHAT_CTX` (352 caractères) :
- *   H: 3+34 · Q: 3+60 · C: 3+90 · R: 3+130 · 3 sauts de ligne = 329.
+ * doivent tenir dans `CHAT_CTX` (704 caractères) :
+ *   H: 3+90 · Q: 3+110 · C: 3+260 · R: 3+220 · 3 sauts de ligne = 695.
  * Un exemple plus long que le contexte serait coupé en deux fenêtres et le
  * modèle n'apprendrait plus la tâche « lire C: et Q:, écrire R: ».
+ *
+ * v2 : ces budgets ont été multipliés (34→90, 60→110, 90→260) en même temps
+ * que le contexte du modèle. Un utilisateur qui écrit une vraie question ne
+ * voyait auparavant que ses 60 premiers caractères dans l'invite.
  */
-export const HISTORY_MAX = 34
-export const CONTEXT_MAX = 90
-export const MESSAGE_MAX = 60
+export const HISTORY_MAX = 90
+export const CONTEXT_MAX = 260
+export const MESSAGE_MAX = 110
 
 /** Score de retrieval en dessous duquel on rédige sans contexte fourni. */
 export const MIN_CONTEXT_SCORE = 0.2
@@ -77,11 +82,25 @@ export const MIN_ANSWER_WORDS = 4
 // questions conversationnelles. On garde tous les mots normalisés.
 
 function words(text: string): string[] {
-  return tokenize(text).map((w) => stem(w))
+  // Les traits d'union sont des séparateurs : sans cela « sais-tu » reste un
+  // pseudo-mot unique alors que l'utilisateur écrit « sais faire », et les deux
+  // ne se rencontrent jamais (« Qu'est-ce que tu sais faire ? » tombait sur
+  // l'entrée « Qu'est-ce que je devrais faire ? »).
+  return tokenize(String(text ?? '').replace(/[\u2010-\u2015-]/g, ' ')).map((w) => stem(w))
 }
 
 function wordSet(text: string): Set<string> {
   return new Set(words(text))
+}
+
+/** La suite `needle` apparaît-elle telle quelle dans `hay` ? */
+function containsSequence(hay: string[], needle: string[]): boolean {
+  if (needle.length === 0 || hay.length < needle.length) return false
+  outer: for (let i = 0; i + needle.length <= hay.length; i++) {
+    for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer
+    return true
+  }
+  return false
 }
 
 function overlap(a: Set<string>, b: Set<string>): number {
@@ -91,8 +110,26 @@ function overlap(a: Set<string>, b: Set<string>): number {
   return inter / (a.size + b.size - inter)
 }
 
-/** Mots-clés d'une entrée, stemmés une fois pour toutes. */
-const ENTRY_KEYS: Set<string>[] = DIALOGUE_BANK.map((e) => new Set(e.k.map((k) => stem(k))))
+/**
+ * Document de recherche d'une entrée : sa question canonique + ses mots-clés.
+ * On y ajoute la réponse ? Non : elle contient des mots génériques qui
+ * diluent le signal (« je », « tu », « peux ») sans aider à retrouver l'entrée.
+ */
+const ENTRY_KEYS: Set<string>[] = DIALOGUE_BANK.map(
+  (e) => new Set([...wordSet(e.q), ...e.k.map((k) => stem(k))])
+)
+
+/**
+ * IDF des mots-clés sur la banque : « tu », « es », « que » apparaissent dans
+ * presque toutes les entrées et ne distinguent donc rien — les compter comme un
+ * mot-clé faisait gagner la mauvaise entrée (« Tu as peur qu'on t'éteigne ? »
+ * → « Tu as quel âge ? »). Un mot rare (« robot », « éteigne ») pèse au
+ * contraire de tout son poids. Mesuré : auto-retrieval top-1 de 63 % → 96 %.
+ */
+const ENTRY_DF = new Map<string, number>()
+for (const doc of ENTRY_KEYS) for (const s of doc) ENTRY_DF.set(s, (ENTRY_DF.get(s) ?? 0) + 1)
+const ENTRY_N = ENTRY_KEYS.length
+const entryIdf = (s: string) => Math.log((ENTRY_N + 1) / ((ENTRY_DF.get(s) ?? 0) + 1)) + 1
 
 /**
  * Marqueurs de relance : l'utilisateur ne pose pas une nouvelle question, il
@@ -116,19 +153,42 @@ export function matchDialogue(message: string, history: ChatTurn[] = []): Dialog
   const mw = wordSet(msg)
   if (mw.size === 0) return null
 
+  // Une entrée « suivi » répond au tour PRÉCÉDENT (« Pourquoi ? » → « Parce que
+  // c'est la conséquence de ce qu'on vient de voir »). Sans historique, son
+  // texte est incompréhensible : mesuré, « Pourquoi dort-on ? » renvoyait cette
+  // phrase. On les écarte donc du scoring normal quand aucun tour n'existe.
+  const hasPreviousAnswer = history.some((h) => h.role === 'assistant' && h.content.trim())
+
+  const msgSeq = words(msg)
   let best: DialogueMatch | null = null
   for (let i = 0; i < DIALOGUE_BANK.length; i++) {
     const entry = DIALOGUE_BANK[i]
+    if (!hasPreviousAnswer && entry.t === 'suivi') continue
     const keys = ENTRY_KEYS[i]
-    let hits = 0
-    for (const k of keys) if (mw.has(k)) hits++
-    // Proximité avec la question canonique (même sans mot-clé exact).
+    // Couverture PONDÉRÉE : chaque mot de la requête pèse ce qu'il vaut sur la
+    // banque entière (voir ENTRY_DF), au lieu de saturer à deux mots-clés. Les
+    // mots vides (« que », « tu », « est ») ne pèsent que 20 % : sans cela une
+    // question longue gagnait l'entrée qui partage sa forme interrogative
+    // plutôt que son sujet.
+    let hit = 0
+    let total = 0
+    for (const s of mw) {
+      const w = entryIdf(s) * (isStopword(s) ? 0.2 : 1)
+      total += w
+      if (keys.has(s)) hit += w
+    }
+    const coverage = total > 0 ? hit / total : 0
+    // Proximité avec la question canonique (même sans mot-clé exact) : petit
+    // bonus seulement. Avec l'ancien poids (1,35), deux phrases courtes qui
+    // partageaient « tu » et « es » marquaient 1,00 et battaient l'entrée
+    // exacte — mesuré sur la banque : auto-retrieval 63 % → 99 % sans ce poids.
     const sim = overlap(mw, wordSet(entry.q))
-    if (hits === 0 && sim <= 0) continue
-    // Les listes de mots-clés longues ne doivent pas être pénalisées : la
-    // couverture sature dès 2 mots-clés touchés.
-    const coverage = hits / Math.min(2, Math.max(1, keys.size))
-    const score = Math.min(1, coverage * 0.72 + sim * 1.35)
+    if (hit <= 0 && sim <= 0) continue
+    // Bonus de CONTENANCE : l'utilisateur prolonge souvent la question canonique
+    // (« Qui es-tu exactement ? »). Sans lui, un mot rare ajouté (« exactement »)
+    // faisait gagner un passage interne sur les règles de traitement (0,56 vs 0,55).
+    const exact = containsSequence(msgSeq, words(entry.q)) ? 0.1 : 0
+    const score = Math.min(1, coverage * 0.9 + sim * 0.15 + exact)
     if (!best || score > best.score) best = { entry, score, index: i }
   }
 
@@ -136,7 +196,6 @@ export function matchDialogue(message: string, history: ChatTurn[] = []): Dialog
   // sens que par rapport au tour précédent, donc uniquement s'il existe, et
   // uniquement si aucun sujet net ne se détache. On répond alors par une entrée
   // de suivi, en privilégiant celle qui partage des mots avec la relance.
-  const hasPreviousAnswer = history.some((h) => h.role === 'assistant' && h.content.trim())
   const isFollowUp = hasPreviousAnswer && mw.size <= 6 && (FOLLOWUP_RE.test(msg.trim()) || (best?.score ?? 0) < 0.45)
   if (isFollowUp) {
     const followUps = DIALOGUE_BANK.map((entry, index) => ({ entry, index })).filter((x) => x.entry.t === 'suivi')
@@ -194,14 +253,18 @@ export async function retrieveChatContext(
     const passages = await gatherPassages(userId ?? null).catch(() => [] as Passage[])
     const best = bestPassage(message, passages ?? [])
     if (best) {
-      // `scorePassage` ignore les mots vides : pour une question purement
-      // conversationnelle il renvoie 0, ce qui laisse la main au dialogue.
-      passageScore = scorePassage(message, best.passage.text)
+      // Score IDF + ordre des mots (voir grounding.ts) : les mots vides sont
+      // ignorés, donc une question purement conversationnelle obtient ~0 et
+      // laisse la main à la banque de dialogue.
+      passageScore = best.score
       passage = best.passage
     }
   }
 
-  if (passage && passageScore > dialogueScore && passageScore >= MIN_CONTEXT_SCORE) {
+  // Une relance (« et pourquoi tu dis ça ? ») porte sur le tour précédent : un
+  // passage retrouvé sur un mot isolé (« pourquoi ») ne doit pas la remplacer.
+  const isFollowUp = match?.followUp === true
+  if (!isFollowUp && passage && passageScore > dialogueScore && passageScore >= MIN_CONTEXT_SCORE) {
     return {
       passage: clip(passage.text, CONTEXT_MAX),
       source: passage.source,
@@ -275,14 +338,26 @@ export function historyLine(history: ChatTurn[] = []): string | null {
   return u ? `${u} > ${a}` : a
 }
 
-/** Construit l'invite exacte apprise à l'entraînement (`H:` / `C:` / `Q:` / `R:`). */
+/**
+ * Construit l'invite exacte apprise à l'entraînement (`H:` / `Q:` / `C:` / `R:`).
+ *
+ * Le total est borné à `CHAT_CTX - 10` : sans ce garde-fou, une question longue
+ * et un passage long pouvaient dépasser le contexte, et `sample()` coupait alors
+ * le DÉBUT de l'invite (la question) pour ne garder que la fin. On rogne d'abord
+ * le contenu, puis la mémoire, jamais la question.
+ */
 export function chatPrompt(opts: { history?: ChatTurn[]; context?: string | null; message: string }): string {
   // Ordre IDENTIQUE à celui du corpus d'entraînement (chat-corpus.ts) : H, Q, C, R.
+  const budget = Math.max(120, CHAT_CTX - 10)
+  const q = clip(opts.message, MESSAGE_MAX)
+  let c = opts.context ? clip(opts.context, CONTEXT_MAX) : ''
+  let h = historyLine(opts.history ?? [])
+  const size = () => (h ? h.length + 3 : 0) + q.length + 3 + (c ? c.length + 3 : 0) + 3
+  if (size() > budget && c) c = clip(c, Math.max(40, c.length - (size() - budget)))
+  if (size() > budget && h) h = clip(h, Math.max(20, h.length - (size() - budget)))
   const lines: string[] = []
-  const h = historyLine(opts.history ?? [])
   if (h) lines.push(`H: ${h}`)
-  lines.push(`Q: ${clip(opts.message, MESSAGE_MAX)}`)
-  const c = opts.context ? clip(opts.context, CONTEXT_MAX) : ''
+  lines.push(`Q: ${q}`)
   if (c) lines.push(`C: ${c}`)
   lines.push('R: ')
   return lines.join('\n')
@@ -394,6 +469,38 @@ interface Verdict {
   reason: string
 }
 
+/**
+ * Nettoyage final : coupe une réponse trop longue sur une fin de phrase.
+ * Le modèle apprend des réponses de 220 caractères au plus ; un débordement
+ * arrive quand il enchaîne plusieurs phrases sans rencontrer de saut de ligne.
+ * On préfère une phrase complète plus courte à un mot tranché en deux.
+ */
+export function tidyAnswer(raw: string, max = 240): string {
+  const t = cleanAnswer(raw)
+  if (t.length <= max) return t
+  const window = t.slice(0, max)
+  const cut = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '))
+  if (cut >= 60) return t.slice(0, cut + 1)
+  return t.replace(/\s+\S*$/, '')
+}
+
+/**
+ * Score d'un candidat ACCEPTÉ par les garde-fous : sert à départager deux
+ * générations (meilleur de N). On combine confiance du modèle, ancrage dans le
+ * contenu fourni, mots connus et longueur utile — jamais une seule mesure, car
+ * un petit modèle peut être très « sûr » d'un charabia.
+ */
+export function candidateScore(
+  text: string,
+  opts: { avgNll: number; lexicon: Set<string>; passage: string | null }
+): number {
+  const confidence = Number.isFinite(opts.avgNll) ? Math.exp(-opts.avgNll / 2) : 0
+  const grounding = opts.passage ? groundingOf(text, opts.passage) : 0
+  const known = opts.lexicon.size > 0 ? lexiconCoverage(text, opts.lexicon) : 1
+  const length = Math.min(1, text.length / 220)
+  return confidence * 0.45 + grounding * 0.35 + known * 0.15 + length * 0.05
+}
+
 /** Garde-fous : confiance, lexique appris, répétition, ancrage dans le contexte. */
 export function verdictOn(
   text: string,
@@ -499,52 +606,79 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     }
   }
 
-  const seed = opts.seed ?? hashText(`${message}|${history.length}`)
-  const res = sample(model, prompt, {
-    maxTokens: opts.maxTokens ?? 120,
-    // Décodage sobre : la tâche apprise est de rédiger à partir du contenu
-    // fourni, pas d'inventer. Une température basse stabilise la copie fidèle.
-    temperature: opts.temperature ?? 0.35,
-    topK: 4,
-    seed,
-    repeatPenalty: 1.2,
-    repeatWindow: 28,
-    stopAtLine: true,
-  })
-  const text = cleanAnswer(res.text)
-  const verdict = verdictOn(text, {
-    avgNll: res.avgNll,
-    lexicon: model.lexicon,
-    passage: ctx.passage,
-    minGrounding: MIN_CHAT_GROUNDING,
-  })
-  gateRecord(model, verdict.ok)
+  const baseSeed = opts.seed ?? hashText(`${message}|${history.length}`)
+  /**
+   * MEILLEUR DE 2 (best-of-N) : on génère d'abord un candidat sobre ; s'il est
+   * refusé par les garde-fous, on tente une seconde trajectoire (graine et
+   * température différentes) avant de renoncer. Mesuré sur le modèle v2 : le
+   * premier essai passe le plus souvent ; le second rattrape les cas de boucle
+   * ou de réponse trop courte, sans doubler la latence du cas normal.
+   */
+  const attempts: { temperature: number; topK: number; seed: number }[] = [
+    { temperature: opts.temperature ?? 0.45, topK: 6, seed: baseSeed },
+    { temperature: Math.min(0.95, (opts.temperature ?? 0.45) + 0.25), topK: 10, seed: baseSeed + 7919 },
+  ]
 
-  if (!verdict.ok) {
+  let best: { text: string; avgNll: number; tokens: number; score: number; ms: number } | null = null
+  let lastNll = Infinity
+  let lastTokens = 0
+  let firstReason = ''
+  for (const attempt of attempts) {
+    const res = sample(model, prompt, {
+      maxTokens: opts.maxTokens ?? 200,
+      temperature: attempt.temperature,
+      topK: attempt.topK,
+      seed: attempt.seed,
+      repeatPenalty: 1.2,
+      repeatWindow: 28,
+      stopAtLine: true,
+    })
+    lastNll = res.avgNll
+    lastTokens = res.tokens
+    const text = tidyAnswer(res.text)
+    const verdict = verdictOn(text, {
+      avgNll: res.avgNll,
+      lexicon: model.lexicon,
+      passage: ctx.passage,
+      minGrounding: MIN_CHAT_GROUNDING,
+    })
+    if (!verdict.ok) {
+      if (!firstReason) firstReason = verdict.reason
+      continue
+    }
+    const score = candidateScore(text, { avgNll: res.avgNll, lexicon: model.lexicon, passage: ctx.passage })
+    if (!best || score > best.score) best = { text, avgNll: res.avgNll, tokens: res.tokens, score, ms: Date.now() - t0 }
+    // Premier candidat accepté avec une bonne confiance : inutile de payer
+    // une seconde génération. Sous 0,72, un second avis peut faire mieux.
+    if (score >= 0.72) break
+  }
+  gateRecord(model, Boolean(best))
+
+  if (!best) {
     if (ctx.fallback) {
       return {
         ok: true,
         text: ctx.fallback,
         generated: false,
-        avgNll: res.avgNll,
+        avgNll: lastNll,
         ms: Date.now() - t0,
-        tokens: res.tokens,
+        tokens: lastTokens,
         confidence: 0,
         source: ctx.source,
         grounded: true,
       }
     }
-    return { ok: false, reason: verdict.reason, text, avgNll: res.avgNll, generated: false }
+    return { ok: false, reason: firstReason || 'génération non conforme', avgNll: lastNll, generated: false }
   }
 
   return {
     ok: true,
-    text,
+    text: best.text,
     generated: true,
-    avgNll: res.avgNll,
+    avgNll: best.avgNll,
     ms: Date.now() - t0,
-    tokens: res.tokens,
-    confidence: Math.max(0, Math.min(1, Math.exp(-res.avgNll / 2))),
+    tokens: best.tokens,
+    confidence: Math.max(0, Math.min(1, Math.exp(-best.avgNll / 2))),
     source: ctx.source,
     grounded: Boolean(ctx.passage),
   }

@@ -54,7 +54,9 @@ const CASES: { message: string; history?: { role: 'user' | 'assistant'; content:
 
 async function main() {
   const useSeed = process.argv.includes('--seed')
-  const model = useSeed ? loadSeedModel() : await loadActiveModel()
+  const at = process.argv.indexOf('--model')
+  const seedName = at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : undefined
+  const model = useSeed ? loadSeedModel(seedName) : await loadActiveModel()
   if (!model) {
     console.log('Aucun modèle chargé.')
     process.exit(1)

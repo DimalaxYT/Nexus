@@ -1593,7 +1593,7 @@ async function runLlmPipeline(
         }
       }
     } else {
-      // Aucune décision d'outil exploitable. Le modèle local (300 k paramètres)
+      // Aucune décision d'outil exploitable. Le modèle local (900 k paramètres)
       // ne produit pas de JSON d'action fiable : ce sont les compétences
       // déterministes qui agissent — recherche web réelle, code, image, scène 3D,
       // page web, vidéo, lecture de page. On ne passe PAS par la route

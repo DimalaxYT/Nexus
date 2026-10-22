@@ -34,7 +34,7 @@ export async function GET() {
     return Response.json({
       available: false,
       model: null,
-      hint: 'Aucun poids trouvé : entraînez avec `node --import tsx scripts/train-chat.ts` ou remettez public/models/nexus-chat-v1.{bin,json}.',
+      hint: 'Aucun poids trouvé : entraînez avec `node --import tsx scripts/train-chat.ts` ou remettez public/models/nexus-chat-v2.{bin,json}.',
     })
   }
   const { cfg } = model

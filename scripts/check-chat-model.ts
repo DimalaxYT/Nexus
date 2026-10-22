@@ -23,9 +23,11 @@ import { loadSeedModel } from '@/lib/llm/seed'
 
 async function main() {
   const useSeed = process.argv.includes('--seed')
-  const model = useSeed ? loadSeedModel() : await loadActiveModel()
+  const at = process.argv.indexOf('--model')
+  const seedName = at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : undefined
+  const model = useSeed ? loadSeedModel(seedName) : await loadActiveModel()
   if (!model) {
-    console.log('Aucun modèle chargé (ni en base, ni point de contrôle embarqué).')
+    console.log('Aucun modèle chargé (ni en base, ni point de contrôle embarqué). Précisez --seed --model <nom>.')
     process.exit(1)
   }
   const { cfg, vocab, params } = model

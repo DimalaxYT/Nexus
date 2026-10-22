@@ -3,8 +3,9 @@
 // tout de suite, sans attendre un entraînement. Comme pour le modèle de code
 // (`public/models/nexus-code-v1.*`), le modèle de conversation est entraîné hors
 // ligne puis livré dans le dépôt :
-//   · `nexus-chat-v1.json` — configuration, lexique du garde-fou, métadonnées,
-//   · `nexus-chat-v1.bin`  — poids Float32 little-endian, ordre `paramList()`.
+//   · `nexus-chat-v2.json` — configuration, lexique du garde-fou, métadonnées,
+//   · `nexus-chat-v2.bin`  — poids Float32 little-endian, ordre `paramList()`.
+// (v1, 178 k paramètres, reste livré pour comparaison : `--model nexus-chat-v1`.)
 // Ce module les lit depuis le disque et les transforme en `LoadedModel`.
 //
 // Priorité : un modèle entraîné en base (dashboard Dev) l'emporte toujours sur
@@ -17,7 +18,7 @@ import { deserializeWeights, type LmConfig, type LmParams, type Vocab } from './
 import { CHAT_FORMAT } from './model'
 
 export const SEED_DIR = join(process.cwd(), 'public', 'models')
-export const CHAT_SEED = 'nexus-chat-v1'
+export const CHAT_SEED = 'nexus-chat-v2'
 
 export interface SeedMeta {
   name: string
@@ -113,7 +114,10 @@ export function loadSeedModel(name = CHAT_SEED): SeedModel | null {
 
 /** Le point de contrôle embarqué est-il un modèle de conversation utilisable ? */
 export function seedIsChatModel(model: SeedModel | null): boolean {
-  return Boolean(model && model.cfg.format === CHAT_FORMAT && model.cfg.tokenizer === 'bpe')
+  // v1 était BPE, v2 est en caractères : les deux formats `chat-v1` sont
+  // valides. L'ancienne condition exigeait `bpe` et rejetait donc silencieusement
+  // le modèle livré — corrigé ici.
+  return Boolean(model && model.cfg.format === CHAT_FORMAT)
 }
 
 /**

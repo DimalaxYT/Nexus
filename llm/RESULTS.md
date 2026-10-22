@@ -84,3 +84,65 @@ python tests/test_autograd.py && python tests/test_tokenizer.py && python tests/
 python -m nexus_llm.generate --prompt "Bonjour, je suis" --seed 7   # utilise le checkpoint livré
 python -m nexus_llm.serve --port 8765                               # puis GET /api/llm côté Nexus
 ```
+
+## Modèle de conversation v2 — mesures réelles (2026-10-22)
+
+Modèle livré : `public/models/nexus-chat-v2.{bin,json}` — **899 968 paramètres**,
+dim 128, 4 couches, 8 têtes, contexte 704, vocabulaire caractère 145
+(lexique 2 345 mots), entraîné par `llm/train_nexus_chat.py` (NumPy, 2 CPU).
+
+| Étape | Donnée | Résultat |
+|---|---|---|
+| Corpus | `scripts/export-chat-corpus.ts` | 854 exemples / 241 641 caractères · 785 train / 69 validation |
+| Pré-entraînement | prose française, 364 473 caractères | 600 pas, perte 2,51 |
+| Affinage conversation | blocs de 704, lot 2 | 2 400 pas, perte 2,30 → 1,81 (train) |
+| Validation (NLL forcée) | 69 exemples tenus à l'écart | 4,29 → **2,5055** au pas 600, puis 2,61 (surapprentissage) |
+
+Le meilleur point de contrôle (NLL 2,5055) est restauré avant l'export ; durée
+totale mesurée : **3 312 s** (55 min) pour 3 000 pas.
+
+> Note de reproductibilité : le corpus a été ré-exporté juste après le lancement
+> de l'entraînement avec une découpe sur les mots (lignes `H:`/`Q:`), d'où 241 824
+> caractères contre 241 641 utilisés par le run. Les réponses (`R:`) sont
+> identiques ; l'écart de 183 caractères ne porte que sur les invites.
+
+### Comparaison honnête v1 / v2 (`scripts/eval-chat.ts`, 12 exemples de validation)
+
+| Mesure | v1 (178 k, ctx 352) | v2 (900 k, ctx 704) |
+|---|---|---|
+| NLL forcée de la réponse | 2,426 | **2,407** |
+| caractères dans le top-3 | 53 % | **54 %** |
+| réponses acceptées par les garde-fous | 0/12 | 0/12 |
+| F1 de mots avec l'attendu | 0,08 | 0,06 |
+| latence par réponse (2 CPU) | 144 ms | 463 ms |
+
+`scripts/calibrate-chat.ts --seed --model nexus-chat-v2` : **0/16 acceptées**
+(NLL médiane 1,86 des refusées, couverture lexicale maximale 0,25, NLL de
+référence à froid 2,22). Conclusion mesurée : v2 modélise mieux le français
+mais n'apprend pas la copie du contexte à cette échelle. Un essai contrôlé de
+copie pure (230 passages, 1 500 pas, dim 64) plafonne à **47 % de top-3** —
+c'est un budget de calcul, pas un réglage.
+
+### Ce qui a réellement progressé : le retrieval
+
+| Mesure (`scripts/`) | Avant | Après |
+|---|---|---|
+| `check-dialogue.ts` — question canonique, top-1 | 63 % (117/186) | **99 % (185/186)** |
+| `check-dialogue.ts` — mots-clés, top-1 | — | **100 % (186/186)** |
+| `check-retrieval.ts` — question, top-1 | 91 % (31/34) | **97 % (33/34)** |
+| `check-retrieval.ts` — mots-clés, top-1 | — | **100 % (34/34)** |
+
+Correctifs : pondération IDF des mots-clés de dialogue (un mot rare pèse plus
+qu'un mot-outil), exclusion des entrées de relance hors historique, et filtre
+de bruit de requête appliqué sur les RADICAUX (« fonctionne » → « fonctionn »)
+— il ne retirait presque rien auparavant. Poids du titre dans le classement
+des passages ajustés (0,60/0,25 → 0,55/0,35), mesurés sur les 34 entrées.
+
+### Vérification de bout en bout (`scripts/check-chat-e2e.mjs`, serveur de dev réel)
+
+Six tours envoyés à `POST /api/agent` (compte `dev`) sous le modèle v2 livré :
+salutation, identité, capacités, humeur, relance, remerciement. Les six
+réponses servies sont les bonnes entrées de la banque de dialogue (provenance
+« savoir local retrouvé » : la génération n'a pas passé les garde-fous).
+Latence : **1,85 s au pire** pour le premier tour (le temps que le disjoncteur
+s'ouvre après quatre refus), puis **29–76 ms** par tour — le retrieval seul.

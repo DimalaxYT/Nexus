@@ -480,66 +480,98 @@ scripts/           → Scripts utilitaires
 | Retrieval | `grounding.ts`, `dialogue.ts` | le contenu retrouvé (connaissances, mémoire, banque de dialogue) est injecté dans le prompt |
 | Poids | `seed.ts`, `public/models/` | export binaire Float32 + méta JSON, chargés au démarrage |
 
-**Modèle livré** : 178 496 paramètres — dim 64, 3 couches, 4 têtes, contexte 352, vocabulaire
-caractère 104. Corpus d'entraînement : 398 exemples / 84 112 caractères, au format `chat-v1` :
+**Modèle livré (v2)** : **899 968 paramètres** — dim 128, 4 couches, 8 têtes, contexte 704,
+vocabulaire caractère 145 (lexique de 2 345 mots). Corpus d'entraînement : **854 exemples /
+241 641 caractères**, au format `chat-v1` :
 
 ```
-H: <dernier échange, 34 car. max>      ← facultatif
-Q: <message de l'utilisateur, 60>
-C: <contenu retrouvé, 90 car. max>     ← ce dont la réponse doit parler
-R: <réponse, 130>
+H: <dernier échange, 90 car. max>      ← facultatif
+Q: <message de l'utilisateur, 110>
+C: <contenu retrouvé, 260 car. max>    ← ce dont la réponse doit parler
+R: <réponse, 220>
 ```
 
 Le contenu retrouvé est placé **juste avant** la réponse : la tâche du modèle est
-une copie à courte portée. Avec `C:` en tête de bloc (~100 caractères plus loin),
-il fallait une tête d'induction que 178 k paramètres n'ont pas acquise en 400 pas
-— mesuré : NLL forcée figée à 2,6 nats/caractère, 52-59 % des caractères dans le
-top-3, décodage glouton « de de le e de » (le rythme du français, pas son contenu),
-alors que le même modèle sur-apprend une fenêtre figée à 0,578 en 80 pas.
+une copie à courte portée. Le contexte a doublé (352 → 704) et les budgets avec
+lui : à 352, une vraie question était coupée à 60 caractères et un passage à 90.
 
-Le modèle apprend donc une tâche précise : **lire le contenu retrouvé et rédiger la réponse**, pas
-inventer des faits. C'est ce qui rend un modèle de cette taille honnête et utile.
+**Entraînement v2** (Python/NumPy, `llm/train_nexus_chat.py`, 2 CPU) : 600 pas de
+pré-entraînement sur 364 473 caractères de prose française, puis 2 400 pas de
+conversation (lot 2, AdamW, warmup + cosinus, dropout 0,05) — **3 000 pas,
+4,2 M de caractères vus, 55 minutes**. La validation (69 exemples tenus à
+l'écart, NLL forcée sur les caractères de la réponse) descend de 4,29 à
+**2,51** puis remonte (2,61 à la fin) : le modèle surapprend après ~600 pas,
+et le meilleur point de contrôle est restauré avant l'export.
 
-À l'entraînement, les exemples sont emballés dans des blocs de longueur exactement `ctx` sans jamais
-en couper un (`packChatBlocks`) : une fenêtre tirée au hasard dans le flux concaténé amputerait la
-ligne `C:` ou la fin de `R:`. Le bourrage restant est du saut de ligne, trivial à prédire, donc la
-perte affichée est **dilutionnée** (un bloc rempli à 76 % affiche ~0,35 nat de moins que la réalité) :
-le chiffre honnête est la NLL de validation mesurée sur des exemples complets, que
-`scripts/train-chat.ts` journalise à chaque point de contrôle.
+**Évaluation honnête** (`scripts/eval-chat.ts`, mêmes 12 exemples de validation
+pour les deux modèles) :
 
-**Mesures** (2 CPU, `scripts/` reproductibles) : cache KV identique au forward naïf à 2,4×10⁻⁷ près
-et 38× plus rapide (40 tokens en 21 ms contre 800 ms) ; échantillonnage 2,5 ms/token ; une réponse
-de chat arrive en ~400 ms, tokens diffusés en SSE.
+| | v1 (178 k, ctx 352) | v2 (900 k, ctx 704) |
+|---|---|---|
+| NLL forcée de la réponse | 2,426 | **2,407** |
+| caractères dans le top-3 | 53 % | **54 %** |
+| réponses acceptées par les garde-fous | 0/12 | 0/12 |
+| F1 de mots avec l'attendu | 0,08 | 0,06 |
+| latence par réponse (2 CPU) | 144 ms | 463 ms |
+
+Autrement dit : **v2 modélise mieux le français (+4 % de top-3, NLL plus basse)
+mais n'apprend toujours pas à recopier le contexte** — 900 k paramètres et
+3 000 pas restent très loin de ce qu'exige une tête d'induction sur des
+séquences de 700 caractères. Un essai contrôlé de tâche de copie pure (230
+passages, 1 500 pas) plafonne à 47 % de top-3 : ce n'est pas un réglage, c'est
+un budget de calcul. Les garde-fous refusent donc les générations et servent le
+contenu retrouvé, exactement comme avant — mais le contenu retrouvé est
+désormais **beaucoup mieux choisi** (voir ci-dessous).
+
+**Le retrieval, lui, a réellement progressé** (`scripts/check-dialogue.ts`,
+`scripts/check-retrieval.ts`) :
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Banque de dialogue — question canonique → bonne réponse (top-1) | 63 % (117/186) | **99 % (185/186)** |
+| Banque de dialogue — mots-clés seuls (top-1) | — | **100 % (186/186)** |
+| Banque de connaissances — question → bonne entrée (top-1) | 91 % (31/34) | **97 % (33/34)** |
+| Banque de connaissances — mots-clés seuls (top-1) | — | **100 % (34/34)** |
+
+Cinq causes corrigées, toutes mesurées : les mots-outils comptaient autant que
+les mots rares (pondération IDF, puis poids 0,2 pour les mots vides), une entrée
+de relance (« Pourquoi ? ») pouvait gagner sans historique, le filtre de bruit
+comparait des mots bruts à des radicaux (« fonctionne » vs « fonctionn »),
+les traits d'union créaient des pseudo-mots (« sais-tu » ≠ « sais faire »), et
+un mot ajouté cassait la question canonique (« Qui es-tu exactement ? » tombait
+sur une note interne) — d'où un bonus quand la question de l'entrée est
+contenue telle quelle dans le message. Une relance retrouvée passe en plus
+avant un passage isolé : « et pourquoi tu dis ça ? » ne répond plus
+« Pourquoi TypeScript ? ».
+
+Vérifié de bout en bout sur le serveur de développement (`check-chat-e2e.mjs`) :
+les six tours types — salutation, identité, capacités, humeur, relance,
+remerciement — donnent la bonne réponse ; 1,85 s au pire pour le premier tour,
+puis 29–76 ms une fois le disjoncteur de génération ouvert.
 
 **Garde-fous** (`verdictOn` dans `dialogue.ts`) : une génération n'est servie que si elle passe des
 seuils **mesurés** sur le savoir local (≥ 3 mots de contenu, couverture lexicale ≥ 0,55, ancrage
 ≥ 0,42, ≥ 16 caractères et 4 mots, NLL ≤ 3,5 nats/caractère, unicité ≥ 0,5). Sinon NEXUS répond avec
 le contenu retrouvé et **le dit** dans le fil de pensée — jamais de charabia présenté comme une
-réponse, jamais de silence trompeur. Sans contenu retrouvé, le modèle ne génère pas du tout.
+réponse, jamais de silence trompeur. Sans contenu retrouvé, le modèle ne génère pas du tout. Après
+quatre refus d'affilée, un disjoncteur sert directement le texte retrouvé et ne retente le modèle
+qu'un message sur douze : la latence reste celle du retrieval.
 
-**Reproduire l'entraînement** :
+**Reproduire l'entraînement v2** :
 
 ```bash
-node --import tsx scripts/train-chat.ts --steps 680 --batch 6   # entraîne + exporte les poids
-node --import tsx scripts/check-chat-model.ts                    # ce que le modèle a vraiment appris
-node --import tsx scripts/calibrate-chat.ts                      # mesure des garde-fous
-node --import tsx scripts/check-kv.ts && node --import tsx scripts/check-bpe.ts   # non-régression
-node scripts/check-chat-e2e.mjs                                  # latence réelle du chat (serveur lancé)
+node --import tsx scripts/export-chat-corpus.ts          # 854 exemples / 241 641 caractères
+llm/.venv/bin/python llm/train_nexus_chat.py \
+  --pretrain-steps 600 --steps 2400 --batch 2 --eval-every 300 \
+  --out public/models/nexus-chat-v2                       # ~55 min sur 2 CPU
+node --import tsx scripts/eval-chat.ts --models nexus-chat-v1,nexus-chat-v2
+node --import tsx scripts/check-chat-model.ts --seed --model nexus-chat-v2
+node --import tsx scripts/calibrate-chat.ts --seed --model nexus-chat-v2
+node --import tsx scripts/check-dialogue.ts && node --import tsx scripts/check-retrieval.ts
+node scripts/check-chat-e2e.mjs                            # latence réelle du chat (serveur lancé)
 ```
 
-**Deux façons d'entraîner**, selon qui s'en occupe :
-
-| | Où | Impact sur le chat |
-|---|---|---|
-| **Hors ligne** (recommandé) | `scripts/train-chat.ts`, process dédié | aucun : pleine vitesse, le serveur n'est pas concerné |
-| **En arrière-plan** (agent Dev) | espace Dev → Entraîneur → « Modèle de langue », ou `NEXUS_AUTO_TRAIN=1` | atténué : le pas d'entraînement partage la boucle d'événements (rapport cyclique 1), une réponse passe de ~0,4 s à quelques secondes pendant le run |
-
-Désactivé par défaut, parce que la fonction première du site est de parler avec
-l'IA : un pas d'entraînement coûte plusieurs secondes de calcul synchrone. Le
-rapport cyclique (`dutyCycle` dans `trainSteps`) borne la dégradation au lieu de
-la supprimer — mesuré sans lui : 71 s pour diffuser 20 morceaux d'une réponse.
-
-> Lecture honnête : un modèle de 178 k paramètres entraîné quelques heures sur 2 CPU n'est pas un
+> Lecture honnête : un modèle de 900 k paramètres entraîné une heure sur 2 CPU n'est pas un
 > concurrent de ChatGPT — `llm/RESULTS.md` documente les mêmes limites pour le prototype NumPy à
 > 5,3 M de paramètres. L'intérêt ici est ailleurs : **tout est lisible, local et mesurable**, et
 > l'architecture retrieval + garde-fous fait que la réponse servie est toujours du vrai français
