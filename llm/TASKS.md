@@ -136,3 +136,30 @@ Prochaine marche : **la voix du modèle**. Tant que 0/12 générations passent l
 garde-fous, la personnalité restera plaquée sur le savoir retrouvé. Deux leviers
 chiffrés : budget de calcul (une tête d'induction sur 700 caractères demande
 bien plus de 3 000 pas) ou génération par segments avec recopie guidée.
+
+## Passe 6 — la génération réelle (2026-10-22, nuit)
+
+Objectif : répondre à « j'ai l'impression qu'il ne génère pas ses réponses, que
+c'est du programmé » par des mesures, puis faire rédiger le modèle lui-même.
+Aucune promesse en l'air : le modèle n'est **pas** promu, mais le pipeline qui
+l'empêchait d'apprendre est réparé.
+
+| # | Tâche | État |
+|---|-------|------|
+| 1 | Harnais `check-chat-generation.ts` : générées / repli / sans savoir, provenance par source, recopie en 5-grammes | ✅ 0/20 · 20/20 · recopie 0 % |
+| 2 | Mode `--free` (aucun contexte à recopier) : preuve directe de rédaction | ✅ 20 questions |
+| 3 | Supprimer le raccourci « savoir exact » (score ≥ 0,9 → texte servi sans modèle) | ✅ `exactServe` désactivé par défaut |
+| 4 | Disjoncteur à fenêtre glissante (10 tentatives, sonde 1/2) au lieu du verrou définitif | ✅ `chatGateStatus()` |
+| 5 | **Bug** : perte calculée sur le remplissage `EOS` (80 % des positions) | ✅ masque dans `cross_entropy` |
+| 6 | **Bug** : `validation_nll` comparait caractères et tokens BPE → mauvais checkpoint | ✅ `encode_fn(prompt)` |
+| 7 | **Bug de corpus** : 716/726 exemples ancrés avaient `C == R` (recopie) | ✅ mode `--context-mode generate` |
+| 8 | `chat_corpus_v3.json` : C = réponse d'une autre entrée du même thème, documentation en forme libre | ✅ 820 ex. · 605 avec C · 4 `C == R` |
+| 9 | Réentraînement BPE ctx 256 (1,09 M paramètres) | ✅ v4 · perte 0,36 · val NLL 2,939 |
+| 10 | Mesure honnête du modèle v4 aux garde-fous | ⚠️ 0/16 acceptées : ancrage 0,00–0,22 < 0,42 |
+| 11 | Promotion de v4 comme modèle livré (meilleur que v2 partout : lexique 0,46–1,00 vs 0,00–0,23) | ✅ `CHAT_SEED` |
+| 12 | Docs, harnais verts, arbre propre | ✅ |
+
+**Décision** : le modèle rédige désormais hors contexte (« Rater fait partie du
+processus. Dis-moi ce que tu visais et ce qui s'est passé… ») mais casse encore
+la morphologie. Les garde-fous continuent de servir le savoir retrouvé, et le
+disent. Prochain budget : corpus ×10 avant modèle ×4.

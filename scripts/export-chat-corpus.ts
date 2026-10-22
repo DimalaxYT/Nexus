@@ -37,10 +37,13 @@ function hashText(s: string): number {
 async function main() {
   const out = arg('out', join('llm', 'data', 'chat_corpus_v2.json'))
   const withDb = process.argv.includes('--with-db')
+  // « copy » = corpus v2 (C = la réponse, le modèle apprend à recopier) ;
+  // « generate » = corpus v3 (C = une AUTRE réponse du même thème).
+  const mode = arg('context-mode', 'generate') as 'copy' | 'generate'
   const pretrainPath = join('llm', 'data', 'chat_pretrain_v2.txt')
   const pretrain = readFileSync(pretrainPath, 'utf8')
 
-  const corpus = await buildChatCorpus({ includeDb: withDb })
+  const corpus = await buildChatCorpus({ includeDb: withDb, contextMode: mode })
   const vocab = buildVocab(corpus.text + '\n' + pretrain)
   const lexicon = buildLexicon(corpus.text)
 
@@ -76,6 +79,7 @@ async function main() {
     examples: corpus.examples,
     train,
     val,
+    contextMode: mode,
     sources: corpus.sources,
     corpusChars: corpus.chars,
     pretrain: { path: pretrainPath, chars: pretrain.length },

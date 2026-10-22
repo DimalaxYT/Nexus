@@ -144,9 +144,10 @@ lent que sur un poste de développement, et pendant un calcul synchrone le serve
   vectoriseur ou les hyperparamètres changent, l'empreinte ne correspond plus : le serveur réentraîne
   alors **en arrière-plan, par tranches** (il continue de répondre) et garde le résultat en cache dans le
   dossier temporaire. L'entraînement lui-même est 4× plus rapide, à poids identiques au bit près.
-- **Chat** — quand les rédactions du modèle de langue échouent 4 fois de suite aux garde-fous de qualité,
-  NEXUS répond directement avec le savoir local retrouvé, sans payer une génération qui serait jetée ; le
-  modèle est retenté tous les 12 messages et dès qu'il est réentraîné (le fil de pensée l'indique).
+- **Chat** — les rédactions du modèle sont évaluées sur une fenêtre glissante de 10 tentatives : sous 25 %
+  d'acceptation, NEXUS répond directement avec le savoir local retrouvé sans payer une génération qui
+  serait jetée, et **retente une fois sur deux** (jamais de verrou définitif : dès que le modèle réentraîné
+  progresse, il reprend la main — le fil de pensée l'indique).
 - **Interface** — panneaux et vues chargés à la demande puis préchargés quand le navigateur est au repos
   (sans le palier de 300 ms de `Suspense`), coloration syntaxique allégée chargée au premier bloc de
   code, messages mémoïsés, sauvegarde locale regroupée (au plus une fois par seconde), historique
@@ -517,7 +518,20 @@ pour les deux modèles) :
 Autrement dit : **v2 modélise mieux le français (+4 % de top-3, NLL plus basse)
 mais n'apprend toujours pas à recopier le contexte** — 900 k paramètres et
 3 000 pas restent très loin de ce qu'exige une tête d'induction sur des
-séquences de 700 caractères. Un essai contrôlé de tâche de copie pure (230
+séquences de 700 caractères.
+
+**Round 24 — trois bugs d'entraînement trouvés et corrigés.** La perte était
+moyennée sur le **remplissage** (80 % des positions d'un bloc), la validation
+comparait des **caractères** à des **tokens** BPE (d'où un « meilleur
+checkpoint » sous-entraîné), et le corpus apprenait la **recopie** (`C == R`
+dans 716 des 726 exemples ancrés). Avec un masque de perte, un découpage
+correct et un corpus où le contexte est *une autre réponse du même thème*
+(`llm/data/chat_corpus_v3.json`), le modèle **v4** (BPE, ctx 256, 1,09 M
+paramètres) rédige hors contexte : « Rater fait partie du processus. Dis-moi ce
+que tu visais et ce qui s'est passé… ». Il reste refusé par les garde-fous
+(ancrage 0,00–0,22 < 0,42) et le chat continue de servir le savoir local — mais
+la couverture lexicale passe de 0,00–0,23 à **0,46–1,00** et la NLL de
+1,79–1,93 à **0,45–1,81**. Détail complet : `llm/RESULTS.md`, section Round 24. Un essai contrôlé de tâche de copie pure (230
 passages, 1 500 pas) plafonne à 47 % de top-3 : ce n'est pas un réglage, c'est
 un budget de calcul. Les garde-fous refusent donc les générations et servent le
 contenu retrouvé, exactement comme avant — mais le contenu retrouvé est
@@ -632,20 +646,24 @@ seuils **mesurés** sur le savoir local (≥ 3 mots de contenu, couverture lexic
 ≥ 0,42, ≥ 16 caractères et 4 mots, NLL ≤ 3,5 nats/caractère, unicité ≥ 0,5). Sinon NEXUS répond avec
 le contenu retrouvé et **le dit** dans le fil de pensée — jamais de charabia présenté comme une
 réponse, jamais de silence trompeur. Sans contenu retrouvé, le modèle ne génère pas du tout. Après
-deux refus d'affilée (0/12 et 0/16 en évaluation), un disjoncteur sert directement le texte retrouvé
-et ne retente le modèle qu'un message sur douze ; quand le retrieval est quasi certain (score ≥ 0,9),
-la réponse est servie sans même générer : la latence reste celle du retrieval.
+une fenêtre glissante de 10 tentatives (seuil 25 %), un disjoncteur sert directement le texte retrouvé
+et ne retente le modèle qu'une fois sur deux. Le raccourci « savoir exact » (servir sans générer dès que
+le retrieval dépasse 0,9) existe encore (`exactServe`) mais **n'est plus actif par défaut** : il
+court-circuitait la rédaction sur la majorité des questions (mesure du round 24).
 
-**Reproduire l'entraînement v2** :
+**Reproduire l'entraînement v4** (modèle livré) :
 
 ```bash
-node --import tsx scripts/export-chat-corpus.ts          # 854 exemples / 241 641 caractères
+node --import tsx scripts/export-chat-corpus.ts \
+  --out llm/data/chat_corpus_v3.json --context-mode generate   # 820 ex. · 605 avec C · 4 C == R
 llm/.venv/bin/python llm/train_nexus_chat.py \
-  --pretrain-steps 600 --steps 2400 --batch 2 --eval-every 300 \
-  --out public/models/nexus-chat-v2                       # ~55 min sur 2 CPU
-node --import tsx scripts/eval-chat.ts --models nexus-chat-v1,nexus-chat-v2
-node --import tsx scripts/check-chat-model.ts --seed --model nexus-chat-v2
-node --import tsx scripts/calibrate-chat.ts --seed --model nexus-chat-v2
+  --tokenizer bpe --ctx 256 --corpus llm/data/chat_corpus_v3.json \
+  --pretrain llm/data/chat_pretrain_v2.txt \
+  --pretrain-steps 1000 --steps 5000 --batch 2 --eval-every 250 \
+  --out public/models/nexus-chat-v4 --ckpt llm/checkpoints/nexus-chat-v4.npz   # ~40 min sur 2 CPU
+node --import tsx scripts/check-chat-generation.ts          # 0/20 + provenance par source
+node --import tsx scripts/check-chat-generation.ts --free   # rédaction sans contexte
+node --import tsx scripts/calibrate-chat.ts --seed          # mesures des garde-fous
 node --import tsx scripts/check-dialogue.ts && node --import tsx scripts/check-retrieval.ts
 node scripts/check-chat-e2e.mjs                            # latence réelle du chat (serveur lancé)
 ```

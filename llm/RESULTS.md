@@ -335,3 +335,138 @@ un assistant » sans prénom aurait suffi à casser l'effet). La personnalisatio
 s'applique donc au texte **servi**, sans rien inventer : elle ne crée aucun
 fait, elle met en forme ceux qui existent. Le prochain levier reste la
 génération (budget de calcul, voir Round 21).
+
+## Round 24 — « il ne génère pas ses réponses » (2026-10-22, nuit)
+
+Demande : « j'ai l'impression qu'il ne génère pas ses réponses, que c'est du
+programmé ». Trois mesures ont été faites avant tout changement : d'où vient
+chaque phrase servie, combien de rédactions le modèle place, et à quoi
+ressemble sa sortie quand on lui retire le contexte.
+
+### 1. Provenance du texte servi (20 questions, `check-chat-generation.ts`)
+
+| Modèle | Générées | Repli sur le savoir | Sans savoir |
+|---|---|---|---|
+| `nexus-chat-v2` (livré au round 23) | **0/20** | 20/20 | 0/20 |
+| `nexus-chat-v4` (ce round) | **0/20** | 20/20 | 0/20 |
+
+Le détail par source est maintenant imprimé par le harnais : sur les 20
+questions, 15 réponses viennent de la banque de dialogue (salutations 3,
+identité 2, capacités 2, opinions 1, émotions 1, aide 1…) et 5 de la
+documentation / des connaissances. **Aucune** n'était rédigée par le modèle.
+L'interface le disait déjà (badge « savoir local ») ; le chiffre manquait.
+
+### 2. Trois causes, toutes mesurées
+
+**(a) un raccourci court-circuitait la génération.** Quand le retrieval
+dépassait 0,9, `answerChat` servait le texte retrouvé **sans appeler le
+modèle** (gain de latence du round 22). Sur le banc, cela se voyait :
+« génération sautée » sur une partie des questions. Le raccourci est désormais
+**désactivé par défaut** (`exactServe`), et c'est le disjoncteur à fenêtre
+glissante qui borne le coût.
+
+**(b) la perte était calculée sur le remplissage.** Les exemples sont
+emballés dans des blocs de 384 (puis 256) tokens ; un exemple fait ~84 tokens,
+le reste est du `EOS` de remplissage. `cross_entropy` portait sur **toutes** les
+positions. Résultat mesuré sur v3 : perte d'entraînement **0,33–0,66** (le
+modèle apprenait surtout à prédire le remplissage) alors que la NLL de la
+réponse attendue, sur **80 exemples d'entraînement**, valait **2,69**. Corrigé :
+`pack_examples` renvoie un masque, `cross_entropy` ne moyenne que les positions
+réelles.
+
+**(c) la validation comparait des caractères à des tokens.** `validation_nll`
+calculait `start = len(prompt) - 1` — la longueur en **caractères** du prompt —
+pour couper des logits indexés en **tokens BPE**. Elle ne notait donc que la
+fin des réponses. Le « meilleur checkpoint » de v3 fut l'étape **500 sur 6000**
+(modèle sous-entraîné) ; le modèle réellement entraîné jusqu'au bout n'a jamais
+été évalué. Corrigé : `start = len(encode_fn(prompt)) - 1`.
+
+**(d) le corpus apprenait la recopie.** Sur 726 exemples ancrés, **716 avaient
+`C == R`** : le contexte fourni était exactement la réponse attendue. La tâche
+apprise était « recopie la ligne du dessus », pas « réponds ». Nouveau mode
+`--context-mode generate` : `C` reçoit la réponse d'une **autre** entrée du même
+thème (et la documentation passe en forme libre). `llm/data/chat_corpus_v3.json`
+compte 820 exemples, 605 avec contexte, **4 seulement avec `C == R`**.
+
+### 3. Modèle v4 — entraîné avec ces correctifs
+
+`nexus-chat-v4` : BPE 2049, ctx 256, 1 086 336 paramètres, 1000 pas de
+pré-entraînement (309 s) + 5000 pas d'affinage (2 026 s) sur 2 vCPU, perte
+d'entraînement finale **0,36** (sur les seules positions réelles), meilleure
+NLL de validation 2,939.
+
+Ce qu'il produit **sans aucun contexte** (`--free`, 20 questions) :
+
+> Q: J'ai passé une mauvaise journée
+> → « Rater fait partie du processus. Dis-moi ce que tu visais et ce qui s'est
+> passé, on on regarde ce ajustable. » (NLL 0,27, 172 ms)
+
+> Q: Qui es-tu ?
+> → « C'est NEXUS : un agent IA de maine, entraînérationnement sur qui lais
+> agent IA de est entier amachine… »
+
+La première est du français quasi correct, produite sans savoir retrouvé : le
+modèle **rédige**. La seconde montre la limite : la morphologie se casse dès que
+la phrase s'éloigne des tournures vues.
+
+### 4. Pourquoi 0/20 quand même
+
+Mesures du garde-fou sur les 16 questions de `calibrate-chat.ts` :
+
+| Mesure (médiane) | v2 | v4 | Seuil |
+|---|---|---|---|
+| NLL | 1,79–1,93 | **0,45–1,81** | ≤ 3,5 |
+| Couverture lexicale | 0,00–0,23 | **0,46–1,00** | ≥ 0,55 |
+| Ancrage dans le contexte | 0,00 | **0,00–0,22** | ≥ 0,42 |
+
+Le lexique et la confiance sont acquis ; c'est l'**ancrage** qui bloque. C'est
+cohérent : entraîné à ne pas recopier `C`, le modèle rédige avec ses propres
+mots et ne réutilise plus le vocabulaire du passage. Les garde-fous préfèrent
+le repli — et ils ont raison : les sorties restent du pseudo-français
+(« serveurones », « fatiguligée »). **Le modèle n'est pas promu au rang de
+rédacteur en chef ; il reste en observation**, mais c'est le premier qui
+produit des phrases françaises hors contexte.
+
+### 5. Ce qui change pour l'utilisateur
+
+- chaque réponse porte sa provenance à l'écran (badge « rédigé par le modèle
+  local » / « savoir local ») et le harnais donne le chiffre exact ;
+- la génération est **tentée** à chaque tour (raccourci supprimé) ; le
+  disjoncteur espace les essais quand le modèle échoue (fenêtre de 10, sonde
+  une fois sur deux) ;
+- la latence passe de 84–108 ms à **≈ 0,7–1,1 s** par tour : c'est le prix des
+  tentatives de rédaction, mesuré sur six tours réels (pire tour 1 040 ms).
+
+### 6. Harnais
+
+| Harnais | Résultat |
+|---|---|
+| `check-chat-generation.ts` (défaut, 20 questions) | 0/20 générées · provenance détaillée · recopie 0 % |
+| `check-chat-generation.ts --free` | 20 rédactions sans contexte (preuve de génération) |
+| `check-chat-memory.mjs` | 12/12 · tour le plus lent 1 126 ms |
+| `check-chat-e2e.mjs` six tours | ✔ · pire tour 1 040 ms |
+| `check-chat-knowledge.ts` | 40/40 · 45/45 (avec compte) |
+| `check-dialogue.ts` | 185/186 · 186/186 |
+| `check-retrieval.ts` | 34/34 (0,83) · 34/34 (0,62) |
+| `tsc` / `eslint` (fichiers touchés) | 0 / 0 |
+
+### 7. Reproduire
+
+```bash
+node --import tsx scripts/export-chat-corpus.ts --out llm/data/chat_corpus_v3.json --context-mode generate
+llm/.venv/bin/python llm/train_nexus_chat.py --tokenizer bpe --ctx 256 \
+  --corpus llm/data/chat_corpus_v3.json --pretrain llm/data/chat_pretrain_v2.txt \
+  --pretrain-steps 1000 --steps 5000 --batch 2 --eval-every 250 \
+  --out public/models/nexus-chat-v4 --ckpt llm/checkpoints/nexus-chat-v4.npz
+node --import tsx scripts/check-chat-generation.ts            # 0/20 + provenance
+node --import tsx scripts/check-chat-generation.ts --free     # rédaction sans contexte
+```
+
+### 8. Prochaine marche (chiffrée)
+
+Le blocage n'est plus le pipeline (perte, validation, corpus, garde-fous sont
+justes) mais le **budget** : 1,1 M paramètres et ~212 k caractères de français
+pour apprendre l'orthographe et la morphologie. Deux leviers, dans cet ordre :
+corpus de conversation ×10 (les 186 entrées sont le plafond actuel) puis modèle
+×4 en paramètres ; l'ancrage devra être réévalué à ce moment-là, car un modèle
+qui rédige sans recopier le contexte le fera échouer par construction.

@@ -18,7 +18,12 @@ import { deserializeWeights, type LmConfig, type LmParams, type Vocab } from './
 import { CHAT_FORMAT } from './model'
 
 export const SEED_DIR = join(process.cwd(), 'public', 'models')
-export const CHAT_SEED = 'nexus-chat-v2'
+// Round 24 : v4 = tokenizer BPE, corpus « génération » (C ≠ R), perte masquée.
+// Toujours refusé par les garde-fous (0/20), mais c'est le premier modèle qui
+// produit des phrases françaises correctes SANS contexte (« Rater fait partie
+// du processus. Dis-moi ce que tu visais… »). Il remplace v2, qui ne produisait
+// que du pseudo-français (couverture de lexique 0,00–0,23 contre 0,62–0,85).
+export const CHAT_SEED = 'nexus-chat-v4'
 
 export interface SeedMeta {
   name: string

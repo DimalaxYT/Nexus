@@ -172,6 +172,34 @@ function StepsTimeline({ steps }: { steps: AgentStep[] }) {
   )
 }
 
+/**
+ * D'où vient la réponse AFFICHÉE ? Le cerveau l'annonce déjà dans sa réflexion
+ * (« rédigée par le modèle de langue local » / « reprise du savoir local »).
+ * Ce badge le rend visible sans déplier la réflexion : impossible de confondre
+ * une phrase écrite par le transformeur et un passage retrouvé.
+ */
+function AnswerOrigin({ thought }: { thought: string }) {
+  const t = String(thought ?? '')
+  if (!t) return null
+  const generated = /rédigée par le modèle|modèle de langue local —/i.test(t)
+  const served = /reprise (?:directement )?du savoir local|reprise de la banque/i.test(t)
+  if (!generated && !served) return null
+  return (
+    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+      <span
+        className={
+          generated
+            ? 'rounded-full bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-300'
+            : 'rounded-full bg-muted px-2 py-0.5 font-medium'
+        }
+      >
+        {generated ? 'rédigé par le modèle local' : 'savoir local'}
+      </span>
+      {generated ? 'texte produit caractère par caractère par le transformeur' : 'passage retrouvé dans la base, pas de génération'}
+    </p>
+  )
+}
+
 function ThinkingMenu({ message }: { message: ChatMessage }) {
   const hasContent = message.steps.length > 0 || Boolean(message.thought)
   const speakerName = message.speaker?.name ?? 'NEXUS'
@@ -484,6 +512,7 @@ function MessageBubbleInner({
             <DeliberationPanel entries={message.deliberation} />
           )}
           {message.content.length > 0 && <Markdown content={message.content} />}
+          <AnswerOrigin thought={message.thought} />
           <ArtifactImages images={message.images} onOpenInStudio={onOpenImage} />
           {message.videos.map((v) => (
             <VideoCard key={v.id} video={v} onOpen={onOpenVideo} />

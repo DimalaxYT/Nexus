@@ -275,7 +275,8 @@ def embedding(weight: Tensor, ids: np.ndarray) -> Tensor:
     return out
 
 
-def cross_entropy(logits: Tensor, targets: np.ndarray, smoothing: float = 0.0) -> Tensor:
+def cross_entropy(logits: Tensor, targets: np.ndarray, smoothing: float = 0.0,
+                  mask: np.ndarray | None = None) -> Tensor:
     """Entropie croisée moyenne : logits (N, V), targets (N,) d'indices.
 
     smoothing > 0 : label smoothing — la cible devient (1-ε)·one-hot + ε/V.
@@ -288,18 +289,30 @@ def cross_entropy(logits: Tensor, targets: np.ndarray, smoothing: float = 0.0) -
     p = e / e.sum(axis=-1, keepdims=True)
     n, v = targets.shape[0], logits.data.shape[-1]
     logp = np.log(p + 1e-12)
-    if smoothing > 0.0:
-        loss = float(-((1.0 - smoothing) * logp[np.arange(n), targets]
-                       + smoothing * logp.mean(axis=-1)).mean())
+    # MASQUE : ne compter que les positions réelles. Sans lui, un bloc de
+    # contexte 384 tokens rempli de 84 tokens utiles + 300 de remplissage
+    # consacre 80 % de la perte (et du gradient) à prédire le remplissage :
+    # le modèle « converge » sans jamais apprendre à écrire.
+    if mask is None:
+        sel = np.ones(n, dtype=bool)
     else:
-        loss = float(-logp[np.arange(n), targets].mean())
+        sel = mask.astype(bool)
+        if sel.shape[0] != n:
+            raise ValueError(f"mask de taille {sel.shape[0]} pour {n} positions")
+    kept = max(1, int(sel.sum()))
+    if smoothing > 0.0:
+        loss = float(-((1.0 - smoothing) * logp[np.arange(n), targets][sel]
+                       + smoothing * logp.mean(axis=-1)[sel]).sum() / kept)
+    else:
+        loss = float(-logp[np.arange(n), targets][sel].sum() / kept)
     out = Tensor(np.array(loss, dtype=np.float64), (logits,), True)
 
     def _backward():
         d = p.copy()
         d[np.arange(n), targets] -= (1.0 - smoothing)
         d -= smoothing / v
-        d /= n
+        d *= sel[:, None]
+        d /= kept
         logits._accumulate(d.astype(logits.data.dtype, copy=False))
 
     out._backward = _backward

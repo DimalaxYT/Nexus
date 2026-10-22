@@ -507,26 +507,33 @@ export interface ChatOptions {
    * le laissent à false : elles doivent mesurer le modèle à chaque fois.
    */
   gate?: boolean
+  /**
+   * Raccourci « savoir exact » (retrieval ≥ 0,9 → texte servi sans modèle).
+   * Désactivé par défaut depuis le round 24 : il empêchait le modèle de rédiger
+   * la majorité des réponses. Réservé aux appels qui privilégient la latence.
+   */
+  exactServe?: boolean
 }
 
 // ── Disjoncteur de qualité ───────────────────────────────────────────────────
-// Mesuré sur le modèle livré : 0 rédaction sur 20 passe les garde-fous (comme
-// l'indiquent déjà les évaluations de l'entraîneur, 0/10, et la calibration,
-// 0/16). Chaque tentative coûte pourtant ~110 ms de calcul — plus d'une seconde
-// sur une instance à 0,1 CPU — avant de retomber sur le texte retrouvé. Après
-// GATE_OPEN_AFTER refus d'affilée pour un même modèle, le chat sert donc
-// directement le texte retrouvé (exactement la réponse que le repli aurait
-// donnée) et ne retente le modèle qu'une fois tous les GATE_PROBE_EVERY messages.
-// Une rédaction acceptée referme aussitôt le disjoncteur, et un nouveau modèle
-// (entraînement, nouveaux poids) repart de zéro : il est réévalué normalement.
+// Le modèle est essayé TANT QU'IL PRODUIT : on tient la moyenne de ses dernières
+// tentatives. S'il accepte au moins un quart de ses rédactions, il est tenté à
+// chaque tour (c'est le but : que NEXUS écrive lui-même). S'il enchaîne les
+// refus, les tentatives sont espacées (une sur deux) pour ne pas payer 300 ms
+// de calcul à chaque message — mais elles ne s'arrêtent JAMAIS : un modèle
+// réentraîné (nouveaux poids, nouveaux pas) repart de zéro.
+//
+// Historique : v2 (caractères) acceptait 0/12 et 0/16 ; l'ancien disjoncteur
+// s'ouvrait définitivement après 2 refus, ce qui rendait toute génération
+// invisible. La fenêtre glissante remplace ce verrou.
 
-// Deux traces suffisent : sur v2, 0/12 réponses acceptées en évaluation et
-// 0/16 en calibration. Quatre refus coûtaient quatre tours lents (~1,3 s) à
-// chaque démarrage du serveur (l'état vit en mémoire).
-const GATE_OPEN_AFTER = 2
-const GATE_PROBE_EVERY = 12
+const GATE_WINDOW = 10
+const GATE_MIN_ATTEMPTS = 4
+/** Part de rédactions acceptées en dessous de laquelle on espace les essais. */
+const GATE_ACCEPT_TARGET = 0.25
+const GATE_PROBE_EVERY = 2
 
-const qualityGate = { key: '', rejectStreak: 0, skipped: 0 }
+const qualityGate = { key: '', recent: [] as boolean[], skipped: 0 }
 
 function gateKeyOf(model: LoadedModel): string {
   return `${model.id}:${model.updatedAt}:${model.steps}`
@@ -536,7 +543,7 @@ function gateSync(model: LoadedModel): void {
   const key = gateKeyOf(model)
   if (qualityGate.key !== key) {
     qualityGate.key = key
-    qualityGate.rejectStreak = 0
+    qualityGate.recent = []
     qualityGate.skipped = 0
   }
 }
@@ -544,25 +551,28 @@ function gateSync(model: LoadedModel): void {
 /** Faut-il sauter la génération pour ce message ? (et compte le saut) */
 function gateShouldSkip(model: LoadedModel): boolean {
   gateSync(model)
-  if (qualityGate.rejectStreak < GATE_OPEN_AFTER) return false
+  if (qualityGate.recent.length < GATE_MIN_ATTEMPTS) return false
+  const accepted = qualityGate.recent.filter(Boolean).length
+  if (accepted / qualityGate.recent.length >= GATE_ACCEPT_TARGET) return false
+  // Modèle peu fiable : une tentative toutes les deux réponses suffit à le
+  // réévaluer ; c'est deux fois plus qu'avant (une sur douze).
   qualityGate.skipped++
-  if (qualityGate.skipped % GATE_PROBE_EVERY === 0) return false // tentative de contrôle
-  return true
+  return qualityGate.skipped % GATE_PROBE_EVERY !== 0
 }
 
 function gateRecord(model: LoadedModel, accepted: boolean): void {
   gateSync(model)
-  if (accepted) {
-    qualityGate.rejectStreak = 0
-    qualityGate.skipped = 0
-  } else {
-    qualityGate.rejectStreak++
-  }
+  qualityGate.recent.push(accepted)
+  if (qualityGate.recent.length > GATE_WINDOW) qualityGate.recent.shift()
+  if (accepted) qualityGate.skipped = 0
 }
 
 /** État du disjoncteur (diagnostic). */
-export function chatGateStatus(): { open: boolean; rejectStreak: number; skipped: number } {
-  return { open: qualityGate.rejectStreak >= GATE_OPEN_AFTER, rejectStreak: qualityGate.rejectStreak, skipped: qualityGate.skipped }
+export function chatGateStatus(): { window: number; accepted: number; skipped: number; throttled: boolean } {
+  const window = qualityGate.recent.length
+  const accepted = qualityGate.recent.filter(Boolean).length
+  const throttled = window >= GATE_MIN_ATTEMPTS && accepted / window < GATE_ACCEPT_TARGET
+  return { window, accepted, skipped: qualityGate.skipped, throttled }
 }
 
 /** Nettoie la sortie brute du modèle (marqueurs du format, espaces, casse). */
@@ -722,11 +732,15 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     return { ok: false, reason: 'aucun contenu pertinent retrouvé', generated: false }
   }
 
-  // SAVOIR EXACT : quand le retrieval est presque certain (≥ 0,9) et que le
-  // texte retrouvé est déjà une réponse complète, générer ne peut que la
-  // dégrader — et coûte 1,3 à 2,7 s sur 2 CPU. On sert directement. Mesuré :
-  // un tour de chat bien connu passe de 1 300–2 700 ms à 60–90 ms.
-  const exact = ctx.score >= 0.9 && (ctx.fallback?.length ?? 0) >= 30
+  // SAVOIR EXACT : raccourci historique — quand le retrieval est presque
+  // certain (≥ 0,9), on servait le texte retrouvé sans appeler le modèle
+  // (60–90 ms au lieu de 1 300–2 700 ms). Mesuré au round 24 : ce raccourci
+  // court-circuitait la génération sur la majorité des questions du banc
+  // (« génération sautée »), donc le chat ne pouvait structurellement pas
+  // répondre autre chose que le savoir retrouvé. Il n'est plus actif que sur
+  // demande explicite (`exactServe`) : le modèle est sollicité, et le
+  // disjoncteur à fenêtre glissante limite le coût quand il échoue.
+  const exact = opts.exactServe === true && ctx.score >= 0.9 && (ctx.fallback?.length ?? 0) >= 30
   if (exact && ctx.fallback) {
     // Compté comme un saut (pas comme un échec de génération) : le modèle n'a
     // simplement pas été sollicité, comme lorsque le disjoncteur est ouvert.

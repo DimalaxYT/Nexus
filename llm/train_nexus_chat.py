@@ -44,6 +44,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nexus_llm.autograd import (Tensor, attention, cross_entropy, dropout,  # noqa: E402
                                 embedding, gelu, layernorm, matmul, transpose)
+from nexus_llm.tokenizer import BPETokenizer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -146,10 +147,12 @@ class ChatGPT:
         x = layernorm(x, self.lnfg, self.lnfb)
         return matmul(x, transpose(self.wte, (1, 0)))
 
-    def loss(self, ids: np.ndarray, targets: np.ndarray, training: bool = False, dropout_p: float = 0.0) -> Tensor:
+    def loss(self, ids: np.ndarray, targets: np.ndarray, training: bool = False,
+             dropout_p: float = 0.0, mask: np.ndarray | None = None) -> Tensor:
         logits = self.forward(ids, training=training, dropout_p=dropout_p)
         b, t, v = logits.shape
-        return cross_entropy(logits.reshape(b * t, v), targets.reshape(b * t))
+        flat = None if mask is None else mask.reshape(b * t)
+        return cross_entropy(logits.reshape(b * t, v), targets.reshape(b * t), mask=flat)
 
     # -------------------------------------------------------------- inférence
     def forward_np(self, ids: np.ndarray, cache: list | None = None):
@@ -184,11 +187,11 @@ class ChatGPT:
         x = _layernorm_np(x, self.lnfg.data, self.lnfb.data)
         return x @ self.wte.data.T, new_cache
 
-    def generate(self, prompt: str, vocab: dict[str, int], itos: list[str], max_new: int = 220,
+    def generate(self, prompt: str, encode_fn, decode_fn, max_new: int = 220,
                  temperature: float = 0.5, top_k: int = 6, repetition_penalty: float = 1.2,
-                 seed: int = 42) -> tuple[str, float]:
+                 seed: int = 42, eos_id: int | None = None) -> tuple[str, float]:
         rng = np.random.default_rng(seed)
-        ids = [vocab.get(ch, 0) for ch in prompt][-self.ctx:]
+        ids = [int(i) for i in encode_fn(prompt)][-self.ctx:]
         out: list[int] = []
         logits, cache = self.forward_np(np.array([ids], dtype=np.int64))
         nll = 0.0
@@ -207,14 +210,16 @@ class ChatGPT:
             nxt = int(rng.choice(top, p=p))
             nll += -math.log(max(float(p[list(top).index(nxt)]), 1e-12))
             out.append(nxt)
-            if itos[nxt] == "\n":
+            if eos_id is not None and nxt == eos_id:
+                break
+            if decode_fn(out).endswith("\n"):
                 break
             if len(ids) + len(out) >= self.ctx:
                 window = (ids + out)[-self.ctx:]
                 logits, cache = self.forward_np(np.array([window], dtype=np.int64))
             else:
                 logits, cache = self.forward_np(np.array([[nxt]], dtype=np.int64), cache)
-        text = "".join(itos[i] if i > 1 else ("\n" if i == 1 else "") for i in out)
+        text = decode_fn(out)
         return text, (nll / max(1, len(out)))
 
 
@@ -234,13 +239,20 @@ def _gelu_np(x: np.ndarray) -> np.ndarray:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def encode(text: str, index: dict[str, int]) -> np.ndarray:
-    return np.fromiter((index.get(ch, 0) for ch in text), dtype=np.int64, count=len(text))
+def char_encoder(index: dict[str, int]):
+    """Encodeur caractère (format historique)."""
+    def encode_fn(text: str) -> np.ndarray:
+        return np.fromiter((index.get(ch, 0) for ch in text), dtype=np.int64, count=len(text))
+    return encode_fn
 
 
-def pack_examples(examples: list[str], index: dict[str, int], ctx: int, pad: int = 1) -> tuple[np.ndarray, int]:
-    """Emballage premier-ajustement décroissant : chaque fenêtre contient des exemples entiers."""
-    encoded = sorted((encode(e, index) for e in examples), key=len, reverse=True)
+def pack_examples(examples: list[str], encode_fn, ctx: int, pad: int = 1) -> tuple[np.ndarray, int, np.ndarray]:
+    """Emballage premier-ajustement décroissant : chaque fenêtre contient des exemples entiers.
+
+    Renvoie aussi le MASQUE des positions réelles (voir `loss`) : le remplissage
+    ne doit ni peser dans la perte ni produire de gradient.
+    """
+    encoded = sorted((encode_fn(e) for e in examples), key=len, reverse=True)
     bins: list[list[int]] = []
     used: list[int] = []
     for ids in encoded:
@@ -258,9 +270,14 @@ def pack_examples(examples: list[str], index: dict[str, int], ctx: int, pad: int
             used.append(min(need, ctx))
     blocks = len(bins) + 1
     data = np.full(blocks * ctx, pad, dtype=np.int64)
+    keep = np.zeros(blocks * ctx, dtype=bool)
     for i, row in enumerate(bins):
-        data[i * ctx:i * ctx + min(len(row), ctx)] = row[:ctx]
-    return data, len(bins)
+        length = min(len(row), ctx)
+        data[i * ctx:i * ctx + length] = row[:ctx]
+        # La cible de la position j est data[j+1] : elle est réelle tant que
+        # j+1 < length (le dernier token ajouté est le EOS de fin d'exemple).
+        keep[i * ctx:i * ctx + max(0, length - 1)] = True
+    return data, len(bins), keep
 
 
 def answer_span(example: str) -> tuple[str, str]:
@@ -270,7 +287,7 @@ def answer_span(example: str) -> tuple[str, str]:
     return example[: at + 4], example[at + 4:]
 
 
-def validation_nll(model: ChatGPT, examples: list[str], index: dict[str, int], limit: int | None = None) -> tuple[float, float, int]:
+def validation_nll(model: ChatGPT, examples: list[str], encode_fn, limit: int | None = None) -> tuple[float, float, int]:
     """NLL moyenne de la réponse attendue (teacher forcing), et part dans le top-3."""
     total = 0.0
     counted = 0
@@ -280,7 +297,7 @@ def validation_nll(model: ChatGPT, examples: list[str], index: dict[str, int], l
         prompt, answer = answer_span(ex)
         if len(answer) < 8:
             continue
-        ids = encode(prompt + answer, index)
+        ids = encode_fn(prompt + answer)
         if len(ids) > model.ctx:
             ids = ids[-model.ctx:]
         if len(ids) < 2:
@@ -289,7 +306,11 @@ def validation_nll(model: ChatGPT, examples: list[str], index: dict[str, int], l
         tgt = ids[1:]
         logits, _ = model.forward_np(inp)
         logits = logits[0]
-        start = max(0, len(prompt) - 1)
+        # ATTENTION : `len(prompt)` compte des CARACTÈRES. En BPE, la position du
+        # début de la réponse est un indice de TOKENS — d'où le passage par
+        # `encode_fn`. L'ancien calcul sautait la quasi-totalité de la réponse
+        # et rendait la NLL de validation (donc le choix du checkpoint) faux.
+        start = max(0, len(encode_fn(prompt)) - 1)
         rows = logits[start:]
         targets = tgt[start:]
         if len(targets) == 0:
@@ -382,14 +403,36 @@ def main() -> None:
     ap.add_argument("--metrics", default="llm/checkpoints/nexus-chat-v2-metrics.json")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=1337)
+    # Tokenizer : `char` (v1/v2 livrés) ou `bpe` (sous-mots du dépôt, 2049 tokens).
+    ap.add_argument("--tokenizer", choices=["char", "bpe"], default="char")
+    ap.add_argument("--bpe", default="llm/data/tokenizer.json")
+    ap.add_argument("--ctx", type=int, default=0, help="force la taille de contexte (tokens)")
     args = ap.parse_args()
 
     corpus = json.loads(Path(args.corpus).read_text(encoding="utf-8"))
     cfg = dict(corpus["config"])
     cfg["format"] = "chat-v1"
-    cfg["tokenizer"] = "char"
-    itos: list[str] = corpus["vocab"]
-    index = {ch: i for i, ch in enumerate(itos)}
+    if args.ctx:
+        cfg["ctx"] = args.ctx
+    itos: list[str] = []
+    if args.tokenizer == "bpe":
+        tok = BPETokenizer.load(ROOT / args.bpe)
+        cfg["tokenizer"] = "bpe"
+        cfg["vocab"] = tok.model_vocab_size
+        pad_id = tok.eos_id
+        eos_id = tok.eos_id
+        encode_fn = lambda text: np.fromiter(tok.encode(text), dtype=np.int64)  # noqa: E731
+        decode_fn = lambda ids: tok.decode([int(i) for i in ids])  # noqa: E731
+        print(f"tokenizer · BPE {tok.vocab_size} + EOS · contexte {cfg['ctx']} tokens", flush=True)
+    else:
+        cfg["tokenizer"] = "char"
+        itos = corpus["vocab"]
+        index = {ch: i for i, ch in enumerate(itos)}
+        pad_id = 1
+        eos_id = None
+        encode_fn = char_encoder(index)
+        decode_fn = lambda ids: "".join(itos[i] if i > 1 else ("\n" if i == 1 else "") for i in ids if 0 <= i < len(itos))  # noqa: E731
+        print(f"tokenizer · caractères · vocabulaire {len(itos)} · contexte {cfg['ctx']}", flush=True)
     examples: list[str] = corpus["examples"]
     train_examples = [examples[i] for i in corpus["train"]]
     val_examples = [examples[i] for i in corpus["val"]]
@@ -415,7 +458,7 @@ def main() -> None:
 
     # 1. Pré-entraînement linguistique (prose française, caractère suivant).
     prose = Path(args.pretrain).read_text(encoding="utf-8")
-    prose_ids = encode(prose, index)
+    prose_ids = encode_fn(prose)
     print(f"pré-entraînement · {len(prose_ids):,} caractères de prose française · {args.pretrain_steps} pas", flush=True)
     rng = np.random.default_rng(args.seed + 7)
     model.zero_grad()
@@ -438,19 +481,21 @@ def main() -> None:
             log.append({"phase": "pretrain", "step": step, "loss": round(float(loss.data), 4)})
 
     # 2. Affinage conversationnel.
-    data, blocks = pack_examples(train_examples, index, ctx)
+    data, blocks, keep = pack_examples(train_examples, encode_fn, ctx, pad=pad_id)
     print(f"affinage · {blocks} blocs de {ctx} · {args.steps} pas · lot {args.batch} · dropout {args.dropout}", flush=True)
     best = (float("inf"), -1, None)
     model.zero_grad()
     for step in range(1, args.steps + 1):
         x = np.empty((args.batch, ctx), dtype=np.int64)
         y = np.empty((args.batch, ctx), dtype=np.int64)
+        m = np.empty((args.batch, ctx), dtype=bool)
         for b in range(args.batch):
             s = int(rng.integers(0, blocks)) * ctx
             x[b] = data[s:s + ctx]
             y[b] = data[s + 1:s + ctx + 1]
+            m[b] = keep[s:s + ctx]
         model.zero_grad()
-        loss = model.loss(x, y, training=True, dropout_p=args.dropout)
+        loss = model.loss(x, y, training=True, dropout_p=args.dropout, mask=m)
         loss.backward()
         norm = clip_gradients(model.params())
         lr = schedule(step, args.steps, args.finetune_lr)
@@ -458,7 +503,7 @@ def main() -> None:
         if step % 50 == 0 or step == 1:
             print(f"  étape {step:4d} · perte {float(loss.data):.4f} · lr {lr:.5f} · |g| {norm:.2f} · {time.time()-t0:.0f}s")
         if step % args.eval_every == 0 or step == args.steps:
-            val_nll, top3, counted = validation_nll(model, val_examples, index)
+            val_nll, top3, counted = validation_nll(model, val_examples, encode_fn)
             print(f"  ─ validation · NLL {val_nll:.3f} · top-3 {top3*100:.0f}% ({counted} caractères)")
             log.append({"phase": "finetune", "step": step, "loss": round(float(loss.data), 4), "val_nll": round(val_nll, 4), "top3": round(top3, 4)})
             np.savez(ckpt, **{name: p.data for name, p in model.named_params()})
@@ -473,13 +518,13 @@ def main() -> None:
         for param, data in zip(model.params(), best[2]):
             param.data[...] = data
         print(f"meilleur checkpoint restauré (étape {best[1]}, NLL {best[0]:.3f})")
-    val_nll, top3, counted = validation_nll(model, val_examples, index)
+    val_nll, top3, counted = validation_nll(model, val_examples, encode_fn)
     samples: list[dict] = []
     for ex in val_examples[:6]:
         prompt, answer = answer_span(ex)
         if len(answer) < 8:
             continue
-        text, _ = model.generate(prompt, index, itos, max_new=200, seed=7)
+        text, _ = model.generate(prompt, encode_fn, decode_fn, max_new=200, seed=7, eos_id=eos_id)
         samples.append({"prompt": prompt, "attendu": answer, "généré": text})
 
     final_params = model.params()

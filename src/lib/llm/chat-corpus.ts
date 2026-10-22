@@ -174,16 +174,26 @@ function questionVariants(q: string): string[] {
  * Plus une ou deux reformulations de la question, pour ne pas dépendre du
  * libellé exact.
  */
-function dialogueExamples(entry: DialogueEntry, previous: DialogueEntry | null, index: number): string[] {
+function dialogueExamples(
+  entry: DialogueEntry,
+  previous: DialogueEntry | null,
+  index: number,
+  opts: { contextMode: 'copy' | 'generate'; partner: DialogueEntry | null }
+): string[] {
   const out: string[] = []
   const answer = clipAnswer(entry.a)
   const variants = questionVariants(entry.q)
+  // MODE COPIE (corpus v2) : C = la réponse → le modèle apprend à recopier.
+  // MODE GÉNÉRATION (corpus v3) : C = la réponse d'une AUTRE entrée du même
+  // thème → impossible de recopier, le modèle doit produire la sienne. C'est la
+  // situation réelle du retrieval, qui ne renvoie pas toujours le texte exact.
+  const context = opts.contextMode === 'copy' ? answer : clipAnswer(opts.partner?.a ?? '') || null
 
   // 1. Formes ancrées : la question canonique, puis jusqu'à deux reformulations.
-  const grounded = example({ context: answer, question: variants[0], answer })
+  const grounded = example({ context, question: variants[0], answer })
   if (grounded) out.push(grounded)
   for (const alt of variants.slice(1, MAX_QUESTIONS_PER_ENTRY)) {
-    const made = example({ context: answer, question: alt, answer })
+    const made = example({ context, question: alt, answer })
     if (made) out.push(made)
   }
 
@@ -196,14 +206,14 @@ function dialogueExamples(entry: DialogueEntry, previous: DialogueEntry | null, 
   // 3. Mémoire courte : une réponse précédente puis une relance.
   if (previous && (entry.t === 'suivi' || index % 5 === 0)) {
     const h = `${clipWords(previous.q, 34)} > ${clipWords(clipAnswer(previous.a), 46)}`
-    const withHistory = example({ history: h, context: answer, question: entry.q, answer })
+    const withHistory = example({ history: h, context, question: entry.q, answer })
     if (withHistory) out.push(withHistory)
   }
   return out
 }
 
 /** Exemples ancrés d'une réponse de connaissance (découpée en phrases entières). */
-function knowledgeExamples(question: string, answer: string): string[] {
+function knowledgeExamples(question: string, answer: string, contextMode: 'copy' | 'generate' = 'copy'): string[] {
   const passages = longPassages(answer)
   const variants = questionVariants(question)
   const out: string[] = []
@@ -214,7 +224,9 @@ function knowledgeExamples(question: string, answer: string): string[] {
     const next = passages[i + 1] && passage.length + 1 + passages[i + 1].length <= CONTEXT_MAX ? passages[i + 1] : null
     const context = next ? `${passage} ${next}` : passage
     const q = variants[i % Math.min(variants.length, MAX_QUESTIONS_PER_ENTRY)]
-    const made = example({ context, question: q, answer: passage })
+    // Mode génération : la documentation n'est PAS recopiée, la réponse vient
+    // des poids du modèle (la forme libre enseigne exactement cela).
+    const made = example({ context: contextMode === 'copy' ? context : null, question: q, answer: passage })
     if (made) out.push(made)
   }
   // Une forme libre par entrée : la première phrase, sans contenu.
@@ -226,8 +238,11 @@ function knowledgeExamples(question: string, answer: string): string[] {
 }
 
 /** Construit le corpus de conversation complet. */
-export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promise<ChatCorpusReport> {
+export async function buildChatCorpus(
+  opts: { includeDb?: boolean; contextMode?: 'copy' | 'generate' } = {}
+): Promise<ChatCorpusReport> {
   const includeDb = opts.includeDb !== false
+  const contextMode = opts.contextMode ?? 'generate'
   const examples: string[] = []
   const sources: ChatCorpusSources = {
     dialogue: 0,
@@ -240,10 +255,17 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
   }
 
   // 1. Banque de dialogue — le cœur conversationnel.
+  // Partenaire de contexte : l'entrée SUIVANTE du même thème (jamais la même).
+  const partnerOf = (entry: DialogueEntry): DialogueEntry | null => {
+    const same = DIALOGUE_BANK.filter((e) => e.t === entry.t && e !== entry)
+    if (!same.length) return null
+    const at = DIALOGUE_BANK.indexOf(entry)
+    return same[at % same.length]
+  }
   for (let i = 0; i < DIALOGUE_BANK.length; i++) {
     const entry = DIALOGUE_BANK[i]
-    const previous = DIALOGUE_BANK[(i + DIALOGUE_BANK.length - 1) % DIALOGUE_BANK.length]
-    const made = dialogueExamples(entry, previous, i)
+    const previous = DIALOGUE_BANK[(DIALOGUE_BANK.length + i - 1) % DIALOGUE_BANK.length]
+    const made = dialogueExamples(entry, previous, i, { contextMode, partner: partnerOf(entry) })
     if (made.length) {
       examples.push(...made)
       sources.dialogue++
@@ -252,7 +274,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
 
   // 2. Banque de connaissances : faits et fonctionnement (format ancré).
   for (const e of NEXUS_KNOWLEDGE) {
-    const docs = knowledgeExamples(e.question, e.answer)
+    const docs = knowledgeExamples(e.question, e.answer, contextMode)
     if (docs.length) {
       examples.push(...docs)
       sources.nexusKnowledge++
@@ -280,7 +302,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
     for (const it of items ?? []) {
       const q = clipMessage(String(it.question ?? ''))
       const a = clipAnswer(String(it.answer ?? ''))
-      const made = example({ context: a.slice(0, CONTEXT_MAX), question: q, answer: a })
+      const made = contextMode === 'copy' ? example({ context: a.slice(0, CONTEXT_MAX), question: q, answer: a }) : null
       const free = example({ question: q, answer: a })
       if (made) examples.push(made)
       if (free) examples.push(free)
@@ -292,7 +314,7 @@ export async function buildChatCorpus(opts: { includeDb?: boolean } = {}): Promi
     for (const m of memories ?? []) {
       const c = cleanForCorpus(String(m.content ?? '')).replace(/\n+/g, ' ')
       if (c.length < 12) continue
-      const made = example({ context: c.slice(0, CONTEXT_MAX), question: "Qu'est-ce que tu retiens à propos de cela ?", answer: c.slice(0, ANSWER_MAX) })
+      const made = contextMode === 'copy' ? example({ context: c.slice(0, CONTEXT_MAX), question: "Qu'est-ce que tu retiens à propos de cela ?", answer: c.slice(0, ANSWER_MAX) }) : null
       if (made) {
         examples.push(made)
         sources.memories++
