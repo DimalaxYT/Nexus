@@ -550,3 +550,28 @@ Stage Summary:
 - NEXUS REFUSE LE HORS-SUJET : 5/5 questions hors domaine reçoivent un refus explicite au lieu d'un passage voisin ; une réponse fausse est pire qu'un « je ne sais pas »
 - LES SOUVENIRS SONT UTILISÉS : « retiens que mon chat s'appelle Pixel » puis « Comment s'appelle mon chat ? » répond correctement, immédiatement (cache purgé à l'écriture)
 - 20× PLUS RAPIDE : 27–101 ms par tour de conversation réelle, contre 1,3–2,7 s ; le modèle reste en observation et est retenté régulièrement (aucune régression des mesures du modèle : les fichiers v1/v2 et le corpus sont intacts)
+
+---
+
+Task ID: 23
+Agent: Arena Agent
+Task: NEXUS Round 23 — mémoire vivante et personnalité (« il n'a aucune mémoire ni personnification, loin d'être un chatbot »)
+
+Work Log:
+- CONSTAT MESURÉ (même base, script à 5 tours sur le commit e856fc8) : « Bonjour ! » → « Salut ! Content de te voir. De quoi on parle aujourd'hui ? » (ni prénom ni continuité) ; « Tu te souviens de moi ? » → « Je n'ai rien trouvé dans ta base de connaissances pour « tu te souviens moi » » ; « Je travaille sur un jeu de course Roblox. » → tutoriel Roblox ; « Quel est mon projet, déjà ? » → « des idées de projets par niveau ». La mémoire existait en base (extraction, panneau, retrieval) mais n'était JAMAIS appliquée à la réponse affichée
+- MODULE `src/lib/llm/personalize.ts` : `loadPersona` (compte + 40 souvenirs + 4 conversations, en parallèle, cache 30 s, invalidation à chaque écriture), `secondPerson` (« L'utilisateur aime X » → « tu aimes X »), `isMemoryQuestion`, `memorySummary` (2ᵉ personne, filtré par sujet : projet / animaux / ville / prénom / âge ; « J'en garde N autres en réserve »), `personalizeServed` (prénom après la salutation, continuité « On reprend sur « … » ? », nom choisi pour l'assistant, ton direct sans relance finale, aveux adressés « Camille, je ne trouve pas… », anti-répétition)
+- BRANCHEMENT : le texte SERVI passe par `serve()` dans `answerChat` — savoir retrouvé ET génération validée (5 sorties) ; `conversationId` transmis de `AgentChat.tsx` → `/api/agent` → `brain.processTurn` → `llm.ChatContext` pour exclure la conversation ouverte du « dernier sujet » ; `loadPersona` au niveau du cerveau pour les questions de mémoire
+- INTERCEPTION AVANT ROUTAGE : `isMemoryQuestion` répond sur le contenu retenu avant les chemins déterministes — le classifieur envoyait « tu te souviens de moi ? » vers la connaissance (72 %), « qui suis-je ? » vers les capacités (53 %), « ce que tu sais de moi ? » vers le smalltalk (40 %). Motifs `about_user` élargis : 10/10 des formulations routées correctement (5/10 avant)
+- EXTRACTION DE MÉMOIRE CORRIGÉE (`memory-rules.ts`) : « j'habite à Lyon et mon chat s'appelle Pixel » produisait « habite à Lyon et mon chat s'appelle Pixel » → le prénom devenait « Pixel ». `clause()` coupe la fin de proposition ; règle dédiée « Son chat s'appelle Pixel » ; le prénom n'est lu que dans `L'utilisateur s'appelle …` (brain, responder, persona)
+- CONFIDENCES : une phrase sans question qui contient un fait durable (« je travaille sur un jeu de course Roblox ») reçoit `memoryAck` (accusé de réception + mémorisation) au lieu d'un tutoriel ; les questions d'aide (« comment », « peux-tu », « code »…) continuent vers le moteur normal
+- AFFICHAGE : les souvenirs ne sont plus cités à la 3ᵉ personne — `withSourcePrefix` sert la mémoire longue à la 2ᵉ (« Je me souviens : ton chat s'appelle Pixel ») et garde la citation pour les notes écrites par l'utilisateur
+- BUGS AU PASSAGE : `dropTrailingQuestion` ne matchait jamais (la regex excluait le point qui précède la relance) → réécrite et testée ; le cache de persona figeait le « dernier sujet » de la première conversation vue → titres mis en cache, sujet recalculé par appel
+- HARNAIS : `scripts/check-chat-knowledge.ts` gagne 5 cas « souvenirs » (questions de mémoire), une famille « personnalité (texte servi) » de 16 vérifications et le routage du classifieur → 40/40 sans compte, 45/45 avec compte (24/26 avant) ; nouveau `scripts/check-chat-memory.mjs` (serveur réel, 2 comptes neufs à chaque exécution) : 12/12, pire tour 84 ms
+- MESURES : `check-dialogue` 185/186 · 186/186 et `check-retrieval` 34/34 (0,83) · 34/34 (0,62) inchangés ; `check-chat-e2e` six tours : 1 212 ms → 84 ms au pire ; `tsc` 0 erreur ; `eslint` propre ; `db/custom.db` restaurée, serveur arrêté, scripts scratch supprimés
+
+Stage Summary:
+- NEXUS SE SOUVIENT VRAIMENT : « tu te souviens de moi ? », « qui suis-je ? », « quel est mon projet, déjà ? » reçoivent les faits réels, à la 2ᵉ personne, filtrés sur le sujet demandé ; la dernière conversation est citée en toutes lettres
+- NEXUS PARLE À QUELQU'UN : prénom dans la salutation (« Salut Camille ! »), continuité inter-sessions (« On reprend sur « Comment créer un jeu Roblox » ? »), nom d'assistant choisi par le compte (Nova), ton direct sans relance finale, aveux adressés — tous vérifiés de bout en bout (12/12)
+- NEXUS ACCUEILLE CE QU'ON LUI CONFIE : « je travaille sur un jeu de course Roblox » → accusé de réception + mémoire, au lieu d'un tutoriel générique ; le fait revient au tour suivant
+- LA MÉMOIRE ÉTAIT LÀ, ELLE N'ÉTAIT PAS MONTRÉE : aucune réécriture du stockage, seulement le branchement manquant (persona → texte servi) et deux bugs d'extraction corrigés ; le modèle v2 reste en observation, la personnalisation ne crée aucun fait
+- 84 ms au pire sur six tours réels, 45/45 au harnais de savoir, 12/12 au nouveau harnais de mémoire, base de développement intacte

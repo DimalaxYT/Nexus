@@ -100,13 +100,16 @@ const LEXICON: Record<IntentLabel, Weighted> = {
     [/\b(base de connaissances|dans tes notes)\b/, 3],
   ],
   knowledge_query: [
-    [/\b(que sais.?tu sur|que (as|as.?tu|avez).{0,4}retenu|mes notes|cherche dans (ta|la) base|tes notes|retrouve la note|tu te souviens (de|du))\b/, 6],
+    [/\b(que sais.?tu sur|que (as|as.?tu|avez).{0,4}retenu|mes notes|cherche dans (ta|la) base|tes notes|retrouve la note)\b/, 6],
+    // « tu te souviens du nom de mon chat ? » peut porter sur la MÉMOIRE de la
+    // personne : poids faible, `about_user` tranche quand « moi » est en jeu.
+    [/\b(tu te souviens (de|du))\b/, 3],
     [/\b(base de connaissances|mes connaissances)\b/, 3],
   ],
   time: [[/\b(quelle heure|quel jour|date du jour|la date d aujourd.hui|l heure|time|il est quelle heure)\b/, 8]],
   about_user: [
-    [/\b(comment je m.appelle|qui je suis|mon nom|mon prenom|tu connais mon nom|tu sais qui je suis|ce que tu sais sur moi|mes infos|presente moi\b)/, 7],
-    [/\b(tu te souviens de moi|mon profil|mes projets( personnels)?)\b/, 5],
+    [/\b(comment je m.appelle|qui (je suis|suis.je)|mon nom|mon prenom|tu connais mon nom|tu sais qui je suis|ce que tu sais (sur|de) moi|tu me connais|ma memoire|mon profil|mes infos|presente moi\b)/, 7],
+    [/\b(tu te souviens de moi|tu te rappelles( de moi| notre| la derniere)?|tu m.as retenu|mes projets( personnels)?)\b/, 8],
     // Présentation spontanée : « je m'appelle … », « j'habite à … », « j'ai X ans »…
     [/\bje m.?appelle\b|\bm.?appelle\s+\p{L}{2,}/u, 7],
     [/\bj.?habite\b|\bje vis\s+(a|dans|au|en)\b/, 6],

@@ -20,6 +20,7 @@ import { contentTokens, isStopword, stem, tokenize } from '@/lib/brain/text'
 import { lexiconCoverage } from './model'
 import { bestPassage, gatherPassages, groundingOf, type Passage } from './grounding'
 import { sample } from './generate'
+import { isMemoryQuestion, loadPersona, memorySummary, personalizeServed, secondPerson, type Persona } from './personalize'
 // Import de TYPE uniquement : `engine` appelle `answerChat`, donc un import
 // runtime créerait un cycle. Le modèle chargé est fourni par l'appelant.
 import { CHAT_CTX } from './model'
@@ -274,6 +275,19 @@ export async function retrieveChatContext(
   history: ChatTurn[] = []
 ): Promise<ChatContext> {
   message = retrievalQuery(message)
+
+  // QUESTION SUR LA MÉMOIRE (« tu te souviens de moi ? », « qui suis-je ? ») :
+  // la banque de dialogue répondait « Oui, je garde une mémoire longue… » —
+  // une promesse, jamais le contenu. On raconte ici ce qui est réellement
+  // retenu, à la 2ᵉ personne, sans jamais inventer un fait.
+  if (userId && isMemoryQuestion(message)) {
+    const persona = await loadPersona(userId).catch(() => null)
+    const summary = memorySummary(persona)
+    if (summary) {
+      return { passage: null, source: 'ta mémoire', score: 1, entry: null, fallback: summary }
+    }
+  }
+
   const match = matchDialogue(message, history)
   const dialogueScore = match?.score ?? 0
 
@@ -372,7 +386,11 @@ function varyFallback(match: DialogueMatch, history: ChatTurn[]): string {
 function withSourcePrefix(source: string | undefined, text: string): string {
   const s = String(source ?? '')
   if (!s) return text
-  if (s.startsWith('tes notes') || s === 'ta mémoire') {
+  // Mémoire longue : elle est STOCKÉE à la 3ᵉ personne (« Son chat s'appelle
+  // Pixel »). On la rend à la 2ᵉ, sinon NEXUS parle de son interlocuteur comme
+  // d'un tiers. Les notes, elles, sont les mots de l'utilisateur : on les cite.
+  if (s === 'ta mémoire') return `Je me souviens : ${secondPerson(text).replace(/[.\s]+$/, '')}.`
+  if (s.startsWith('tes notes')) {
     return `D'après ce que tu m'as dit : « ${text.replace(/[.\s]+$/, '')} ».`
   }
   return text
@@ -479,6 +497,8 @@ export interface ChatOptions {
   maxTokens?: number
   /** Diffusion progressive du texte retenu (après validation). */
   onDelta?: (chunk: string) => void
+  /** Conversation en cours (permet d'exclure son titre du « dernier sujet »). */
+  conversationId?: string | null
   /** Modèle chargé (null = aucun modèle entraîné : repli sur le savoir retrouvé). */
   model: LoadedModel | null
   /**
@@ -643,13 +663,34 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
   const model = opts.model
   const prompt = chatPrompt({ history, context: ctx.passage, message })
 
+  // PERSONNALITÉ & MÉMOIRE : ce que NEXUS sait de la personne s'applique au
+  // texte réellement servi (prénom, continuité entre sessions, nom choisi pour
+  // l'assistant, ton). Le fond reste le savoir retrouvé — rien n'est inventé.
+  const persona: Persona | null = await loadPersona(opts.userId ?? null, { conversationId: opts.conversationId }).catch(() => null)
+  const firstTurn = history.length === 0
+  const previousAnswer = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? null
+  // Dernier sujet de l'historique transmis (conversation non encore
+  // enregistrée) : sans lui, le premier « bonjour » d'une session neuve ne
+  // pouvait pas reprendre le fil.
+  const lastTalk = (() => {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i]
+      const c = String(m.content ?? '').trim()
+      if (m.role === 'user' && c.length >= 12 && !/^(salut|bonjour|bonsoir|coucou|hey|hello|merci)\b/i.test(c)) return c.slice(0, 90)
+    }
+    return null
+  })()
+  /** Personnalise une réponse RETROUVÉE (jamais une génération validée). */
+  const serve = (text: string): string =>
+    personalizeServed(text, { topic: ctx.entry?.t ?? null, persona, firstTurn, previousAnswer, lastTalk })
+
   if (!model) {
     // Aucun modèle entraîné : on répond quand même avec le savoir retrouvé,
     // mais on le signale (le chat n'est pas « généré »).
     if (ctx.fallback) {
       return {
         ok: true,
-        text: ctx.fallback,
+        text: serve(ctx.fallback),
         generated: false,
         avgNll: Infinity,
         ms: Date.now() - t0,
@@ -668,7 +709,7 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     if (ctx.fallback) {
       return {
         ok: true,
-        text: ctx.fallback,
+        text: serve(ctx.fallback),
         generated: false,
         avgNll: Infinity,
         ms: Date.now() - t0,
@@ -692,7 +733,7 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     gateRecord(model, false)
     return {
       ok: true,
-      text: ctx.fallback,
+      text: serve(ctx.fallback),
       generated: false,
       avgNll: Infinity,
       ms: Date.now() - t0,
@@ -708,7 +749,7 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
   if (opts.gate && ctx.fallback && gateShouldSkip(model)) {
     return {
       ok: true,
-      text: ctx.fallback,
+      text: serve(ctx.fallback),
       generated: false,
       avgNll: Infinity,
       ms: Date.now() - t0,
@@ -776,7 +817,7 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     if (ctx.fallback) {
       return {
         ok: true,
-        text: ctx.fallback,
+        text: serve(ctx.fallback),
         generated: false,
         avgNll: lastNll,
         ms: Date.now() - t0,
@@ -789,9 +830,12 @@ export async function answerChat(opts: ChatOptions): Promise<ChatAnswer> {
     return { ok: false, reason: firstReason || 'génération non conforme', avgNll: lastNll, generated: false }
   }
 
+  // Le texte GÉNÉRÉ passe aussi par la personnalisation : une salutation
+  // rédigée par le modèle doit saluer la personne comme celle du savoir.
+  const generatedText = serve(best.text)
   return {
     ok: true,
-    text: best.text,
+    text: generatedText,
     generated: true,
     avgNll: best.avgNll,
     ms: Date.now() - t0,

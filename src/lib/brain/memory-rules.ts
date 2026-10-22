@@ -13,6 +13,19 @@ interface Rule {
   build: (m: RegExpMatchArray) => string
 }
 
+/**
+ * Coupe la fin de proposition : « j'habite à Lyon et mon chat s'appelle Pixel »
+ * ne doit pas produire « habite à Lyon et mon chat s'appelle Pixel ». Sans ça,
+ * le nom du chat devenait le prénom de l'utilisateur dans le résumé de mémoire.
+ */
+function clause(text: string): string {
+  return text
+    .split(/\s+(?:et|mais|puis|car|donc|or|ni)\s+(?=\p{L})/iu)[0]
+    .split(/\s+(?:mon|ma|mes|ton|ta|tes|son|sa|ses|notre|nos|votre|vos)\s+/iu)[0]
+    .replace(/[.,;:!?]+$/, '')
+    .trim()
+}
+
 const RULES: Rule[] = [
   {
     re: /je m(?:'| )?appelle\s+([\p{L}'-]{2,30})/iu,
@@ -37,22 +50,22 @@ const RULES: Rule[] = [
   {
     re: /j(?:'| )?habite\s+(?:[àa]|dans|au|en)\s+([\p{L}\s'-]{2,40}?)(?:[.,!]|$)/iu,
     kind: 'fact',
-    build: (m) => `L'utilisateur habite à ${m[1].trim()}`,
+    build: (m) => `L'utilisateur habite à ${clause(m[1])}`,
   },
   {
     re: /je vis\s+(?:[àa]|dans|au|en)\s+([\p{L}\s'-]{2,40}?)(?:[.,!]|$)/iu,
     kind: 'fact',
-    build: (m) => `L'utilisateur vit à ${m[1].trim()}`,
+    build: (m) => `L'utilisateur vit à ${clause(m[1])}`,
   },
   {
     re: /j(?:'| )?aime\s+(?:bien\s+|beaucoup\s+|trop\s+)?([\p{L}\s'-]{2,50}?)(?:[.,!]|$)/iu,
     kind: 'preference',
-    build: (m) => `L'utilisateur aime ${m[1].trim()}`,
+    build: (m) => `L'utilisateur aime ${clause(m[1])}`,
   },
   {
     re: /je pr[ée]f[èe]re\s+([\p{L}\s'-]{2,50}?)(?:[.,!]|$)/iu,
     kind: 'preference',
-    build: (m) => `L'utilisateur préfère ${m[1].trim()}`,
+    build: (m) => `L'utilisateur préfère ${clause(m[1])}`,
   },
   {
     re: /(?:ma|mon)\s+(couleur|couleur pr[ée]f[ée]r[ée]e|style|genre)\s+(?:pr[ée]f[ée]r[ée]e?\s+)?(?:c(?:est|')|est)\s+([\p{L}\s'-]{2,30}?)(?:[.,!]|$)/iu,
@@ -62,27 +75,34 @@ const RULES: Rule[] = [
   {
     re: /(?:mon\s+)?jeu\s+(?:s(?:'| )?appelle|se nomme)\s+([\p{L}\d\s'-]{2,40}?)(?:[.,!]|$)/iu,
     kind: 'project',
-    build: (m) => `Son jeu s'appelle ${m[1].trim()}`,
+    build: (m) => `Son jeu s'appelle ${clause(m[1])}`,
   },
   {
     re: /je (?:travaille|bosse)\s+(?:sur|dans)\s+([\p{L}\d\s'-]{2,60}?)(?:[.,!]|$)/iu,
     kind: 'project',
-    build: (m) => `L'utilisateur travaille sur ${m[1].trim()}`,
+    build: (m) => `L'utilisateur travaille sur ${clause(m[1])}`,
   },
   {
     re: /je d[ée]veloppe\s+([\p{L}\d\s'-]{2,60}?)(?:[.,!]|$)/iu,
     kind: 'project',
-    build: (m) => `L'utilisateur développe ${m[1].trim()}`,
+    build: (m) => `L'utilisateur développe ${clause(m[1])}`,
+  },
+  {
+    // « mon chat s'appelle Pixel » : un souvenir sur l'objet/animal, PAS le
+    // prénom de l'utilisateur.
+    re: /(?:mon|ma|notre)\s+(chat|chien|lapin|hamster|perroquet|tortue|serpent|cheval|voiture|serveur|cha[îi]ne|site|bot)\s+(?:s(?:'| )?appelle|se nomme)\s+([\p{L}\d\s'-]{2,40}?)(?:[.,!]|$)/iu,
+    kind: 'fact',
+    build: (m) => `Son ${m[1].toLowerCase()} s'appelle ${clause(m[2])}`,
   },
   {
     re: /mon projet\s+(?:c(?:est|')|est|:)\s+([\p{L}\d\s'-]{2,60}?)(?:[.,!]|$)/iu,
     kind: 'project',
-    build: (m) => `Son projet : ${m[1].trim()}`,
+    build: (m) => `Son projet : ${clause(m[1])}`,
   },
   {
     re: /mon objectif\s+(?:c(?:est|')|est|:)\s+([\p{L}\d\s'-]{2,60}?)(?:[.,!]|$)/iu,
     kind: 'other',
-    build: (m) => `Son objectif : ${m[1].trim()}`,
+    build: (m) => `Son objectif : ${clause(m[1])}`,
   },
   {
     re: /mon (?:pseudo|email|mail)\s+(?:c(?:est|')|est|:)\s+([\w.@'-]{3,40})/iu,

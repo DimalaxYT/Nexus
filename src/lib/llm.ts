@@ -30,6 +30,8 @@ export interface ChatContext {
   lastUser?: string
   /** Échanges précédents (mémoire courte de la conversation). */
   history?: ChatTurn[]
+  /** Conversation en cours (exclue du « dernier sujet » de la continuité). */
+  conversationId?: string | null
   /**
    * Nature de la demande faite au moteur :
    *   · `chat`          — conversation libre : le modèle rédige la réponse,
@@ -161,6 +163,7 @@ export async function llmComplete(
     message,
     history,
     userId: opts.context?.userId ?? null,
+    conversationId: opts.context?.conversationId ?? null,
     model,
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,
@@ -197,6 +200,7 @@ export async function llmStream(
     message,
     history,
     userId: opts.context?.userId ?? null,
+    conversationId: opts.context?.conversationId ?? null,
     model,
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,

@@ -3,6 +3,7 @@
 // connaissances. Chaque variante est choisie par graine déterministe.
 
 import { hashString, mulberry32, pick, capitalize } from './text'
+import { secondPerson } from '@/lib/llm/personalize'
 import { NEXUS_PRESENTATION } from './knowledge-bank'
 import { summarizeResults, type SearchResult } from './search'
 
@@ -281,13 +282,31 @@ export function aboutUser(memories: string[]): string {
 
 Dis-moi simplement des choses comme *« je m'appelle … »*, *« j'habite à … »*, *« mon jeu s'appelle … »*, *« j'aime … »* — et je les retiendrai **durablement** (mémoire locale, conservée entre les conversations).`
   }
-  const listed = memories.slice(0, 8).map((m) => `- ${m}`).join('\n')
-  return `Voici ce que ma mémoire locale a retenu sur toi : 🧠\n\n${listed}\n\nTout est conservé dans ta base (SQLite locale) — tu peux demander de l'oublier via le panneau **Mémoire**, ou me donner de nouvelles infos à tout moment.`
+  // À la 2ᵉ personne (« tu t'appelles … »), pas la forme interne de stockage :
+  // « L'utilisateur s'appelle Camille » n'est pas une phrase qu'on dit à Camille.
+  const listed = memories
+    .slice(0, 8)
+    .map((m) => `- ${secondPerson(m).replace(/^tu\b/, 'Tu')}`)
+    .join('\n')
+  return `Voici ce que je garde de toi : 🧠\n\n${listed}\n\nTout reste dans ta base locale (SQLite), conservé entre les conversations — dis-moi « oublie … » si tu veux en retirer un.`
+}
+
+/**
+ * Accusé de réception d'une confidence (« je travaille sur un jeu de course »).
+ * Un chatbot répond à ce qu'on lui confie : il le dit, et propose la suite.
+ */
+export function memoryAck(facts: string[], name?: string): string {
+  const list = facts.map((f) => f.replace(/[.\s]+$/, '')).filter(Boolean)
+  if (list.length === 0) return `Bien noté${name ? `, ${name}` : ''} ! C'est gardé dans ma mémoire locale.`
+  const body = list.length === 1 ? list[0] : `${list.slice(0, -1).join(', ')} et ${list[list.length - 1]}`
+  return `Bien noté${name ? `, **${name}**` : ''} ! 🧠 Je retiens que ${body}. C'est dans ma mémoire locale, on pourra repartir de là — tu veux qu'on avance dessus ?`
 }
 
 /** Après une présentation spontanée (« je m'appelle … ») : accueil + confirmation. */
 export function memorySavedIntro(memories: string[], fresh: { content: string }[]): string {
-  const nameMatch = fresh.find((m) => /s'appelle/i.test(m.content))?.content.match(/s'appelle\s+([\p{L}-]+)/iu)
+  const nameMatch = fresh
+    .find((m) => /^L'utilisateur s'appelle\s/i.test(m.content))
+    ?.content.match(/s'appelle\s+([\p{L}-]+)/iu)
   const prenom = nameMatch?.[1]
   const listed = fresh.map((m) => `- ${m.content}`).join('\n')
   const reste = memories.filter((m) => !fresh.some((f) => f.content === m)).slice(0, 4)

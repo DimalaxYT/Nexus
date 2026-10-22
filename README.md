@@ -568,9 +568,47 @@ recherche web ou d'apprendre le fait, au lieu de servir un passage voisin :
 fera-t-il demain ? » un conseil d'organisation.
 
 Les notes (« retiens que … ») et la mémoire longue passent **avant** le savoir
-générique — « Comment s'appelle mon chat ? » répond « D'après ce que tu m'as
-dit : « mon chat s'appelle Pixel » » — et le cache de passages est purgé à
-chaque écriture, sinon la note mettait jusqu'à une minute à être visible.
+générique — « Comment s'appelle mon chat ? » répond en citant la note, la mémoire
+longue étant reformulée à la 2ᵉ personne (« Je me souviens : ton chat s'appelle
+Pixel ») — et le cache de passages est purgé à chaque écriture, sinon la note
+mettait jusqu'à une minute à être visible.
+
+### 🧠 Mémoire vivante & personnalité
+
+Un assistant qui stocke des souvenirs mais ne s'en sert jamais n'a pas de
+mémoire : il a une base de données. `src/lib/llm/personalize.ts` charge le
+compte, les 40 derniers souvenirs et les conversations récentes (cache 30 s,
+aucun appel réseau) et **applique** cette mémoire au texte réellement affiché :
+
+- **prénom** — « Salut Camille ! » ; le prénom vient de ce que la personne a dit
+  à NEXUS (« je m'appelle … »), sinon du compte ;
+- **continuité** — au premier message d'une nouvelle conversation :
+  « On reprend sur « Comment créer un jeu Roblox » ? » (la conversation ouverte
+  est exclue, le titre vient de la conversation précédente réellement
+  enregistrée) ;
+- **questions de mémoire** — « tu te souviens de moi ? », « qui suis-je ? »,
+  « quel est mon projet, déjà ? » sont interceptées **avant** le classifieur et
+  reçoivent les faits retenus, filtrés sur le sujet demandé, plus la dernière
+  conversation citée en toutes lettres ;
+- **confidences** — « je travaille sur un jeu de course Roblox » reçoit un
+  accusé de réception et rejoint la mémoire, au lieu d'un tutoriel générique ;
+- **voix** — nom d'assistant choisi par le compte (« Nova »), ton `direct` sans
+  relance finale, aveux adressés (« Camille, je ne trouve pas ça dans ma base »).
+
+La personnalisation ne crée **aucun fait** : elle met en forme ceux qui
+existent. Deux harnais la mesurent en permanence —
+
+```bash
+node --import tsx scripts/check-chat-knowledge.ts --user <id>   # 45/45
+node scripts/check-chat-memory.mjs                              # 12/12 (serveur requis)
+```
+
+`check-chat-memory.mjs` crée deux comptes neufs à chaque exécution (aucune
+pollution) et vérifie salutation par le prénom, continuité, mémorisation,
+restitution, citation de la dernière conversation, renommage de l'assistant et
+ton : **12/12, pire tour 84–100 ms**. Les questions de mémoire étaient mal routées
+par le classifieur (5 formulations sur 10) ; elles le sont toutes correctement
+aujourd'hui.
 
 Nouveau harnais `scripts/check-chat-knowledge.ts` (24 questions : 11 naturelles,
 8 sur NEXUS, 5 hors sujet ; 2 de plus avec `--user`) :
@@ -635,6 +673,15 @@ node scripts/check-chat-e2e.mjs                            # latence réelle du 
   propriétaire… »). Elles voyagent maintenant par un canal `systemPrompt` dédié.
 - **Prénom du compte ignoré** : NEXUS n'utilisait que sa mémoire pour connaître votre prénom ; il
   utilise désormais aussi le prénom du compte, ainsi que son message d'accueil personnalisé.
+- **Mémoire jamais montrée** : les souvenirs étaient en base mais la réponse affichée n'en tenait
+  aucun compte (« tu te souviens de moi ? » répondait « je n'ai rien trouvé »). Le texte servi est
+  maintenant personnalisé (prénom, continuité, ton) — voir « Mémoire vivante & personnalité ».
+- **Le chat devenait votre prénom** : « j'habite à Lyon et mon chat s'appelle Pixel » créait un
+  souvenir « habite à Lyon et mon chat s'appelle Pixel », d'où des salutations à « Pixel ». Les
+  règles d'extraction coupent désormais la fin de proposition, et « Son chat s'appelle … » n'est
+  plus lu comme un prénom.
+- **Relance en ton direct** : la fonction censée retirer la question finale ne matchait jamais (son
+  expression régulière excluait le point qui précède la relance). Réécrite et testée.
 
 ## Sécurité
 

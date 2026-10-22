@@ -1022,6 +1022,9 @@ export function AgentChat() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: [...history, { role: 'user', content: text }],
+              // La conversation ouverte : le serveur s'en sert pour ne pas
+              // citer SON titre comme « dernier sujet » au moment de saluer.
+              ...(convId ? { conversationId: convId } : {}),
               ...(target.kind !== 'nexus' ? { target } : {}),
               // Discussion avec un agent : on lui donne ACCÈS au code actuel du
               // Studio Code (lecture) — il proposera une version à valider.

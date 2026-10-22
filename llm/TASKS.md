@@ -110,3 +110,29 @@ le savoir retrouvé. Les deux leviers chiffrés dans `RESULTS.md` : un budget de
 calcul très supérieur (une tête d'induction sur 700 caractères ne s'installe pas
 en 3 000 pas) ou un objectif de copie découpé (recopie par segments plutôt
 qu'en une passe).
+
+## Passe 5 — mémoire vivante et personnalité (2026-10-22, soir)
+
+Objectif : ne plus « avoir une mémoire » mais **s'en servir dans la réponse
+affichée**, et parler comme quelqu'un (prénom, continuité, ton, aveux adressés).
+Aucun réentraînement : le modèle v2 n'est pas assez fiable (0/12 acceptées) pour
+porter la voix de NEXUS — la personnalisation s'applique au texte servi.
+
+| # | Tâche | État |
+|---|-------|------|
+| 1 | Module `personalize.ts` : charge compte + 40 souvenirs + 4 conversations, cache 30 s, invalidation à l'écriture | ✅ |
+| 2 | Prénom dans la salutation et les aveux ; nom choisi pour l'assistant | ✅ « Salut Camille ! », « Camille, je ne trouve pas… » |
+| 3 | Continuité entre sessions : « On reprend sur « <dernier sujet> » ? » (conversation en cours exclue) | ✅ titre réel cité |
+| 4 | Questions de mémoire interceptées AVANT le classifieur | ✅ 5 questions mal routées → 10/10 |
+| 5 | Résumé de mémoire à la 2ᵉ personne, filtré par sujet (projet, animaux, ville, prénom, âge) | ✅ « tu t'appelles Camille, ton chat s'appelle Pixel et tu habites à Lyon » |
+| 6 | Dernière conversation citée en toutes lettres | ✅ « La dernière fois, on parlait de « … » » |
+| 7 | Confidences (« je travaille sur… ») : accusé de réception + mémorisation, au lieu d'un tutoriel | ✅ `memoryAck` |
+| 8 | Extraction de mémoire corrigée (fin de proposition, animal ≠ prénom) | ✅ « Son chat s'appelle Pixel » |
+| 9 | Ton `direct` : la relance finale tombe (regex cassée, réécrite) | ✅ |
+| 10 | Harnais : `check-chat-memory.mjs` (2 comptes neufs, 12 vérifications) + famille « personnalité » dans `check-chat-knowledge.ts` | ✅ 12/12, 45/45 |
+| 11 | `conversationId` transmis du client au cerveau | ✅ `AgentChat.tsx` → `/api/agent` → `processTurn` |
+
+Prochaine marche : **la voix du modèle**. Tant que 0/12 générations passent les
+garde-fous, la personnalité restera plaquée sur le savoir retrouvé. Deux leviers
+chiffrés : budget de calcul (une tête d'induction sur 700 caractères demande
+bien plus de 3 000 pas) ou génération par segments avec recopie guidée.

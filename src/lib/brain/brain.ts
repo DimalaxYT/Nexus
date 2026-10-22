@@ -29,6 +29,7 @@ import { deepReasonAndAnswer, detectReasoningMode } from './deep-reasoner'
 import { extractKeySentences, synthesizePages, buildSearchQuery, type PageContent } from './synthesize'
 import { extractMemories, extractExplicitRetention, autoTitle } from './memory-rules'
 import * as R from './responder'
+import { invalidatePersonaCache, isMemoryQuestion, loadPersona, memoryFocus, memorySummary, secondPerson } from '@/lib/llm/personalize'
 import { stems } from './text'
 import { llmComplete, llmStream, extractJson, type ChatProvenance, type LlmMessage } from '@/lib/llm'
 import { triageEmails, triageMarkdown, triageFactsBlock } from '@/lib/mail-triage'
@@ -52,6 +53,12 @@ export interface BrainInput {
   currentCode?: CodeFiles
   /** Compte connecté : cloisonne mémoire / connaissances / missions / agents. */
   userId?: string | null
+  /**
+   * Conversation en cours (identifiant côté client). Sert uniquement à la
+   * continuité : pour saluer en rappelant le sujet de la conversation
+   * PRÉCÉDENTE, il faut pouvoir exclure celle qui est ouverte.
+   */
+  conversationId?: string | null
   /** Personnalisation du compte (ton, prénom, consignes permanentes…). */
   profile?: UserProfile
   /** Désactive l'exécution du blueprint de l'agent (évite la récursion). */
@@ -70,6 +77,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface Ctx {
   lastUser: string
+  /** Conversation en cours (continuité entre sessions côté personnalisation). */
+  conversationId?: string | null
   /** Demande effectivement envoyée au LLM : lastUser enrichie du contexte de suivi. */
   effectiveUser: string
   history: { role: 'user' | 'assistant'; content: string }[]
@@ -148,6 +157,9 @@ async function saveMemoryItems(items: { content: string; kind: string }[], saveS
       if (isDuplicateMemory(content, existing)) continue
       await db.memory.create({ data: { content, kind: item.kind, source: 'auto', ...(saveScope ? { userId: saveScope } : {}) } })
       invalidatePassageCache()
+      // La personnalisation (prénom, souvenirs racontés) est en cache 30 s :
+      // sans ça, « je m'appelle X » ne serait pas visible au tour suivant.
+      invalidatePersonaCache(saveScope)
       existing.push({ content })
       added++
     }
@@ -1304,6 +1316,7 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   const effectiveUser = resolveFollowUp(lastUser, history) ?? lastUser
   const ctx: Ctx = {
     lastUser,
+    conversationId: input.conversationId ?? null,
     effectiveUser,
     history,
     entities,
@@ -1316,7 +1329,9 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
     systemPrompt: input.systemPrompt,
   }
 
-  const nameMatch = memories.find((m) => /s'appelle/i.test(m))?.match(/s'appelle\s+([\p{L}-]+)/iu)
+  // ATTENTION : « Son chat s'appelle Pixel » contient aussi « s'appelle » —
+  // seul un souvenir sur la PERSONNE donne le prénom.
+  const nameMatch = memories.find((m) => /^L'utilisateur s'appelle\s/i.test(m))?.match(/s'appelle\s+([\p{L}-]+)/iu)
   // PERSONNALISATION : à défaut de souvenir, on utilise le prénom du compte.
   const userName = nameMatch?.[1] ?? (ctx.profile?.displayName?.trim() || undefined)
   ctx.userName = userName
@@ -1354,7 +1369,52 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   let handled = false
   let finalText = ''
 
-  if (/^mission\s*:/i.test(lastUser.trim())) {
+  // QUESTION SUR LA MÉMOIRE, AVANT tout routage : le classifieur envoie « tu te
+  // souviens de moi ? » vers la connaissance (72 %) ou « qui suis-je ? » vers
+  // les capacités (53 %). On répond donc sur le CONTENU retenu, jamais sur une
+  // promesse de mémoire. C'est l'intention la plus explicite qui existe.
+  if (isMemoryQuestion(lastUser)) {
+    const persona = await loadPersona(ctx.userId ?? null, { conversationId: ctx.conversationId ?? null }).catch(() => null)
+    const summary = memorySummary(persona, 5, lastUser)
+    // « Tu te rappelles de notre dernière conversation ? » : le dernier sujet
+    // des conversations enregistrées, pas seulement les faits durables.
+    const asksLastTalk = /(conversation|discussion|derni[èe]re fois|on a parl|on parlait|la derni[èe]re)/i.test(lastUser)
+    const lastTalk =
+      asksLastTalk && persona?.lastTopic ? ` La dernière fois, on parlait de « ${persona.lastTopic} ».` : ''
+    send({ type: 'step', ...analysisStep, detail: summary ? 'mémoire longue → souvenirs réellement retenus' : 'mémoire longue → vide pour ce compte', status: 'done' })
+    if (summary) {
+      finalText = `${summary}${lastTalk}`
+    } else if (memoryFocus(lastUser)) {
+      finalText = `Je n'ai encore rien de durable sur ${memoryFocus(lastUser)}. Dis-le-moi — par exemple en une phrase — et je le garderai dans ma mémoire locale.`
+    } else if (persona?.lastTopic) {
+      finalText = `Je n'ai pas encore de souvenir durable à te citer, mais je vois notre dernière conversation : « ${persona.lastTopic} ». On continue dessus ?`
+    } else if (persona) {
+      finalText = `Je n'ai encore rien de durable à te raconter — ma mémoire de ton compte est vide. Dis-moi par exemple *« je m'appelle … »*, *« j'habite à … »* ou *« je travaille sur … »* et je le garderai (base locale, d'une conversation à l'autre).`
+    } else {
+      finalText = `Pour retenir quelque chose de toi, il me faut un compte connecté : c'est ce qui cloisonne la mémoire. Une fois connecté, dis-moi *« je m'appelle … »* et je m'en souviendrai à la prochaine session.`
+    }
+    handled = true
+  }
+
+  // CONFIDENCE PERSONNELLE, sans question : « je travaille sur un jeu de course
+  // Roblox ». Un chatbot ne renvoie pas un tutoriel : il accuse réception de ce
+  // qu'on vient de lui confier — et le retient pour les tours suivants.
+  const disclosed = extractMemories(lastUser)
+  const isDisclosure =
+    disclosed.length > 0 &&
+    lastUser.length <= 140 &&
+    !lastUser.includes('?') &&
+    !/\b(comment|pourquoi|peux[- ]tu|aide[- ]moi|besoin|veux|montre|explique|code|script|fais|cr[ée]e|cr[ée]er|g[ée]n[èe]re)\b/i.test(lastUser)
+
+  if (handled) {
+    // rien d'autre à faire : la réponse est déjà écrite
+  } else if (isDisclosure) {
+    const added = await saveMemoryItems(disclosed, ctx.userId ?? null)
+    if (added > 0) send({ type: 'meta', memoryAdded: added })
+    send({ type: 'step', ...analysisStep, detail: 'confidence personnelle → mémoire longue', status: 'done' })
+    finalText = R.memoryAck(disclosed.map((d) => secondPerson(d.content)), ctx.userName)
+    handled = true
+  } else if (/^mission\s*:/i.test(lastUser.trim())) {
     send({ type: 'step', ...analysisStep, detail: 'mission détectée → exécution autonome', status: 'done' })
     finalText = await handleMissionMessage(lastUser, ctx)
     handled = true
@@ -1486,6 +1546,7 @@ async function runLlmPipeline(
   // l'utilisateur : on ne fait jamais passer un repli pour une génération.
   const chatContext = {
     userId: ctx.userId ?? null,
+    conversationId: ctx.conversationId ?? null,
     lastUser: ctx.effectiveUser,
     history: historyMsgs
       .filter((m) => m.role === 'user' || m.role === 'assistant')

@@ -4,6 +4,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, isValidEmail, parseProfile, publicUserJson } from '@/lib/auth'
+import { invalidatePersonaCache } from '@/lib/llm/personalize'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -71,6 +72,9 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const updated = await db.user.update({ where: { id: user.id }, data: patch })
+    // Prénom / ton / nom de l'assistant viennent de changer : la personnalisation
+    // en cache 30 s doit servir la nouvelle version dès le message suivant.
+    invalidatePersonaCache(user.id)
     return Response.json({ ok: true, user: publicUserJson(updated) })
   } catch (err) {
     return Response.json(

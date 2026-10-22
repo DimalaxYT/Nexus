@@ -256,3 +256,82 @@ node --import tsx scripts/check-chat-knowledge.ts --user <id>           # + souv
 node --import tsx scripts/check-retrieval.ts && node --import tsx scripts/check-dialogue.ts
 node scripts/check-chat-e2e.mjs --ask "Qu'est-ce que Turso ?|Qui a créé NEXUS ?"
 ```
+
+## Round 23 — mémoire vivante et personnalité (2026-10-22, soir)
+
+Objectif : un chatbot, pas un moteur de recherche. Il doit **se souvenir de la
+personne** (prénom, faits, projets) d'une conversation à l'autre et **parler
+comme quelqu'un** — saluer, reprendre le fil, accuser réception de ce qu'on lui
+confie. 100 % local : trois lectures en base (compte, souvenirs, conversations),
+cache de 30 s, aucun appel réseau.
+
+### Ce qui manquait (mesuré sur `e856fc8`, même script à 5 tours, même base)
+
+| Tour | Avant (`e856fc8`) | Après |
+|---|---|---|
+| « Bonjour ! » (compte Testeur, conversation précédente « Comment créer un jeu Roblox ») | « Salut ! Content de te voir. De quoi on parle aujourd'hui ? » | « Salut **Testeur** ! Content de te voir. **On reprend sur « Comment créer un jeu Roblox » ?** » |
+| « Je m'appelle Camille, j'habite à Lyon et mon chat s'appelle Pixel. » | liste brute à la 3ᵉ personne (« L'utilisateur habite à Lyon et mon chat s'appelle Pixel ») | « Bien noté, **Testeur** ! Je retiens que tu t'appelles Camille, tu habites à Lyon et ton chat s'appelle Pixel… » |
+| « Tu te souviens de moi ? » | « Je n'ai rien trouvé dans ta base de connaissances pour « tu te souviens moi ». » | « Je me souviens de toi : tu t'appelles Camille, ton chat s'appelle Pixel et tu habites à Lyon. » |
+| « Je travaille sur un jeu de course Roblox. » | tutoriel Roblox générique | « Bien noté, **Camille** ! Je retiens que tu travailles sur un jeu de course Roblox… tu veux qu'on avance dessus ? » |
+| « Quel est mon projet, déjà ? » | « Des idées de projets par niveau : Débutant… » | « Je me souviens de toi : tu travailles sur un jeu de course Roblox. » |
+
+### Causes, toutes corrigées à la source
+
+- **Les questions de mémoire n'étaient pas reconnues** : le classifieur envoyait
+  « tu te souviens de moi ? » vers la connaissance (72 %), « qui suis-je ? »
+  vers les capacités (53 %), « qu'est-ce que tu sais de moi ? » vers le
+  smalltalk (40 %). Les motifs `about_user` sont élargis (5/10 → 10/10) et,
+  surtout, une **interception avant tout routage** (`isMemoryQuestion`) répond
+  sur le contenu retenu — un classifieur ne doit pas pouvoir casser la seule
+  question dont la réponse est déjà en base.
+- **L'extraction de mémoire se trompait de personne** : « j'habite à Lyon et mon
+  chat s'appelle Pixel » produisait « habite à Lyon et mon chat s'appelle
+  Pixel », d'où un prénom « Pixel » dans les salutations. Les règles coupent
+  désormais la fin de proposition (`clause()`), une règle dédiée retient
+  « Son chat s'appelle Pixel », et le prénom n'est lu que dans un souvenir qui
+  porte sur la personne (`L'utilisateur s'appelle …`).
+- **Rien n'appliquait la mémoire au texte servi** : nouveau module
+  `src/lib/llm/personalize.ts` (prénom dans la salutation, continuité entre
+  sessions, nom choisi pour l'assistant, ton, aveux adressés), branché sur
+  **toutes** les sorties du chat (savoir retrouvé *et* texte généré), plus le
+  rappel du dernier sujet de conversation.
+- **Les confidences recevaient un tutoriel** : « je travaille sur un jeu de
+  course Roblox » déclenchait la fiche Roblox. Une phrase sans question qui
+  contient un fait durable reçoit maintenant un accusé de réception et rejoint
+  la mémoire (`memoryAck`).
+
+### Mesures
+
+| Harnais | Avant | Après |
+|---|---|---|
+| `check-chat-knowledge.ts` (sans compte) | 24/24 | **40/40** (16 cas de personnalité) |
+| `check-chat-knowledge.ts --user <id>` | 26/26 | **45/45** (5 souvenirs, 16 personnalité, routage) |
+| `check-chat-memory.mjs` (nouveau, serveur réel, 2 comptes neufs) | comportements clés absents | **12/12**, pire tour **84 ms** |
+| `check-dialogue.ts` | 185/186 · 186/186 | inchangé |
+| `check-retrieval.ts` | 34/34 (0,83) · 34/34 (0,62) | inchangé |
+| `check-chat-e2e.mjs` six tours | 1 212 ms au pire | **84–108 ms au pire** |
+
+`check-chat-memory.mjs` crée deux comptes neufs à chaque exécution (aucune
+pollution) et vérifie : continuité au premier « bonjour », mémorisation d'une
+présentation, restitution (« tu te souviens de moi ? », « qui suis-je ? »,
+« comment s'appelle mon chat ? »), citation de la dernière conversation,
+salutation par le prénom dans une **nouvelle** conversation, absence de
+continuité inventée pour un compte vierge, renommage de l'assistant et ton
+`direct` (la relance finale tombe).
+
+### Reproduire
+
+```bash
+node --import tsx scripts/check-chat-knowledge.ts                        # 40/40
+node --import tsx scripts/check-chat-knowledge.ts --user <id>            # 45/45
+node scripts/check-chat-memory.mjs                                        # 12/12 (serveur requis)
+```
+
+### Ce que le modèle n'a pas fait cette passe
+
+Le modèle de conversation v2 est **inchangé** : ses 0/12 générations acceptées
+n'autorisent pas à lui confier la personnalité (une salutation « Salut, je suis
+un assistant » sans prénom aurait suffi à casser l'effet). La personnalisation
+s'applique donc au texte **servi**, sans rien inventer : elle ne crée aucun
+fait, elle met en forme ceux qui existent. Le prochain levier reste la
+génération (budget de calcul, voir Round 21).

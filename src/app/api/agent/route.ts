@@ -181,6 +181,7 @@ export async function POST(req: NextRequest) {
             target,
             currentCode: parseCurrentCode(body?.currentCode),
             userId: guard.userId,
+            conversationId: typeof body?.conversationId === 'string' ? body.conversationId.slice(0, 80) : null,
             profile: user?.profile,
           },
           send
