@@ -1400,8 +1400,11 @@ export async function processTurn(input: BrainInput, send: Emit): Promise<void> 
   // Roblox ». Un chatbot ne renvoie pas un tutoriel : il accuse réception de ce
   // qu'on vient de lui confier — et le retient pour les tours suivants.
   const disclosed = extractMemories(lastUser)
+  // « retiens que … » garde son chemin dédié (note éditable dans la base) :
+  // sinon l'accusé de réception remplacerait l'enregistrement de la note.
   const isDisclosure =
     disclosed.length > 0 &&
+    !extractExplicitRetention(lastUser) &&
     lastUser.length <= 140 &&
     !lastUser.includes('?') &&
     !/\b(comment|pourquoi|peux[- ]tu|aide[- ]moi|besoin|veux|montre|explique|code|script|fais|cr[ée]e|cr[ée]er|g[ée]n[èe]re)\b/i.test(lastUser)
